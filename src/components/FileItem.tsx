@@ -1,4 +1,4 @@
-import { Trash2, Play, Pause, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Trash2, Play, Pause, CheckCircle2, AlertCircle, FolderOpen } from 'lucide-react';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -48,6 +48,14 @@ export function FileItem({ file }: FileItemProps) {
 
   const handleDelete = () => {
     removeFile(file.id);
+  };
+
+  const handleOpenInFinder = async () => {
+    try {
+      await invoke('open_in_finder', { path: file.path });
+    } catch (error) {
+      console.error('[open_in_finder] Failed:', error);
+    }
   };
 
   const formatFileSize = (bytes: number) => {
@@ -156,6 +164,15 @@ export function FileItem({ file }: FileItemProps) {
           >
             <Pause className="w-4 h-4" />
             <span className="text-sm">暂停</span>
+          </button>
+        )}
+        {file.status === 'completed' && (
+          <button
+            onClick={handleOpenInFinder}
+            className="flex items-center justify-center gap-2 px-4 py-2 border border-border rounded-md hover:bg-bg-secondary transition-colors"
+          >
+            <FolderOpen className="w-4 h-4" />
+            <span className="text-sm">打开</span>
           </button>
         )}
         <button

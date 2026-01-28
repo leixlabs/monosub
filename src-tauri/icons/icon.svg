@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F46E5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded rectangle background -->
+  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
+
+  <!-- Video/Subtitle icon -->
+  <!-- Outer video frame -->
+  <rect x="96" y="128" width="320" height="200" rx="16" fill="white" fill-opacity="0.2" stroke="white" stroke-width="8"/>
+
+  <!-- Play triangle -->
+  <path d="M 200 180 L 280 220 L 200 260 Z" fill="white"/>
+
+  <!-- Subtitle bars at bottom -->
+  <rect x="128" y="360" width="256" height="16" rx="8" fill="white"/>
+  <rect x="160" y="392" width="192" height="16" rx="8" fill="white" fill-opacity="0.7"/>
+</svg>

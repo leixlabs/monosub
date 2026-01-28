@@ -12,6 +12,7 @@ fn main() {
             start_transcription,
             pause_transcription,
             cancel_transcription,
+            open_in_finder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

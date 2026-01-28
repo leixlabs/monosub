@@ -1,5 +1,5 @@
 [package]
-name = "voice-to-text"
+name = "monosub"
 version = "0.1.0"
 description = "Local voice to article desktop app"
 authors = ["VoiceToText"]

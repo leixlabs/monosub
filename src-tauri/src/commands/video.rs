@@ -162,3 +162,44 @@ fn base64_encode(data: &[u8]) -> String {
 
     result
 }
+
+/// Open file in Finder (macOS) or File Explorer (Windows/Linux)
+#[tauri::command]
+pub async fn open_in_finder(path: String) -> Result<(), String> {
+    let file_path = Path::new(&path);
+
+    if !file_path.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    let parent_dir = file_path.parent()
+        .ok_or_else(|| "Failed to get parent directory".to_string())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("-R")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open Finder: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg("/select,")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| format!("Failed to open Explorer: {}", e))?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(parent_dir)
+            .spawn()
+            .map_err(|e| format!("Failed to open file manager: {}", e))?;
+    }
+
+    Ok(())
+}

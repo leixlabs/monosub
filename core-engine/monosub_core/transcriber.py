@@ -1,10 +1,12 @@
 """
 FunASR 转录器
 使用 FunASR 进行语音识别
+支持 Paraformer 和 SenseVoice 模型
 """
-import sys
+import re
 from typing import List, Dict, Callable, Optional
 from funasr import AutoModel
+
 
 
 class ProgressCallback:
@@ -31,34 +33,105 @@ class ProgressCallback:
 
 
 class FunASRTranscriber:
-    """FunASR 转录器"""
+    """FunASR 转录器 - 支持多种模型配置"""
 
-    def __init__(self, model_name: str = "paraformer-zh", device: str = "cpu"):
+    # 预定义模型配置
+    MODEL_CONFIGS = {
+        # Paraformer 系列 - 传统ASR模型
+        "paraformer-zh": {
+            "model": "paraformer-zh",
+            "vad_model": "fsmn-vad",
+            "punc_model": "ct-punc",
+            "use_itn": False,
+            "type": "paraformer"
+        },
+        # SenseVoice 系列 - 2024年新模型，多语言+情感+事件检测
+        "sensevoice": {
+            "model": "iic/SenseVoiceSmall",
+            "vad_model": "fsmn-vad",
+            "punc_model": None,  # SenseVoice 内置标点
+            "use_itn": True,
+            "type": "sensevoice"
+        },
+        # Paraformer Large - 高精度模型
+        "paraformer-large": {
+            "model": "iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+            "vad_model": None,  # 内置VAD
+            "punc_model": None,  # 内置Punc
+            "use_itn": False,
+            "type": "paraformer"
+        }
+    }
+
+    def __init__(
+        self,
+        model_name: str = "paraformer-zh",
+        device: str = "cpu",
+        use_vad: bool = True,
+        use_punc: bool = True,
+        vad_model: Optional[str] = "fsmn-vad",
+        punc_model: Optional[str] = "ct-punc"
+    ):
         """
         初始化转录器
 
         Args:
-            model_name: 模型名称
+            model_name: 模型名称 (paraformer-zh, sensevoice, paraformer-large) 或自定义模型路径
             device: 设备 (cpu 或 cuda)
+            use_vad: 是否使用 VAD 模型进行语音活动检测
+            use_punc: 是否使用标点预测模型
+            vad_model: VAD 模型名称 (仅在使用自定义模型时生效)
+            punc_model: 标点预测模型名称 (仅在使用自定义模型时生效)
         """
-        self.model_name = model_name
         self.device = device
+        self.use_vad = use_vad
+        self.use_punc = use_punc
         self.model = None
 
+        # 解析模型配置
+        if model_name in self.MODEL_CONFIGS:
+            config = self.MODEL_CONFIGS[model_name]
+            self.model_name = config["model"]
+            self.vad_model_name = config["vad_model"] if use_vad else None
+            self.punc_model_name = config["punc_model"] if use_punc else None
+            self.use_itn = config["use_itn"]
+            self.model_type = config["type"]
+        else:
+            # 自定义模型配置
+            self.model_name = model_name
+            self.vad_model_name = vad_model if use_vad else None
+            self.punc_model_name = punc_model if use_punc else None
+            self.use_itn = False
+            self.model_type = "paraformer"
+
+        print(f"DEBUG: Model config - model={self.model_name}, vad={self.vad_model_name}, punc={self.punc_model_name}, type={self.model_type}", flush=True)
+
     def load_model(self, progress_callback: ProgressCallback):
-        """加载模型"""
-        progress_callback.update(5, "Loading model...")
+        """加载模型 - VAD和Punc在初始化时一起加载"""
+        progress_callback.update(5, "Loading models...")
 
         try:
-            # 加载 FunASR 模型
-            self.model = AutoModel(
-                model=self.model_name,
-                device=self.device,
-                # 可以指定本地模型路径
-                # model_dir="./models/paraformer-zh"
-            )
+            # 构建模型参数 - 关键修复：VAD和Punc在AutoModel初始化时传入模型名称
+            model_kwargs = {
+                "model": self.model_name,
+                "device": self.device,
+            }
 
-            progress_callback.update(15, "Model loaded")
+            # 添加VAD模型 (传模型名称字符串，不是模型对象！)
+            if self.vad_model_name:
+                model_kwargs["vad_model"] = self.vad_model_name
+                model_kwargs["vad_kwargs"] = {"max_single_segment_time": 30000}
+
+            # 添加标点模型 (传模型名称字符串，不是模型对象！)
+            if self.punc_model_name:
+                model_kwargs["punc_model"] = self.punc_model_name
+
+            print(f"DEBUG: Loading model with kwargs: {model_kwargs}", flush=True)
+
+            # 一次性加载所有模型
+            self.model = AutoModel(**model_kwargs)
+
+            progress_callback.update(15, "All models loaded")
 
         except Exception as e:
             raise RuntimeError(f"Failed to load model: {str(e)}")
@@ -75,7 +148,7 @@ class FunASRTranscriber:
         Args:
             audio_path: 音频文件路径
             progress_callback: 进度回调
-            language: 语言 (zh, en)
+            language: 语言 (zh, en, auto)
 
         Returns:
             转录结果列表，每个元素包含 start, end, text
@@ -86,16 +159,38 @@ class FunASRTranscriber:
         progress_callback.update(20, "Starting transcription...")
 
         try:
-            # 使用 FunASR 进行转录
-            result = self.model.generate(
-                input=audio_path,
-                batch_size_s=300,  # 批处理大小（秒）
-                hotword='',  # 热词
-            )
+            # 构建generate参数
+            generate_kwargs = {
+                "input": audio_path,
+                "batch_size_s": 300,
+            }
+
+            # SenseVoice 特有参数
+            if self.model_type == "sensevoice":
+                generate_kwargs["language"] = "auto" if language == "auto" else language
+                generate_kwargs["use_itn"] = self.use_itn
+                generate_kwargs["merge_vad"] = True
+                generate_kwargs["merge_length_s"] = 15  # 合并VAD分段的最大长度
+
+            print(f"DEBUG: Calling generate with kwargs: {generate_kwargs}", flush=True)
+
+            # 执行转录
+            result = self.model.generate(**generate_kwargs)
+
+            print(f"DEBUG: Raw result type: {type(result)}", flush=True)
+            if isinstance(result, list) and len(result) > 0:
+                print(f"DEBUG: First result keys: {result[0].keys() if isinstance(result[0], dict) else 'not dict'}", flush=True)
+                if isinstance(result[0], dict):
+                    print(f"DEBUG: First result text preview: {result[0].get('text', '')[:200]}", flush=True)
+                    if 'timestamp' in result[0]:
+                        ts = result[0]['timestamp']
+                        print(f"DEBUG: Timestamp count: {len(ts) if ts else 0}", flush=True)
+                        if ts and len(ts) > 0:
+                            print(f"DEBUG: First few timestamps: {ts[:3]}", flush=True)
 
             progress_callback.update(80, "Processing results...")
 
-            # 解析 FunASR 结果
+            # 解析结果
             segments = self._parse_result(result)
 
             progress_callback.update(95, "Transcription complete")
@@ -103,6 +198,8 @@ class FunASRTranscriber:
             return segments
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             raise RuntimeError(f"Transcription failed: {str(e)}")
 
     def _parse_result(self, result) -> List[Dict]:
@@ -117,36 +214,311 @@ class FunASRTranscriber:
         """
         segments = []
 
-        # FunASR 返回格式可能因版本而异，这里是一个示例
-        if isinstance(result, list) and len(result) > 0:
-            for item in result:
-                # 检查是否有时间戳信息
-                if 'timestamp' in item:
-                    # 有时间戳的情况
-                    timestamps = item.get('timestamp', [])
-                    text = item.get('text', '')
+        if not isinstance(result, list) or len(result) == 0:
+            return segments
 
-                    if timestamps:
-                        for ts in timestamps:
-                            segments.append({
-                                'start': ts[0] / 1000.0,  # 转换为秒
-                                'end': ts[1] / 1000.0,
-                                'text': ts[2] if len(ts) > 2 else text
-                            })
-                else:
-                    # 没有时间戳的情况，使用整段文本
-                    text = item.get('text', '')
-                    if text:
-                        segments.append({
-                            'start': 0.0,
-                            'end': 0.0,  # 需要根据音频长度计算
-                            'text': text
-                        })
+        for item in result:
+            if not isinstance(item, dict):
+                continue
 
-        # 如果没有时间戳，需要估算时间
+            text = item.get('text', '')
+
+            # SenseVoice 特殊处理 - 解析 VAD 分段标记
+            if self.model_type == "sensevoice":
+                segments.extend(self._parse_sensevoice_result(text))
+                continue
+
+            # 检查是否有句子级别的时间戳 (sentence_info)
+            if 'sentence_info' in item and item['sentence_info']:
+                segments.extend(self._parse_sentence_info(item['sentence_info']))
+            # 检查是否有字级别时间戳
+            elif 'timestamp' in item and item['timestamp']:
+                timestamps = item['timestamp']
+                if timestamps and text:
+                    segments.extend(self._split_by_punctuation(timestamps, text))
+            # 没有时间戳的情况
+            elif text:
+                segments.append({
+                    'start': 0.0,
+                    'end': 0.0,
+                    'text': text.strip()
+                })
+
+        # 如果没有时间戳，需要估算
         if segments and segments[0]['end'] == 0.0:
             segments = self._estimate_timestamps(segments)
 
+        return segments
+
+    def _parse_sensevoice_result(self, raw_text: str) -> List[Dict]:
+        """
+        解析 SenseVoice 的输出结果
+
+        SenseVoice 返回格式: <|zh|><|NEUTRAL|><|Speech|><|withitn|>文本内容 <|zh|>...
+        每个 <|...|> 标记块表示一个 VAD 分段
+
+        Args:
+            raw_text: SenseVoice 原始输出
+
+        Returns:
+            字幕片段列表
+        """
+        segments = []
+
+        # 使用正则分割 VAD 分段
+        # 匹配模式: <|语言|><|情感|><|事件|><|itn|>
+        pattern = r'<\|[^|]+\|><\|[^|]+\|><\|[^|]+\|><\|[^|]+\|>'
+
+        # 分割文本
+        parts = re.split(pattern, raw_text)
+
+        # 过滤空白片段
+        vad_segments = [p.strip() for p in parts if p.strip()]
+
+        print(f"DEBUG: SenseVoice VAD segments count: {len(vad_segments)}", flush=True)
+        if vad_segments:
+            print(f"DEBUG: First VAD segment: {vad_segments[0][:50]}...", flush=True)
+
+        # 对每个 VAD 分段按标点进一步分句
+        for vad_text in vad_segments:
+            # 去除可能的特殊标记残留
+            clean_text = re.sub(r'<\|[^|]+\|>', '', vad_text).strip()
+            if not clean_text:
+                continue
+
+            # 按句子结束标点分句
+            sentences = self._split_text_by_punctuation(clean_text)
+            for sent in sentences:
+                if sent.strip():
+                    segments.append({
+                        'start': 0.0,
+                        'end': 0.0,
+                        'text': sent.strip()
+                    })
+
+        print(f"DEBUG: SenseVoice total segments after splitting: {len(segments)}", flush=True)
+        return segments
+
+    def _split_text_by_punctuation(self, text: str) -> List[str]:
+        """
+        按标点符号分割文本为句子
+
+        Args:
+            text: 输入文本
+
+        Returns:
+            句子列表
+        """
+        # 句子结束标点
+        sentence_ends = r'([。！？.!?；;])'
+
+        # 分割
+        parts = re.split(sentence_ends, text)
+
+        # 合并标点和句子
+        sentences = []
+        for i in range(0, len(parts) - 1, 2):
+            sent = parts[i]
+            punct = parts[i + 1] if i + 1 < len(parts) else ''
+            combined = (sent + punct).strip()
+            if combined:
+                sentences.append(combined)
+
+        # 处理最后一部分（可能没有标点）
+        if len(parts) % 2 == 1 and parts[-1].strip():
+            sentences.append(parts[-1].strip())
+
+        return sentences
+
+    def _parse_sentence_info(self, sentence_info: List[Dict]) -> List[Dict]:
+        """
+        解析 FunASR 的 sentence_info (句子级别的时间戳)
+
+        Args:
+            sentence_info: FunASR返回的句子信息列表
+
+        Returns:
+            字幕片段列表
+        """
+        segments = []
+
+        for sent in sentence_info:
+            text = sent.get('text', '').strip()
+            start = sent.get('start', 0)
+            end = sent.get('end', 0)
+
+            if text:
+                # 转换为秒
+                start_sec = start / 1000.0 if start > 100 else start
+                end_sec = end / 1000.0 if end > 100 else end
+
+                segments.append({
+                    'start': start_sec,
+                    'end': end_sec,
+                    'text': text
+                })
+
+        print(f"DEBUG: Parsed {len(segments)} segments from sentence_info", flush=True)
+        return segments
+
+    def _split_by_punctuation(
+        self,
+        timestamps: List,
+        full_text: str,
+        max_duration: float = 8000,
+        min_duration: float = 800,
+        pause_threshold: float = 400
+    ) -> List[Dict]:
+        """
+        根据标点符号和停顿智能分句
+
+        Args:
+            timestamps: FunASR返回的timestamp数组 [[start_ms, end_ms], ...]
+            full_text: 完整的识别文本（带标点）
+            max_duration: 单个segment最大时长(毫秒)
+            min_duration: 单个segment最小时长(毫秒)
+            pause_threshold: 停顿阈值(毫秒)
+
+        Returns:
+            拆分后的segment列表
+        """
+        if not timestamps or not full_text:
+            return []
+
+        # 清理文本
+        clean_text = full_text.replace(' ', '')
+
+        # 如果时间戳数量和文本长度相差太大，说明格式可能不对
+        # 某些模型返回 [[start, end]] 而不是逐字时间戳
+        if len(timestamps) < len(clean_text) * 0.5:
+            print(f"DEBUG: Timestamp count ({len(timestamps)}) much less than text length ({len(clean_text)}), using segment-based parsing", flush=True)
+            return self._parse_segment_timestamps(timestamps, clean_text)
+
+        # 标点符号集合
+        sentence_end = {'。', '！', '？', '.', '!', '?', '；', ';'}
+        minor_pause = {'，', ',', '、', '：', ':'}
+
+        print(f"DEBUG: Smart splitting - text length={len(clean_text)}, timestamps={len(timestamps)}", flush=True)
+        print(f"DEBUG: Text preview: {clean_text[:100]}...", flush=True)
+
+        segments = []
+        seg_start_idx = 0
+        seg_start_time = timestamps[0][0] if timestamps else 0
+
+        for i, ts in enumerate(timestamps):
+            if i >= len(clean_text):
+                break
+
+            char = clean_text[i]
+            start_ms, end_ms = ts[0], ts[1]
+            duration = end_ms - seg_start_time
+
+            # 计算停顿
+            pause = start_ms - timestamps[i-1][1] if i > 0 else 0
+
+            should_split = False
+            reason = ""
+
+            # 规则1: 句子结束标点 + 最小时长
+            if char in sentence_end and duration >= min_duration:
+                should_split = True
+                reason = f"end_punct({char})"
+
+            # 规则2: 超过最大时长时，在标点或停顿处切分
+            elif duration > max_duration:
+                if char in (sentence_end | minor_pause):
+                    should_split = True
+                    reason = f"max_dur+punct({char})"
+                elif pause > pause_threshold:
+                    should_split = True
+                    reason = f"max_dur+pause({pause}ms)"
+
+            # 规则3: 较长停顿 + 次要标点
+            elif char in minor_pause and pause > pause_threshold * 1.2 and duration >= min_duration:
+                should_split = True
+                reason = f"pause+minor({char},{pause}ms)"
+
+            if should_split and i > seg_start_idx:
+                seg_text = clean_text[seg_start_idx:i+1]
+                if seg_text.strip():
+                    segments.append({
+                        'start': seg_start_time / 1000.0,
+                        'end': end_ms / 1000.0,
+                        'text': seg_text
+                    })
+                    print(f"DEBUG: Split [{reason}]: {seg_text[:30]}...", flush=True)
+
+                seg_start_idx = i + 1
+                seg_start_time = timestamps[i+1][0] if i+1 < len(timestamps) else end_ms
+
+        # 最后一段
+        if seg_start_idx < len(clean_text):
+            seg_text = clean_text[seg_start_idx:]
+            last_ts = timestamps[min(len(timestamps)-1, len(clean_text)-1)]
+            if seg_text.strip():
+                segments.append({
+                    'start': seg_start_time / 1000.0,
+                    'end': last_ts[1] / 1000.0,
+                    'text': seg_text
+                })
+
+        print(f"DEBUG: Generated {len(segments)} segments", flush=True)
+        return segments
+
+    def _parse_segment_timestamps(self, timestamps: List, text: str) -> List[Dict]:
+        """
+        解析分段时间戳 (当时间戳是分段而非逐字时)
+
+        Args:
+            timestamps: 分段时间戳列表
+            text: 完整文本
+
+        Returns:
+            字幕片段列表
+        """
+        segments = []
+
+        # 按标点分句
+        sentences = re.split(r'([。！？.!?；;])', text)
+
+        # 合并标点和句子
+        merged = []
+        for i in range(0, len(sentences)-1, 2):
+            sent = sentences[i]
+            punct = sentences[i+1] if i+1 < len(sentences) else ''
+            merged.append(sent + punct)
+        if len(sentences) % 2 == 1 and sentences[-1]:
+            merged.append(sentences[-1])
+
+        # 分配时间戳
+        if len(timestamps) >= len(merged):
+            # 每个句子对应一个时间戳
+            for i, sent in enumerate(merged):
+                if sent.strip() and i < len(timestamps):
+                    ts = timestamps[i]
+                    segments.append({
+                        'start': ts[0] / 1000.0,
+                        'end': ts[1] / 1000.0,
+                        'text': sent.strip()
+                    })
+        else:
+            # 时间戳少于句子，均匀分配
+            total_chars = sum(len(s) for s in merged)
+            if total_chars > 0 and timestamps:
+                total_duration = timestamps[-1][1] - timestamps[0][0]
+                current_time = timestamps[0][0]
+
+                for sent in merged:
+                    if sent.strip():
+                        duration = (len(sent) / total_chars) * total_duration
+                        segments.append({
+                            'start': current_time / 1000.0,
+                            'end': (current_time + duration) / 1000.0,
+                            'text': sent.strip()
+                        })
+                        current_time += duration
+
+        print(f"DEBUG: Parsed {len(segments)} segments from segment timestamps", flush=True)
         return segments
 
     def _estimate_timestamps(self, segments: List[Dict]) -> List[Dict]:
@@ -159,16 +531,17 @@ class FunASRTranscriber:
         Returns:
             添加了时间戳的片段
         """
-        # 简单实现：假设每个字符 0.15 秒
-        # 实际应该根据音频长度和文本长度计算
         current_time = 0.0
 
         for segment in segments:
             text_length = len(segment['text'])
-            duration = text_length * 0.15  # 每个字符约 0.15 秒
+            # 中文约每字0.25秒，英文约每字0.1秒
+            has_chinese = any('\u4e00' <= c <= '\u9fff' for c in segment['text'])
+            char_duration = 0.25 if has_chinese else 0.1
+            duration = text_length * char_duration
 
             segment['start'] = current_time
             segment['end'] = current_time + duration
-            current_time = segment['end'] + 0.5  # 片段间隔 0.5 秒
+            current_time = segment['end'] + 0.3  # 片段间隔
 
         return segments

@@ -68,7 +68,7 @@ def main():
         print("MSG:Loading model...", flush=True)
 
         transcriber = FunASRTranscriber(
-            model_name="paraformer-zh" if args.language == "zh" else "paraformer-en",
+            model_name="sensevoice",  # 使用 SenseVoice 模型
             device=args.device,
         )
 
