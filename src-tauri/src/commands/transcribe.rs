@@ -1,0 +1,238 @@
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter};
+use tokio::sync::Mutex;
+use std::collections::HashMap;
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TranscribeProgress {
+    pub task_id: String,
+    pub progress: f64,
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TranscribeRequest {
+    pub id: String,
+    pub path: String,
+    pub output_path: String,
+    pub format: Option<String>,
+    pub language: Option<String>,
+}
+
+// Global task manager
+type TaskMap = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
+
+lazy_static::lazy_static! {
+    static ref TASKS: TaskMap = Arc::new(Mutex::new(HashMap::new()));
+}
+
+/// Get Python executable path
+fn get_python_path() -> String {
+    // TODO: 在生产环境中应该使用内置的 Python
+    // 开发环境下使用 uv run 或虚拟环境中的 Python
+    let current_dir = std::env::current_dir().unwrap();
+    let parent = current_dir.parent().unwrap();
+    let venv_python = parent.join("core-engine/.venv/bin/python");
+    
+    if venv_python.exists() {
+        venv_python.to_string_lossy().to_string()
+    } else {
+        "python3".to_string()
+    }
+}
+
+/// Get core-engine path
+fn get_core_engine_path() -> String {
+    // TODO: 在生产环境中应该使用打包后的路径
+    // 开发环境下使用相对路径
+    let current_dir = std::env::current_dir().unwrap();
+    let parent = current_dir.parent().unwrap();
+    parent.join("core-engine/main.py").to_string_lossy().to_string()
+}
+
+/// Start transcription task
+#[tauri::command]
+pub async fn start_transcription(
+    app: AppHandle,
+    request: TranscribeRequest,
+) -> Result<String, String> {
+    let task_id = request.id.clone();
+    let video_path = request.path.clone();
+    let output_path = request.output_path.clone();
+    let format = request.format.unwrap_or_else(|| "srt".to_string());
+    let language = request.language.unwrap_or_else(|| "zh".to_string());
+
+    // Check if task already exists
+    let tasks = TASKS.lock().await;
+    if tasks.contains_key(&task_id) {
+        return Err("Task already running".to_string());
+    }
+    drop(tasks);
+
+    // Clone task_id for use outside the async block
+    let task_id_for_map = task_id.clone();
+    let task_id_for_spawn = task_id.clone();
+
+    // Spawn async task for transcription
+    let handle = tokio::spawn(async move {
+        let task_id = task_id_for_spawn;
+        // Emit initial progress
+        let _ = app.emit("transcribe_progress", TranscribeProgress {
+            task_id: task_id.clone(),
+            progress: 0.0,
+            status: "Starting...".to_string(),
+        });
+
+        // Get paths
+        let python_path = get_python_path();
+        let script_path = get_core_engine_path();
+
+        // Log command for debugging
+        let cmd_str = format!(
+            "{} {} {} {} --format {} --language {}",
+            python_path, script_path, video_path, output_path, format, language
+        );
+        println!("[Tauri] Executing command: {}", cmd_str);
+        let _ = app.emit("transcribe_progress", TranscribeProgress {
+            task_id: task_id.clone(),
+            progress: 0.0,
+            status: format!("CMD: {}", cmd_str),
+        });
+
+        // Build command
+        let mut cmd = Command::new(&python_path);
+        cmd.arg(&script_path)
+            .arg(&video_path)
+            .arg(&output_path)
+            .arg("--format")
+            .arg(&format)
+            .arg("--language")
+            .arg(&language)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        // Spawn process
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = app.emit("transcribe_progress", TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 0.0,
+                    status: format!("Error: Failed to start Python worker: {}", e),
+                });
+                return;
+            }
+        };
+
+        // Get stdout and stderr
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+        let mut stdout_reader = BufReader::new(stdout).lines();
+        let mut stderr_reader = BufReader::new(stderr).lines();
+
+        // Spawn task to read stderr
+        let app_clone = app.clone();
+        let task_id_clone = task_id.clone();
+        tokio::spawn(async move {
+            while let Ok(Some(line)) = stderr_reader.next_line().await {
+                println!("[Python stderr] {}", line);
+                let _ = app_clone.emit("transcribe_progress", TranscribeProgress {
+                    task_id: task_id_clone.clone(),
+                    progress: 0.0,
+                    status: format!("STDERR: {}", line),
+                });
+            }
+        });
+
+        // Read output line by line
+        while let Ok(Some(line)) = stdout_reader.next_line().await {
+            println!("[Python stdout] {}", line);
+            // Parse output from Python
+            if line.starts_with("PROGRESS:") {
+                if let Ok(progress) = line[9..].trim().parse::<f64>() {
+                    let _ = app.emit("transcribe_progress", TranscribeProgress {
+                        task_id: task_id.clone(),
+                        progress,
+                        status: "Processing...".to_string(),
+                    });
+                }
+            } else if line.starts_with("MSG:") {
+                let message = &line[4..];
+                let _ = app.emit("transcribe_progress", TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 0.0,
+                    status: message.to_string(),
+                });
+            } else if line.starts_with("SUCCESS:") {
+                let output_file = &line[8..];
+                let _ = app.emit("transcribe_complete", TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 100.0,
+                    status: format!("Completed: {}", output_file),
+                });
+            } else if line.starts_with("ERROR:") {
+                let error_msg = &line[6..];
+                let _ = app.emit("transcribe_progress", TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 0.0,
+                    status: format!("Error: {}", error_msg),
+                });
+            }
+        }
+
+        // Wait for process to complete
+        let status = child.wait().await;
+
+        match status {
+            Ok(exit_status) => {
+                if !exit_status.success() {
+                    let _ = app.emit("transcribe_progress", TranscribeProgress {
+                        task_id: task_id.clone(),
+                        progress: 0.0,
+                        status: format!("Process exited with code: {:?}", exit_status.code()),
+                    });
+                }
+            }
+            Err(e) => {
+                let _ = app.emit("transcribe_progress", TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 0.0,
+                    status: format!("Process error: {}", e),
+                });
+            }
+        }
+
+        // Remove task from map
+        TASKS.lock().await.remove(&task_id);
+    });
+
+    // Store task handle
+    TASKS.lock().await.insert(task_id_for_map, handle);
+
+    Ok(task_id)
+}
+
+/// Pause transcription task
+#[tauri::command]
+pub async fn pause_transcription(_task_id: String) -> Result<(), String> {
+    // TODO: Implement pause logic
+    // This would require sending a signal to the Python process
+    Err("Pause not implemented yet".to_string())
+}
+
+/// Cancel transcription task
+#[tauri::command]
+pub async fn cancel_transcription(task_id: String) -> Result<(), String> {
+    let mut tasks = TASKS.lock().await;
+
+    if let Some(handle) = tasks.remove(&task_id) {
+        handle.abort();
+        Ok(())
+    } else {
+        Err("Task not found".to_string())
+    }
+}
