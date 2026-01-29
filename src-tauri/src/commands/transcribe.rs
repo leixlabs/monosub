@@ -96,7 +96,8 @@ pub async fn start_transcription(
 
         if let Err(e) = result {
             tracing::error!(task_id = %task_id, error = %e, "Transcription failed");
-            let _ = app.emit("transcribe_progress", TranscribeProgress {
+            // 发送错误事件（不是 progress 事件）
+            let _ = app.emit("transcribe_error", TranscribeProgress {
                 task_id: task_id.clone(),
                 progress: 0.0,
                 status: format!("Error: {}", e),
@@ -127,6 +128,17 @@ async fn run_sidecar(
     tracing::info!(task_id = %task_id, "Starting sidecar process");
     let shell = app.shell();
 
+    // Get ffmpeg path from video.rs helper
+    let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(app));
+    let ffprobe_path = crate::commands::video::get_ffprobe_path_for_python(Some(app));
+
+    tracing::debug!(
+        task_id = %task_id,
+        ffmpeg_path = %ffmpeg_path,
+        ffprobe_path = %ffprobe_path,
+        "Setting ffmpeg paths for sidecar subprocess"
+    );
+
     // 使用 sidecar 运行 monosub-engine
     let sidecar_command = shell
         .sidecar("monosub-engine")
@@ -144,6 +156,8 @@ async fn run_sidecar(
             "--language",
             language,
         ])
+        .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
+        .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
         .spawn()
         .map_err(|e| {
             tracing::error!(task_id = %task_id, error = %e, "Failed to spawn sidecar");
@@ -162,11 +176,15 @@ async fn run_sidecar(
             tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
                 let line_str = String::from_utf8_lossy(&line);
                 tracing::warn!(task_id = %task_id, stderr = %line_str, "Sidecar stderr output");
-                let _ = app.emit("transcribe_progress", TranscribeProgress {
-                    task_id: task_id.to_string(),
-                    progress: 0.0,
-                    status: format!("STDERR: {}", line_str),
-                });
+
+                // 如果是 Python 错误（ModuleNotFoundError, ImportError 等），发送错误事件
+                if line_str.contains("Error") || line_str.contains("Traceback") {
+                    let _ = app.emit("transcribe_error", TranscribeProgress {
+                        task_id: task_id.to_string(),
+                        progress: 0.0,
+                        status: format!("Python Error: {}", line_str.trim()),
+                    });
+                }
             }
             tauri_plugin_shell::process::CommandEvent::Error(err) => {
                 tracing::error!(task_id = %task_id, error = %err, "Sidecar process error");
@@ -175,7 +193,13 @@ async fn run_sidecar(
             tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
                 tracing::info!(task_id = %task_id, exit_code = ?payload.code, "Sidecar process terminated");
                 if payload.code != Some(0) {
-                    return Err(format!("Process exited with code: {:?}", payload.code));
+                    let error_msg = format!("Process exited with code: {:?}", payload.code);
+                    let _ = app.emit("transcribe_error", TranscribeProgress {
+                        task_id: task_id.to_string(),
+                        progress: 0.0,
+                        status: error_msg.clone(),
+                    });
+                    return Err(error_msg);
                 }
             }
             _ => {}
@@ -240,6 +264,17 @@ async fn run_dev_mode(
         status: format!("CMD: {}", cmd_str),
     });
 
+    // Get ffmpeg path from video.rs helper
+    let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(app));
+    let ffprobe_path = crate::commands::video::get_ffprobe_path_for_python(Some(app));
+
+    tracing::debug!(
+        task_id = %task_id,
+        ffmpeg_path = %ffmpeg_path,
+        ffprobe_path = %ffprobe_path,
+        "Setting ffmpeg paths for Python subprocess"
+    );
+
     let mut child = Command::new(&venv_python)
         .arg(&main_py)
         .arg(video_path)
@@ -248,6 +283,8 @@ async fn run_dev_mode(
         .arg(format)
         .arg("--language")
         .arg(language)
+        .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
+        .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -270,11 +307,15 @@ async fn run_dev_mode(
     tokio::spawn(async move {
         while let Ok(Some(line)) = stderr_reader.next_line().await {
             tracing::warn!(task_id = %task_id_clone, stderr = %line, "Python stderr output");
-            let _ = app_clone.emit("transcribe_progress", TranscribeProgress {
-                task_id: task_id_clone.clone(),
-                progress: 0.0,
-                status: format!("STDERR: {}", line),
-            });
+
+            // 如果是 Python 错误，发送错误事件
+            if line.contains("Error") || line.contains("Traceback") {
+                let _ = app_clone.emit("transcribe_error", TranscribeProgress {
+                    task_id: task_id_clone.clone(),
+                    progress: 0.0,
+                    status: format!("Python Error: {}", line.trim()),
+                });
+            }
         }
     });
 
@@ -294,7 +335,13 @@ async fn run_dev_mode(
 
     if !status.success() {
         tracing::error!(task_id = %task_id, exit_code = ?status.code(), "Python process failed");
-        return Err(format!("Process exited with code: {:?}", status.code()));
+        let error_msg = format!("Process exited with code: {:?}", status.code());
+        let _ = app.emit("transcribe_error", TranscribeProgress {
+            task_id: task_id.to_string(),
+            progress: 0.0,
+            status: error_msg.clone(),
+        });
+        return Err(error_msg);
     }
 
     Ok(())
@@ -330,7 +377,8 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
     } else if line.starts_with("ERROR:") {
         let error_msg = &line[6..];
         tracing::error!(task_id = %task_id, error = %error_msg, "Transcription error");
-        let _ = app.emit("transcribe_progress", TranscribeProgress {
+        // Python 脚本中的 ERROR: 消息，发送到 transcribe_error 事件
+        let _ = app.emit("transcribe_error", TranscribeProgress {
             task_id: task_id.to_string(),
             progress: 0.0,
             status: format!("Error: {}", error_msg),

@@ -78,9 +78,34 @@ function App() {
       }
     });
 
+    // Listen to transcription error events
+    const errorUnlisten = listen<TranscribeProgressPayload>('transcribe_error', (event) => {
+      const { task_id, status } = event.payload;
+      console.error('[transcribe_error]', { task_id, status });
+      updateFile(task_id, {
+        status: 'error',
+        progress: 0,
+        error: status,
+      });
+      setIsProcessing(false);
+
+      // Show error notification if enabled
+      const settings = settingsRef.current;
+      const files = filesRef.current;
+      if (settings.showCompletedNotification && 'Notification' in window) {
+        const file = files.find(f => f.id === task_id);
+        if (Notification.permission === 'granted') {
+          new Notification('MonoSub - Error', {
+            body: `${file?.name || 'Video'} - ${status}`,
+          });
+        }
+      }
+    });
+
     return () => {
       progressUnlisten.then((f) => f());
       completeUnlisten.then((f) => f());
+      errorUnlisten.then((f) => f());
     };
   }, [updateFile, setIsProcessing, incrementProcessedCount, t]);
 

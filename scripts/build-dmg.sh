@@ -197,6 +197,13 @@ create_dmg() {
 
     log_success "DMG 创建完成: $DMG_PATH"
 
+    # 清理 create-dmg 产生的临时文件
+    if [ "$USE_CREATE_DMG" = true ]; then
+        log_info "清理临时 DMG 文件..."
+        rm -f "$OUTPUT_DIR"/rw.*.dmg
+        log_success "临时文件清理完成"
+    fi
+
     # 显示 DMG 信息
     DMG_SIZE=$(du -h "$DMG_PATH" | cut -f1)
     log_info "DMG 大小: $DMG_SIZE"

@@ -6,12 +6,10 @@ Python 引擎，使用 FunASR 进行语音识别并生成字幕。
 
 ```
 core-engine/
-├── asr/                      # 核心模块
+├── monosub_core/                      # 核心模块
 │   ├── audio_extractor.py   # 音频提取
 │   ├── transcriber.py       # FunASR 转录
 │   └── subtitle_writer.py   # 字幕写入
-├── models/                   # 模型存储（gitignore）
-├── scripts/                  # 辅助脚本
 ├── main.py                   # 主程序入口
 ├── pyproject.toml            # Python 项目配置 (uv)
 └── README.md                 # 本文件
@@ -34,14 +32,7 @@ cd core-engine
 uv sync
 ```
 
-### 传统方式 (pip + venv)
-
-```bash
-cd core-engine
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-pip install funasr modelscope ffmpeg-python torch torchaudio
-```
+ 
 
 ### 安装 FFmpeg
 
@@ -66,20 +57,14 @@ cd core-engine
 uv run python main.py <video_path> <output_path> [options]
 ```
 
-#### 使用传统方式
-
-```bash
-cd core-engine
-source .venv/bin/activate  # 或 venv/bin/activate
-python main.py <video_path> <output_path> [options]
-```
+ 
 
 **参数:**
 - `video_path`: 输入视频文件路径
 - `output_path`: 输出字幕文件路径
 - `--format`: 字幕格式 (srt, vtt, txt)，默认 srt
 - `--language`: 语言 (zh, en)，默认 zh
-- `--device`: 设备 (cpu, cuda)，默认 cpu
+- `--device`: 设备 (cpu, cuda)，默认 auto
 
 **示例:**
 

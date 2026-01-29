@@ -1,5 +1,5 @@
 # MonoSub 资源清单
-# 生成时间: Thu Jan 29 21:42:55 CST 2026
+# 生成时间: Thu Jan 29 22:52:37 CST 2026
 
 ## 二进制文件
 bin/ffmpeg

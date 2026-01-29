@@ -133,11 +133,20 @@ build_python_executable() {
     # 激活虚拟环境
     source "$core_engine_dir/.venv/bin/activate"
 
-    # 检查并安装 PyInstaller
-    if ! command -v pyinstaller &> /dev/null; then
-        log_info "安装 PyInstaller..."
-        pip install pyinstaller
+    # 检查并安装 PyInstaller（通过 uv）
+    if ! "$core_engine_dir/.venv/bin/python" -m PyInstaller --version &> /dev/null; then
+        log_info "安装 PyInstaller（包含在 dev 依赖中）..."
+        cd "$core_engine_dir"
+        uv sync --group dev
+        cd - > /dev/null
     fi
+
+    # 确保使用虚拟环境中的 Python 和 PyInstaller
+    PYTHON_BIN="$core_engine_dir/.venv/bin/python"
+    PYINSTALLER_BIN="$core_engine_dir/.venv/bin/pyinstaller"
+
+    log_info "使用 Python: $PYTHON_BIN"
+    log_info "使用 PyInstaller: $PYINSTALLER_BIN"
 
     log_info "使用 PyInstaller 打包 Python 应用..."
     log_warning "这可能需要 5-10 分钟，请耐心等待..."
@@ -147,21 +156,61 @@ build_python_executable() {
     # 清理旧的构建产物
     rm -rf build dist *.spec
 
-    # 使用 PyInstaller 打包
-    pyinstaller \
+    # 强制重新生成 .spec 文件
+    log_info "生成 PyInstaller .spec 配置文件..."
+
+    # 清理旧的 spec 文件
+    rm -f monosub-engine.spec
+
+    # 使用 pyinstaller 命令直接打包，添加所有必要的参数
+    # 使用 --collect-all 来确保所有子模块都被包含
+    log_info "使用增强的依赖收集策略打包..."
+
+    "$PYINSTALLER_BIN" \
         --onefile \
         --name monosub-engine \
-        --hidden-import=funasr \
-        --hidden-import=funasr.models \
-        --hidden-import=funasr.utils \
-        --hidden-import=modelscope \
-        --hidden-import=modelscope.hub \
-        --hidden-import=modelscope.models \
-        --hidden-import=torch \
-        --hidden-import=torchaudio \
-        --hidden-import=ffmpeg \
         --collect-all funasr \
         --collect-all modelscope \
+        --collect-submodules funasr \
+        --collect-submodules modelscope \
+        --hidden-import=funasr \
+        --hidden-import=funasr.auto \
+        --hidden-import=funasr.models \
+        --hidden-import=funasr.utils \
+        --hidden-import=funasr.register \
+        --hidden-import=funasr.download \
+        --hidden-import=funasr.metrics \
+        --hidden-import=funasr.tokenizer \
+        --hidden-import=funasr.frontends \
+        --hidden-import=funasr.datasets \
+        --hidden-import=funasr.bin \
+        --hidden-import=funasr.losses \
+        --hidden-import=modelscope \
+        --hidden-import=modelscope.hub \
+        --hidden-import=modelscope.hub.api \
+        --hidden-import=modelscope.hub.file_download \
+        --hidden-import=modelscope.models \
+        --hidden-import=modelscope.pipelines \
+        --hidden-import=modelscope.utils \
+        --hidden-import=modelscope.utils.config \
+        --hidden-import=modelscope.utils.constant \
+        --hidden-import=torch \
+        --hidden-import=torch.nn \
+        --hidden-import=torch.nn.functional \
+        --hidden-import=torchaudio \
+        --hidden-import=torchaudio.backend \
+        --hidden-import=torchaudio.transforms \
+        --hidden-import=ffmpeg \
+        --hidden-import=yaml \
+        --hidden-import=numpy \
+        --hidden-import=scipy \
+        --hidden-import=requests \
+        --exclude-module=matplotlib \
+        --exclude-module=pandas \
+        --exclude-module=IPython \
+        --exclude-module=notebook \
+        --exclude-module=jupyter \
+        --noconfirm \
         --clean \
         main.py
 

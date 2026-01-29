@@ -26,6 +26,92 @@ fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
     "ffmpeg".to_string()
 }
 
+/// Get target architecture suffix for binary files
+fn get_target_suffix() -> String {
+    #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
+    return "aarch64-apple-darwin".to_string();
+
+    #[cfg(all(target_arch = "x86_64", target_os = "macos"))]
+    return "x86_64-apple-darwin".to_string();
+
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    return "x86_64-unknown-linux-gnu".to_string();
+
+    #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+    return "aarch64-unknown-linux-gnu".to_string();
+
+    #[cfg(all(target_arch = "x86_64", target_os = "windows"))]
+    return "x86_64-pc-windows-msvc".to_string();
+
+    // Fallback for other architectures
+    #[cfg(not(any(
+        all(target_arch = "aarch64", target_os = "macos"),
+        all(target_arch = "x86_64", target_os = "macos"),
+        all(target_arch = "x86_64", target_os = "linux"),
+        all(target_arch = "aarch64", target_os = "linux"),
+        all(target_arch = "x86_64", target_os = "windows")
+    )))]
+    return String::new();
+}
+
+/// Get ffmpeg binary path for Python subprocess (checks bundled and system locations)
+pub fn get_ffmpeg_path_for_python(app: Option<&AppHandle>) -> String {
+    let target_suffix = get_target_suffix();
+
+    // 1. 尝试开发环境的资源目录 (src-tauri/resources/bin/ffmpeg-{arch})
+    if let Ok(current_dir) = std::env::current_dir() {
+        let dev_ffmpeg = current_dir
+            .join("src-tauri")
+            .join("resources")
+            .join("bin")
+            .join(format!("ffmpeg-{}", target_suffix));
+
+        if dev_ffmpeg.exists() {
+            tracing::debug!("Found dev ffmpeg: {:?}", dev_ffmpeg);
+            return dev_ffmpeg.to_string_lossy().to_string();
+        }
+    }
+
+    // 2. 尝试打包后的二进制文件（在可执行文件同目录）
+    if let Some(_app) = app {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // Tauri externalBin 会将 ffmpeg-{arch} 复制到可执行文件目录
+                let ffmpeg_with_suffix = exe_dir.join(format!("ffmpeg-{}", target_suffix));
+                if ffmpeg_with_suffix.exists() {
+                    tracing::debug!("Found bundled ffmpeg: {:?}", ffmpeg_with_suffix);
+                    return ffmpeg_with_suffix.to_string_lossy().to_string();
+                }
+
+                // 也尝试没有后缀的版本（以防配置不同）
+                let ffmpeg_plain = exe_dir.join("ffmpeg");
+                if ffmpeg_plain.exists() {
+                    tracing::debug!("Found bundled ffmpeg (plain): {:?}", ffmpeg_plain);
+                    return ffmpeg_plain.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    // 3. 尝试常见的系统安装路径
+    let common_paths = [
+        "/opt/homebrew/bin/ffmpeg",  // Homebrew on Apple Silicon
+        "/usr/local/bin/ffmpeg",     // Homebrew on Intel Mac / Linux
+        "/usr/bin/ffmpeg",           // System package managers
+    ];
+
+    for path in &common_paths {
+        if std::path::Path::new(path).exists() {
+            tracing::debug!("Found system ffmpeg: {}", path);
+            return path.to_string();
+        }
+    }
+
+    // 4. 最后回退到 PATH 中的 ffmpeg
+    tracing::warn!("Falling back to 'ffmpeg' in PATH");
+    "ffmpeg".to_string()
+}
+
 /// Get ffprobe binary path
 fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
     // 在打包后，externalBin 文件位于 Contents/MacOS/ 目录
@@ -43,6 +129,64 @@ fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
     }
 
     // 回退到系统 ffprobe
+    "ffprobe".to_string()
+}
+
+/// Get ffprobe binary path for Python subprocess (checks bundled and system locations)
+pub fn get_ffprobe_path_for_python(app: Option<&AppHandle>) -> String {
+    let target_suffix = get_target_suffix();
+
+    // 1. 尝试开发环境的资源目录 (src-tauri/resources/bin/ffprobe-{arch})
+    if let Ok(current_dir) = std::env::current_dir() {
+        let dev_ffprobe = current_dir
+            .join("src-tauri")
+            .join("resources")
+            .join("bin")
+            .join(format!("ffprobe-{}", target_suffix));
+
+        if dev_ffprobe.exists() {
+            tracing::debug!("Found dev ffprobe: {:?}", dev_ffprobe);
+            return dev_ffprobe.to_string_lossy().to_string();
+        }
+    }
+
+    // 2. 尝试打包后的二进制文件（在可执行文件同目录）
+    if let Some(_app) = app {
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                // Tauri externalBin 会将 ffprobe-{arch} 复制到可执行文件目录
+                let ffprobe_with_suffix = exe_dir.join(format!("ffprobe-{}", target_suffix));
+                if ffprobe_with_suffix.exists() {
+                    tracing::debug!("Found bundled ffprobe: {:?}", ffprobe_with_suffix);
+                    return ffprobe_with_suffix.to_string_lossy().to_string();
+                }
+
+                // 也尝试没有后缀的版本（以防配置不同）
+                let ffprobe_plain = exe_dir.join("ffprobe");
+                if ffprobe_plain.exists() {
+                    tracing::debug!("Found bundled ffprobe (plain): {:?}", ffprobe_plain);
+                    return ffprobe_plain.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    // 3. 尝试常见的系统安装路径
+    let common_paths = [
+        "/opt/homebrew/bin/ffprobe",  // Homebrew on Apple Silicon
+        "/usr/local/bin/ffprobe",     // Homebrew on Intel Mac / Linux
+        "/usr/bin/ffprobe",           // System package managers
+    ];
+
+    for path in &common_paths {
+        if std::path::Path::new(path).exists() {
+            tracing::debug!("Found system ffprobe: {}", path);
+            return path.to_string();
+        }
+    }
+
+    // 4. 最后回退到 PATH 中的 ffprobe
+    tracing::warn!("Falling back to 'ffprobe' in PATH");
     "ffprobe".to_string()
 }
 

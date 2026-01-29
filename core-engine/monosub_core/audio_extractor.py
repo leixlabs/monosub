@@ -8,6 +8,22 @@ from pathlib import Path
 from typing import Optional
 
 
+def get_ffmpeg_command() -> str:
+    """
+    获取 ffmpeg 命令路径
+    优先使用环境变量 MONOSUB_FFMPEG_PATH，否则使用系统 ffmpeg
+    """
+    return os.environ.get('MONOSUB_FFMPEG_PATH', 'ffmpeg')
+
+
+def get_ffprobe_command() -> str:
+    """
+    获取 ffprobe 命令路径
+    优先使用环境变量 MONOSUB_FFPROBE_PATH，否则使用系统 ffprobe
+    """
+    return os.environ.get('MONOSUB_FFPROBE_PATH', 'ffprobe')
+
+
 class AudioExtractor:
     """从视频提取音频，包含预处理优化"""
 
@@ -63,7 +79,7 @@ class AudioExtractor:
         # -ar 16000: 采样率 16kHz (FunASR 推荐)
         # -ac 1: 单声道
         cmd = [
-            'ffmpeg',
+            get_ffmpeg_command(),
             '-i', video_path,
             '-vn',  # 禁用视频
         ]
@@ -105,7 +121,7 @@ class AudioExtractor:
     def _extract_basic(video_path: str, output_audio_path: str) -> str:
         """基本音频提取（无预处理）"""
         cmd = [
-            'ffmpeg',
+            get_ffmpeg_command(),
             '-i', video_path,
             '-vn',
             '-acodec', 'pcm_s16le',
@@ -143,7 +159,7 @@ class AudioExtractor:
             音频时长（秒）
         """
         cmd = [
-            'ffprobe',
+            get_ffprobe_command(),
             '-v', 'error',
             '-show_entries', 'format=duration',
             '-of', 'default=noprint_wrappers=1:nokey=1',
@@ -177,7 +193,7 @@ class AudioExtractor:
             包含 duration, sample_rate, channels, bitrate 的字典
         """
         cmd = [
-            'ffprobe',
+            get_ffprobe_command(),
             '-v', 'error',
             '-select_streams', 'a:0',
             '-show_entries', 'stream=sample_rate,channels,bit_rate:format=duration',
