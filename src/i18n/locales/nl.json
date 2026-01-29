@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI Video Ondertitel Generator"
+  },
+  "header": {
+    "completed": "voltooid",
+    "settings": "Instellingen"
+  },
+  "toolbar": {
+    "addFiles": "Bestanden Toevoegen",
+    "filesCount": "{{count}} bestanden",
+    "filesCount_one": "{{count}} bestand",
+    "pending": "Wachtend",
+    "processing": "Verwerken",
+    "completed": "Voltooid",
+    "clear": "Wissen"
+  },
+  "fileList": {
+    "emptyTitle": "Ondertitels Genereren",
+    "emptyDescription": "Voeg videobestanden toe en AI zal automatisch spraak herkennen en ondertitels genereren",
+    "formatSupport": "Ondersteunt MP4, MOV, AVI, MKV en meer",
+    "addVideos": "Video's Toevoegen",
+    "featureAsr": "Spraakherkenning",
+    "featureSegment": "Slimme Segmentatie",
+    "featureExport": "Multi-formaat Export"
+  },
+  "fileItem": {
+    "pending": "Wachtend",
+    "completed": "Voltooid",
+    "error": "Fout",
+    "start": "Start",
+    "pause": "Pauze",
+    "open": "Openen",
+    "delete": "Verwijderen"
+  },
+  "bottomBar": {
+    "saveLocation": "Opslaan in",
+    "sameDirectory": "Zelfde Map",
+    "selectDirectory": "Map Kiezen",
+    "format": "Formaat:",
+    "language": "Taal:",
+    "auto": "Auto",
+    "chinese": "Chinees",
+    "english": "Engels",
+    "stop": "Stop"
+  },
+  "settings": {
+    "title": "Instellingen",
+    "output": {
+      "title": "Uitvoer",
+      "format": "Ondertitelformaat",
+      "language": "Herkenningstaal",
+      "bilingual": "Tweetalige Ondertitels",
+      "bilingualDesc": "Genereer vertaling naast origineel",
+      "targetLanguage": "Doeltaal"
+    },
+    "processing": {
+      "title": "Verwerking",
+      "noiseReduction": "Ruisonderdrukking",
+      "noiseReductionDesc": "Verminder achtergrondgeluid",
+      "volumeNormalization": "Volume Normalisatie",
+      "volumeNormalizationDesc": "Standaardiseer audioniveaus",
+      "autoQueue": "Auto Wachtrij",
+      "autoQueueDesc": "Volgende bestand automatisch verwerken"
+    },
+    "notifications": {
+      "title": "Meldingen",
+      "showCompleted": "Voltooiingsmelding",
+      "showCompletedDesc": "Toon melding bij voltooiing"
+    },
+    "resetDefaults": "Resetten",
+    "done": "Gereed"
+  },
+  "notification": {
+    "completed": "Ondertitels genereren voltooid"
+  },
+  "language": {
+    "auto": "Auto Detectie",
+    "zh": "Chinees",
+    "en": "Engels"
+  }
+}

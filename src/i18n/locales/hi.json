@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI वीडियो उपशीर्षक जनरेटर"
+  },
+  "header": {
+    "completed": "पूर्ण",
+    "settings": "सेटिंग्स"
+  },
+  "toolbar": {
+    "addFiles": "फ़ाइलें जोड़ें",
+    "filesCount": "{{count}} फ़ाइलें",
+    "filesCount_one": "{{count}} फ़ाइल",
+    "pending": "लंबित",
+    "processing": "प्रोसेसिंग",
+    "completed": "पूर्ण",
+    "clear": "साफ़ करें"
+  },
+  "fileList": {
+    "emptyTitle": "उपशीर्षक बनाएं",
+    "emptyDescription": "वीडियो फ़ाइलें जोड़ें और AI स्वचालित रूप से भाषण पहचानेगा और उपशीर्षक बनाएगा",
+    "formatSupport": "MP4, MOV, AVI, MKV और अधिक का समर्थन",
+    "addVideos": "वीडियो जोड़ें",
+    "featureAsr": "भाषण पहचान",
+    "featureSegment": "स्मार्ट विभाजन",
+    "featureExport": "मल्टी-फॉर्मेट निर्यात"
+  },
+  "fileItem": {
+    "pending": "लंबित",
+    "completed": "पूर्ण",
+    "error": "त्रुटि",
+    "start": "शुरू",
+    "pause": "रोकें",
+    "open": "खोलें",
+    "delete": "हटाएं"
+  },
+  "bottomBar": {
+    "saveLocation": "सहेजें",
+    "sameDirectory": "समान फ़ोल्डर",
+    "selectDirectory": "फ़ोल्डर चुनें",
+    "format": "प्रारूप:",
+    "language": "भाषा:",
+    "auto": "ऑटो",
+    "chinese": "चीनी",
+    "english": "अंग्रेज़ी",
+    "stop": "रोकें"
+  },
+  "settings": {
+    "title": "सेटिंग्स",
+    "output": {
+      "title": "आउटपुट",
+      "format": "उपशीर्षक प्रारूप",
+      "language": "पहचान भाषा",
+      "bilingual": "द्विभाषी उपशीर्षक",
+      "bilingualDesc": "मूल के साथ अनुवाद बनाएं",
+      "targetLanguage": "लक्ष्य भाषा"
+    },
+    "processing": {
+      "title": "प्रोसेसिंग",
+      "noiseReduction": "शोर कमी",
+      "noiseReductionDesc": "पृष्ठभूमि शोर कम करें",
+      "volumeNormalization": "वॉल्यूम सामान्यीकरण",
+      "volumeNormalizationDesc": "ऑडियो स्तर मानकीकृत करें",
+      "autoQueue": "ऑटो कतार",
+      "autoQueueDesc": "अगली फ़ाइल स्वचालित प्रोसेस करें"
+    },
+    "notifications": {
+      "title": "सूचनाएं",
+      "showCompleted": "पूर्णता अलर्ट",
+      "showCompletedDesc": "पूर्ण होने पर सूचना दिखाएं"
+    },
+    "resetDefaults": "रीसेट",
+    "done": "हो गया"
+  },
+  "notification": {
+    "completed": "उपशीर्षक निर्माण पूर्ण"
+  },
+  "language": {
+    "auto": "ऑटो पता लगाएं",
+    "zh": "चीनी",
+    "en": "अंग्रेज़ी"
+  }
+}

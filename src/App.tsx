@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { useTranslation } from 'react-i18next';
 import { Header } from './components/Header';
 import { Toolbar } from './components/Toolbar';
 import { FileList } from './components/FileList';
@@ -14,11 +15,23 @@ interface TranscribeProgressPayload {
 }
 
 function App() {
+  const { t } = useTranslation();
   const updateFile = useStore((state) => state.updateFile);
   const setIsProcessing = useStore((state) => state.setIsProcessing);
   const incrementProcessedCount = useStore((state) => state.incrementProcessedCount);
-  const files = useStore((state) => state.files);
-  const settings = useStore((state) => state.settings);
+
+  // Use refs to avoid stale closure issues
+  const filesRef = useRef(useStore.getState().files);
+  const settingsRef = useRef(useStore.getState().settings);
+
+  // Subscribe to store changes
+  useEffect(() => {
+    const unsubscribe = useStore.subscribe((state) => {
+      filesRef.current = state.files;
+      settingsRef.current = state.settings;
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     // Listen to transcription progress events
@@ -42,12 +55,14 @@ function App() {
       setIsProcessing(false);
       incrementProcessedCount();
 
-      // Show notification if enabled
+      // Show notification if enabled (use ref to get latest settings)
+      const settings = settingsRef.current;
+      const files = filesRef.current;
       if (settings.showCompletedNotification && 'Notification' in window) {
         const file = files.find(f => f.id === task_id);
         if (Notification.permission === 'granted') {
           new Notification('MonoSub', {
-            body: `${file?.name || '视频'} 字幕生成完成`,
+            body: `${file?.name || 'Video'} - ${t('notification.completed')}`,
           });
         } else if (Notification.permission !== 'denied') {
           Notification.requestPermission();
@@ -67,7 +82,7 @@ function App() {
       progressUnlisten.then((f) => f());
       completeUnlisten.then((f) => f());
     };
-  }, [updateFile, setIsProcessing, incrementProcessedCount, files, settings]);
+  }, [updateFile, setIsProcessing, incrementProcessedCount, t]);
 
   return (
     <div className="min-h-screen bg-bg-secondary flex flex-col">

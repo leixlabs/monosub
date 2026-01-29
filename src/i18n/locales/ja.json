@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI動画字幕生成"
+  },
+  "header": {
+    "completed": "完了",
+    "settings": "設定"
+  },
+  "toolbar": {
+    "addFiles": "ファイルを追加",
+    "filesCount": "{{count}}件のファイル",
+    "filesCount_one": "{{count}}件のファイル",
+    "pending": "待機中",
+    "processing": "処理中",
+    "completed": "完了",
+    "clear": "クリア"
+  },
+  "fileList": {
+    "emptyTitle": "字幕を生成",
+    "emptyDescription": "動画ファイルを追加すると、AIが自動で音声を認識し字幕を生成します",
+    "formatSupport": "MP4、MOV、AVI、MKVなどに対応",
+    "addVideos": "動画を追加",
+    "featureAsr": "音声認識",
+    "featureSegment": "スマート分割",
+    "featureExport": "マルチフォーマット出力"
+  },
+  "fileItem": {
+    "pending": "待機中",
+    "completed": "完了",
+    "error": "エラー",
+    "start": "開始",
+    "pause": "一時停止",
+    "open": "開く",
+    "delete": "削除"
+  },
+  "bottomBar": {
+    "saveLocation": "保存先",
+    "sameDirectory": "同じフォルダ",
+    "selectDirectory": "フォルダを選択",
+    "format": "形式:",
+    "language": "言語:",
+    "auto": "自動",
+    "chinese": "中国語",
+    "english": "英語",
+    "stop": "停止"
+  },
+  "settings": {
+    "title": "設定",
+    "output": {
+      "title": "出力",
+      "format": "字幕形式",
+      "language": "認識言語",
+      "bilingual": "二言語字幕",
+      "bilingualDesc": "翻訳を同時に生成",
+      "targetLanguage": "翻訳先言語"
+    },
+    "processing": {
+      "title": "処理",
+      "noiseReduction": "ノイズ除去",
+      "noiseReductionDesc": "背景ノイズを低減",
+      "volumeNormalization": "音量正規化",
+      "volumeNormalizationDesc": "音声レベルを標準化",
+      "autoQueue": "自動キュー",
+      "autoQueueDesc": "次のファイルを自動処理"
+    },
+    "notifications": {
+      "title": "通知",
+      "showCompleted": "完了通知",
+      "showCompletedDesc": "完了時に通知を表示"
+    },
+    "resetDefaults": "リセット",
+    "done": "完了"
+  },
+  "notification": {
+    "completed": "字幕の生成が完了しました"
+  },
+  "language": {
+    "auto": "自動検出",
+    "zh": "中国語",
+    "en": "英語"
+  }
+}

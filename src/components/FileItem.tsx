@@ -1,4 +1,5 @@
 import { Trash2, Play, Pause, CheckCircle2, AlertCircle, FolderOpen, Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
 import { invoke } from '@tauri-apps/api/core';
@@ -8,6 +9,7 @@ interface FileItemProps {
 }
 
 export function FileItem({ file }: FileItemProps) {
+  const { t } = useTranslation();
   const removeFile = useStore((state) => state.removeFile);
   const updateFile = useStore((state) => state.updateFile);
   const isProcessing = useStore((state) => state.isProcessing);
@@ -54,6 +56,18 @@ export function FileItem({ file }: FileItemProps) {
     removeFile(file.id);
   };
 
+  const handlePause = async () => {
+    if (file.status !== 'processing') return;
+
+    try {
+      await invoke('pause_transcription', { taskId: file.id });
+      updateFile(file.id, { status: 'paused' });
+    } catch (error) {
+      console.error('[pause_transcription] Failed:', error);
+      // Pause is not fully implemented yet in the backend
+    }
+  };
+
   const handleOpenInFinder = async () => {
     try {
       await invoke('open_in_finder', { path: file.path });
@@ -85,7 +99,7 @@ export function FileItem({ file }: FileItemProps) {
       case 'pending':
         return (
           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-bg-secondary text-text-secondary">
-            等待处理
+            {t('fileItem.pending')}
           </span>
         );
       case 'processing':
@@ -97,7 +111,7 @@ export function FileItem({ file }: FileItemProps) {
             </div>
             <div className="w-32 h-2 bg-bg-secondary rounded-full overflow-hidden">
               <div
-                className="h-full bg-gradient-to-r from-primary to-info transition-all duration-300 ease-out"
+                className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-300 ease-out"
                 style={{ width: `${file.progress}%` }}
               />
             </div>
@@ -107,14 +121,14 @@ export function FileItem({ file }: FileItemProps) {
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 text-success">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            已完成
+            {t('fileItem.completed')}
           </span>
         );
       case 'error':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-danger/10 text-danger">
             <AlertCircle className="w-3.5 h-3.5" />
-            错误
+            {t('fileItem.error')}
           </span>
         );
       default:
@@ -172,15 +186,16 @@ export function FileItem({ file }: FileItemProps) {
             className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Play className="w-4 h-4" />
-            开始
+            {t('fileItem.start')}
           </button>
         )}
         {file.status === 'processing' && (
           <button
+            onClick={handlePause}
             className="flex items-center justify-center gap-1.5 px-4 py-2 border border-border text-text-secondary text-sm font-medium rounded-lg hover:bg-bg-secondary transition-colors"
           >
             <Pause className="w-4 h-4" />
-            暂停
+            {t('fileItem.pause')}
           </button>
         )}
         {file.status === 'completed' && (
@@ -189,7 +204,7 @@ export function FileItem({ file }: FileItemProps) {
             className="flex items-center justify-center gap-1.5 px-4 py-2 bg-success/10 text-success text-sm font-medium rounded-lg hover:bg-success/20 transition-colors"
           >
             <FolderOpen className="w-4 h-4" />
-            打开
+            {t('fileItem.open')}
           </button>
         )}
         <button
@@ -197,7 +212,7 @@ export function FileItem({ file }: FileItemProps) {
           className="flex items-center justify-center gap-1.5 px-4 py-2 text-text-tertiary text-sm rounded-lg hover:bg-danger/10 hover:text-danger transition-colors"
         >
           <Trash2 className="w-4 h-4" />
-          删除
+          {t('fileItem.delete')}
         </button>
       </div>
     </div>

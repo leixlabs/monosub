@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "Generator Subtitle Video AI"
+  },
+  "header": {
+    "completed": "selesai",
+    "settings": "Pengaturan"
+  },
+  "toolbar": {
+    "addFiles": "Tambah File",
+    "filesCount": "{{count}} file",
+    "filesCount_one": "{{count}} file",
+    "pending": "Menunggu",
+    "processing": "Memproses",
+    "completed": "Selesai",
+    "clear": "Hapus"
+  },
+  "fileList": {
+    "emptyTitle": "Buat Subtitle",
+    "emptyDescription": "Tambahkan file video dan AI akan secara otomatis mengenali ucapan dan membuat subtitle",
+    "formatSupport": "Mendukung MP4, MOV, AVI, MKV dan lainnya",
+    "addVideos": "Tambah Video",
+    "featureAsr": "Pengenalan Suara",
+    "featureSegment": "Segmentasi Cerdas",
+    "featureExport": "Ekspor Multi-format"
+  },
+  "fileItem": {
+    "pending": "Menunggu",
+    "completed": "Selesai",
+    "error": "Error",
+    "start": "Mulai",
+    "pause": "Jeda",
+    "open": "Buka",
+    "delete": "Hapus"
+  },
+  "bottomBar": {
+    "saveLocation": "Simpan ke",
+    "sameDirectory": "Folder Sama",
+    "selectDirectory": "Pilih Folder",
+    "format": "Format:",
+    "language": "Bahasa:",
+    "auto": "Otomatis",
+    "chinese": "Mandarin",
+    "english": "Inggris",
+    "stop": "Berhenti"
+  },
+  "settings": {
+    "title": "Pengaturan",
+    "output": {
+      "title": "Output",
+      "format": "Format Subtitle",
+      "language": "Bahasa Pengenalan",
+      "bilingual": "Subtitle Dwibahasa",
+      "bilingualDesc": "Buat terjemahan bersama asli",
+      "targetLanguage": "Bahasa Target"
+    },
+    "processing": {
+      "title": "Pemrosesan",
+      "noiseReduction": "Pengurangan Noise",
+      "noiseReductionDesc": "Kurangi noise latar belakang",
+      "volumeNormalization": "Normalisasi Volume",
+      "volumeNormalizationDesc": "Standarisasi level audio",
+      "autoQueue": "Antrian Otomatis",
+      "autoQueueDesc": "Proses file berikutnya secara otomatis"
+    },
+    "notifications": {
+      "title": "Notifikasi",
+      "showCompleted": "Notifikasi Selesai",
+      "showCompletedDesc": "Tampilkan notifikasi saat selesai"
+    },
+    "resetDefaults": "Reset",
+    "done": "Selesai"
+  },
+  "notification": {
+    "completed": "Pembuatan subtitle selesai"
+  },
+  "language": {
+    "auto": "Deteksi Otomatis",
+    "zh": "Mandarin",
+    "en": "Inggris"
+  }
+}

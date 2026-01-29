@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "مولد ترجمات الفيديو بالذكاء الاصطناعي"
+  },
+  "header": {
+    "completed": "مكتمل",
+    "settings": "الإعدادات"
+  },
+  "toolbar": {
+    "addFiles": "إضافة ملفات",
+    "filesCount": "{{count}} ملفات",
+    "filesCount_one": "{{count}} ملف",
+    "pending": "قيد الانتظار",
+    "processing": "جاري المعالجة",
+    "completed": "مكتمل",
+    "clear": "مسح"
+  },
+  "fileList": {
+    "emptyTitle": "إنشاء ترجمات",
+    "emptyDescription": "أضف ملفات الفيديو وسيتعرف الذكاء الاصطناعي تلقائياً على الكلام وينشئ الترجمات",
+    "formatSupport": "يدعم MP4، MOV، AVI، MKV والمزيد",
+    "addVideos": "إضافة فيديوهات",
+    "featureAsr": "التعرف على الكلام",
+    "featureSegment": "تجزئة ذكية",
+    "featureExport": "تصدير متعدد الصيغ"
+  },
+  "fileItem": {
+    "pending": "قيد الانتظار",
+    "completed": "مكتمل",
+    "error": "خطأ",
+    "start": "ابدأ",
+    "pause": "إيقاف مؤقت",
+    "open": "فتح",
+    "delete": "حذف"
+  },
+  "bottomBar": {
+    "saveLocation": "حفظ في",
+    "sameDirectory": "نفس المجلد",
+    "selectDirectory": "اختر مجلد",
+    "format": "الصيغة:",
+    "language": "اللغة:",
+    "auto": "تلقائي",
+    "chinese": "الصينية",
+    "english": "الإنجليزية",
+    "stop": "إيقاف"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "output": {
+      "title": "المخرجات",
+      "format": "صيغة الترجمة",
+      "language": "لغة التعرف",
+      "bilingual": "ترجمات ثنائية اللغة",
+      "bilingualDesc": "إنشاء الترجمة مع الأصل",
+      "targetLanguage": "اللغة المستهدفة"
+    },
+    "processing": {
+      "title": "المعالجة",
+      "noiseReduction": "تقليل الضوضاء",
+      "noiseReductionDesc": "تقليل ضوضاء الخلفية",
+      "volumeNormalization": "تسوية الصوت",
+      "volumeNormalizationDesc": "توحيد مستويات الصوت",
+      "autoQueue": "قائمة انتظار تلقائية",
+      "autoQueueDesc": "معالجة الملف التالي تلقائياً"
+    },
+    "notifications": {
+      "title": "الإشعارات",
+      "showCompleted": "إشعار الاكتمال",
+      "showCompletedDesc": "عرض إشعار عند الانتهاء"
+    },
+    "resetDefaults": "إعادة تعيين",
+    "done": "تم"
+  },
+  "notification": {
+    "completed": "اكتمل إنشاء الترجمات"
+  },
+  "language": {
+    "auto": "كشف تلقائي",
+    "zh": "الصينية",
+    "en": "الإنجليزية"
+  }
+}

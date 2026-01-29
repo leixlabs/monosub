@@ -152,7 +152,7 @@ class FunASRTranscriber:
 
     def load_model(self, progress_callback: ProgressCallback):
         """加载模型 - VAD和Punc在初始化时一起加载"""
-        progress_callback.update(5, "Loading models...")
+        progress_callback.update(12, "Loading models...")
 
         try:
             # 构建模型参数 - 关键修复：VAD和Punc在AutoModel初始化时传入模型名称
@@ -175,7 +175,7 @@ class FunASRTranscriber:
             # 一次性加载所有模型
             self.model = AutoModel(**model_kwargs)
 
-            progress_callback.update(15, "All models loaded")
+            progress_callback.update(25, "All models loaded")
 
         except Exception as e:
             raise RuntimeError(f"Failed to load model: {str(e)}")
@@ -200,7 +200,7 @@ class FunASRTranscriber:
         if not self.model:
             self.load_model(progress_callback)
 
-        progress_callback.update(20, "Starting transcription...")
+        progress_callback.update(30, "Starting transcription...")
 
         try:
             # 构建generate参数
@@ -232,7 +232,7 @@ class FunASRTranscriber:
                         if ts and len(ts) > 0:
                             print(f"DEBUG: First few timestamps: {ts[:3]}", flush=True)
 
-            progress_callback.update(80, "Processing results...")
+            progress_callback.update(85, "Processing results...")
 
             # 解析结果
             segments = self._parse_result(result)
@@ -240,7 +240,7 @@ class FunASRTranscriber:
             # 合并过短字幕
             segments = self._merge_short_segments(segments)
 
-            progress_callback.update(95, "Transcription complete")
+            progress_callback.update(92, "Transcription complete")
 
             return segments
 

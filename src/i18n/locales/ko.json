@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI 동영상 자막 생성기"
+  },
+  "header": {
+    "completed": "완료",
+    "settings": "설정"
+  },
+  "toolbar": {
+    "addFiles": "파일 추가",
+    "filesCount": "{{count}}개 파일",
+    "filesCount_one": "{{count}}개 파일",
+    "pending": "대기 중",
+    "processing": "처리 중",
+    "completed": "완료",
+    "clear": "지우기"
+  },
+  "fileList": {
+    "emptyTitle": "자막 생성",
+    "emptyDescription": "동영상 파일을 추가하면 AI가 자동으로 음성을 인식하고 자막을 생성합니다",
+    "formatSupport": "MP4, MOV, AVI, MKV 등 지원",
+    "addVideos": "동영상 추가",
+    "featureAsr": "음성 인식",
+    "featureSegment": "스마트 분할",
+    "featureExport": "다중 형식 내보내기"
+  },
+  "fileItem": {
+    "pending": "대기 중",
+    "completed": "완료",
+    "error": "오류",
+    "start": "시작",
+    "pause": "일시정지",
+    "open": "열기",
+    "delete": "삭제"
+  },
+  "bottomBar": {
+    "saveLocation": "저장 위치",
+    "sameDirectory": "같은 폴더",
+    "selectDirectory": "폴더 선택",
+    "format": "형식:",
+    "language": "언어:",
+    "auto": "자동",
+    "chinese": "중국어",
+    "english": "영어",
+    "stop": "중지"
+  },
+  "settings": {
+    "title": "설정",
+    "output": {
+      "title": "출력",
+      "format": "자막 형식",
+      "language": "인식 언어",
+      "bilingual": "이중 언어 자막",
+      "bilingualDesc": "번역과 함께 생성",
+      "targetLanguage": "번역 대상 언어"
+    },
+    "processing": {
+      "title": "처리",
+      "noiseReduction": "노이즈 감소",
+      "noiseReductionDesc": "배경 소음 감소",
+      "volumeNormalization": "볼륨 정규화",
+      "volumeNormalizationDesc": "오디오 레벨 표준화",
+      "autoQueue": "자동 큐",
+      "autoQueueDesc": "다음 파일 자동 처리"
+    },
+    "notifications": {
+      "title": "알림",
+      "showCompleted": "완료 알림",
+      "showCompletedDesc": "완료 시 알림 표시"
+    },
+    "resetDefaults": "초기화",
+    "done": "완료"
+  },
+  "notification": {
+    "completed": "자막 생성이 완료되었습니다"
+  },
+  "language": {
+    "auto": "자동 감지",
+    "zh": "중국어",
+    "en": "영어"
+  }
+}

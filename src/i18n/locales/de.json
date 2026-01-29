@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "KI-Video-Untertitel-Generator"
+  },
+  "header": {
+    "completed": "abgeschlossen",
+    "settings": "Einstellungen"
+  },
+  "toolbar": {
+    "addFiles": "Dateien hinzufügen",
+    "filesCount": "{{count}} Dateien",
+    "filesCount_one": "{{count}} Datei",
+    "pending": "Ausstehend",
+    "processing": "Verarbeitung",
+    "completed": "Abgeschlossen",
+    "clear": "Leeren"
+  },
+  "fileList": {
+    "emptyTitle": "Untertitel erstellen",
+    "emptyDescription": "Fügen Sie Videodateien hinzu und die KI erkennt automatisch die Sprache und erstellt Untertitel",
+    "formatSupport": "Unterstützt MP4, MOV, AVI, MKV und mehr",
+    "addVideos": "Videos hinzufügen",
+    "featureAsr": "Spracherkennung",
+    "featureSegment": "Intelligente Segmentierung",
+    "featureExport": "Multi-Format-Export"
+  },
+  "fileItem": {
+    "pending": "Ausstehend",
+    "completed": "Abgeschlossen",
+    "error": "Fehler",
+    "start": "Start",
+    "pause": "Pause",
+    "open": "Öffnen",
+    "delete": "Löschen"
+  },
+  "bottomBar": {
+    "saveLocation": "Speichern in",
+    "sameDirectory": "Gleicher Ordner",
+    "selectDirectory": "Ordner wählen",
+    "format": "Format:",
+    "language": "Sprache:",
+    "auto": "Auto",
+    "chinese": "Chinesisch",
+    "english": "Englisch",
+    "stop": "Stopp"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "output": {
+      "title": "Ausgabe",
+      "format": "Untertitelformat",
+      "language": "Erkennungssprache",
+      "bilingual": "Zweisprachige Untertitel",
+      "bilingualDesc": "Übersetzung parallel erstellen",
+      "targetLanguage": "Zielsprache"
+    },
+    "processing": {
+      "title": "Verarbeitung",
+      "noiseReduction": "Rauschunterdrückung",
+      "noiseReductionDesc": "Hintergrundgeräusche reduzieren",
+      "volumeNormalization": "Lautstärkenormalisierung",
+      "volumeNormalizationDesc": "Audiopegel standardisieren",
+      "autoQueue": "Auto-Warteschlange",
+      "autoQueueDesc": "Nächste Datei automatisch verarbeiten"
+    },
+    "notifications": {
+      "title": "Benachrichtigungen",
+      "showCompleted": "Fertigstellungshinweis",
+      "showCompletedDesc": "Benachrichtigung bei Fertigstellung"
+    },
+    "resetDefaults": "Zurücksetzen",
+    "done": "Fertig"
+  },
+  "notification": {
+    "completed": "Untertitelerstellung abgeschlossen"
+  },
+  "language": {
+    "auto": "Automatisch erkennen",
+    "zh": "Chinesisch",
+    "en": "Englisch"
+  }
+}

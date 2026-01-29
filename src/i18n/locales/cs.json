@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI Generátor Titulků"
+  },
+  "header": {
+    "completed": "dokončeno",
+    "settings": "Nastavení"
+  },
+  "toolbar": {
+    "addFiles": "Přidat Soubory",
+    "filesCount": "{{count}} souborů",
+    "filesCount_one": "{{count}} soubor",
+    "pending": "Čeká",
+    "processing": "Zpracování",
+    "completed": "Dokončeno",
+    "clear": "Vymazat"
+  },
+  "fileList": {
+    "emptyTitle": "Vytvořit Titulky",
+    "emptyDescription": "Přidejte video soubory a AI automaticky rozpozná řeč a vytvoří titulky",
+    "formatSupport": "Podporuje MP4, MOV, AVI, MKV a další",
+    "addVideos": "Přidat Videa",
+    "featureAsr": "Rozpoznávání Řeči",
+    "featureSegment": "Chytrá Segmentace",
+    "featureExport": "Multi-formát Export"
+  },
+  "fileItem": {
+    "pending": "Čeká",
+    "completed": "Dokončeno",
+    "error": "Chyba",
+    "start": "Start",
+    "pause": "Pauza",
+    "open": "Otevřít",
+    "delete": "Smazat"
+  },
+  "bottomBar": {
+    "saveLocation": "Uložit do",
+    "sameDirectory": "Stejná Složka",
+    "selectDirectory": "Vybrat Složku",
+    "format": "Formát:",
+    "language": "Jazyk:",
+    "auto": "Auto",
+    "chinese": "Čínština",
+    "english": "Angličtina",
+    "stop": "Stop"
+  },
+  "settings": {
+    "title": "Nastavení",
+    "output": {
+      "title": "Výstup",
+      "format": "Formát Titulků",
+      "language": "Jazyk Rozpoznávání",
+      "bilingual": "Dvojjazyčné Titulky",
+      "bilingualDesc": "Vytvořit překlad s originálem",
+      "targetLanguage": "Cílový Jazyk"
+    },
+    "processing": {
+      "title": "Zpracování",
+      "noiseReduction": "Redukce Šumu",
+      "noiseReductionDesc": "Snížit šum pozadí",
+      "volumeNormalization": "Normalizace Hlasitosti",
+      "volumeNormalizationDesc": "Standardizovat úrovně zvuku",
+      "autoQueue": "Auto Fronta",
+      "autoQueueDesc": "Automaticky zpracovat další soubor"
+    },
+    "notifications": {
+      "title": "Oznámení",
+      "showCompleted": "Oznámení o Dokončení",
+      "showCompletedDesc": "Zobrazit oznámení po dokončení"
+    },
+    "resetDefaults": "Resetovat",
+    "done": "Hotovo"
+  },
+  "notification": {
+    "completed": "Vytváření titulků dokončeno"
+  },
+  "language": {
+    "auto": "Auto Detekce",
+    "zh": "Čínština",
+    "en": "Angličtina"
+  }
+}

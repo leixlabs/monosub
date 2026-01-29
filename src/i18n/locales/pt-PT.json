@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "Gerador de Legendas com IA"
+  },
+  "header": {
+    "completed": "concluídos",
+    "settings": "Definições"
+  },
+  "toolbar": {
+    "addFiles": "Adicionar Ficheiros",
+    "filesCount": "{{count}} ficheiros",
+    "filesCount_one": "{{count}} ficheiro",
+    "pending": "Pendente",
+    "processing": "A processar",
+    "completed": "Concluído",
+    "clear": "Limpar"
+  },
+  "fileList": {
+    "emptyTitle": "Gerar Legendas",
+    "emptyDescription": "Adicione ficheiros de vídeo e a IA reconhecerá automaticamente a fala e gerará legendas",
+    "formatSupport": "Suporta MP4, MOV, AVI, MKV e mais",
+    "addVideos": "Adicionar Vídeos",
+    "featureAsr": "Reconhecimento de Fala",
+    "featureSegment": "Segmentação Inteligente",
+    "featureExport": "Exportação Multi-formato"
+  },
+  "fileItem": {
+    "pending": "Pendente",
+    "completed": "Concluído",
+    "error": "Erro",
+    "start": "Iniciar",
+    "pause": "Pausar",
+    "open": "Abrir",
+    "delete": "Eliminar"
+  },
+  "bottomBar": {
+    "saveLocation": "Guardar em",
+    "sameDirectory": "Mesma Pasta",
+    "selectDirectory": "Escolher Pasta",
+    "format": "Formato:",
+    "language": "Idioma:",
+    "auto": "Auto",
+    "chinese": "Chinês",
+    "english": "Inglês",
+    "stop": "Parar"
+  },
+  "settings": {
+    "title": "Definições",
+    "output": {
+      "title": "Saída",
+      "format": "Formato de Legenda",
+      "language": "Idioma de Reconhecimento",
+      "bilingual": "Legendas Bilingues",
+      "bilingualDesc": "Gerar tradução junto com original",
+      "targetLanguage": "Idioma de Tradução"
+    },
+    "processing": {
+      "title": "Processamento",
+      "noiseReduction": "Redução de Ruído",
+      "noiseReductionDesc": "Reduzir ruído de fundo",
+      "volumeNormalization": "Normalização de Volume",
+      "volumeNormalizationDesc": "Padronizar níveis de áudio",
+      "autoQueue": "Fila Automática",
+      "autoQueueDesc": "Processar próximo ficheiro automaticamente"
+    },
+    "notifications": {
+      "title": "Notificações",
+      "showCompleted": "Alerta de Conclusão",
+      "showCompletedDesc": "Mostrar notificação ao concluir"
+    },
+    "resetDefaults": "Repor",
+    "done": "Concluído"
+  },
+  "notification": {
+    "completed": "Geração de legendas concluída"
+  },
+  "language": {
+    "auto": "Deteção Automática",
+    "zh": "Chinês",
+    "en": "Inglês"
+  }
+}

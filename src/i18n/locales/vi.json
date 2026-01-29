@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "Tạo Phụ Đề Video AI"
+  },
+  "header": {
+    "completed": "hoàn thành",
+    "settings": "Cài đặt"
+  },
+  "toolbar": {
+    "addFiles": "Thêm Tệp",
+    "filesCount": "{{count}} tệp",
+    "filesCount_one": "{{count}} tệp",
+    "pending": "Chờ xử lý",
+    "processing": "Đang xử lý",
+    "completed": "Hoàn thành",
+    "clear": "Xóa"
+  },
+  "fileList": {
+    "emptyTitle": "Tạo Phụ Đề",
+    "emptyDescription": "Thêm tệp video và AI sẽ tự động nhận dạng giọng nói và tạo phụ đề",
+    "formatSupport": "Hỗ trợ MP4, MOV, AVI, MKV và nhiều hơn",
+    "addVideos": "Thêm Video",
+    "featureAsr": "Nhận Dạng Giọng Nói",
+    "featureSegment": "Phân Đoạn Thông Minh",
+    "featureExport": "Xuất Đa Định Dạng"
+  },
+  "fileItem": {
+    "pending": "Chờ xử lý",
+    "completed": "Hoàn thành",
+    "error": "Lỗi",
+    "start": "Bắt đầu",
+    "pause": "Tạm dừng",
+    "open": "Mở",
+    "delete": "Xóa"
+  },
+  "bottomBar": {
+    "saveLocation": "Lưu vào",
+    "sameDirectory": "Cùng Thư Mục",
+    "selectDirectory": "Chọn Thư Mục",
+    "format": "Định dạng:",
+    "language": "Ngôn ngữ:",
+    "auto": "Tự động",
+    "chinese": "Tiếng Trung",
+    "english": "Tiếng Anh",
+    "stop": "Dừng"
+  },
+  "settings": {
+    "title": "Cài đặt",
+    "output": {
+      "title": "Đầu ra",
+      "format": "Định Dạng Phụ Đề",
+      "language": "Ngôn Ngữ Nhận Dạng",
+      "bilingual": "Phụ Đề Song Ngữ",
+      "bilingualDesc": "Tạo bản dịch cùng bản gốc",
+      "targetLanguage": "Ngôn Ngữ Dịch"
+    },
+    "processing": {
+      "title": "Xử lý",
+      "noiseReduction": "Giảm Tiếng Ồn",
+      "noiseReductionDesc": "Giảm tiếng ồn nền",
+      "volumeNormalization": "Chuẩn Hóa Âm Lượng",
+      "volumeNormalizationDesc": "Chuẩn hóa mức âm thanh",
+      "autoQueue": "Hàng Đợi Tự Động",
+      "autoQueueDesc": "Tự động xử lý tệp tiếp theo"
+    },
+    "notifications": {
+      "title": "Thông báo",
+      "showCompleted": "Thông Báo Hoàn Thành",
+      "showCompletedDesc": "Hiển thị thông báo khi hoàn thành"
+    },
+    "resetDefaults": "Đặt lại",
+    "done": "Xong"
+  },
+  "notification": {
+    "completed": "Tạo phụ đề hoàn thành"
+  },
+  "language": {
+    "auto": "Tự Động Phát Hiện",
+    "zh": "Tiếng Trung",
+    "en": "Tiếng Anh"
+  }
+}

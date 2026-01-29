@@ -33,7 +33,11 @@ def main():
         help="Subtitle format (default: srt)",
     )
     parser.add_argument(
-        "--language", type=str, default="zh", choices=["zh", "en"], help="Language (default: zh)"
+        "--language",
+        type=str,
+        default="auto",
+        choices=["auto", "en", "zh", "es", "ja", "de", "fr", "pt", "zh-tw", "ko"],
+        help="Language (default: auto)",
     )
     parser.add_argument(
         "--device",
@@ -54,17 +58,17 @@ def main():
         print(f"MSG:Starting processing: {Path(args.video_path).name}", flush=True)
         print("PROGRESS:0", flush=True)
 
-        # 1. 提取音频
+        # 1. 提取音频 (0-10%)
         print("MSG:Extracting audio...", flush=True)
-        print("PROGRESS:5", flush=True)
+        print("PROGRESS:2", flush=True)
 
         extractor = AudioExtractor()
         audio_path = extractor.extract_audio(args.video_path)
 
         print(f"MSG:Audio extracted: {audio_path}", flush=True)
-        print("PROGRESS:15", flush=True)
+        print("PROGRESS:10", flush=True)
 
-        # 2. 转录音频
+        # 2. 转录音频 (10-95%)
         print("MSG:Loading model...", flush=True)
 
         transcriber = FunASRTranscriber(
@@ -78,10 +82,11 @@ def main():
         segments = transcriber.transcribe(audio_path, progress_callback, args.language)
 
         print(f"MSG:Transcription complete, {len(segments)} segments", flush=True)
-        print("PROGRESS:90", flush=True)
+        print("PROGRESS:95", flush=True)
 
-        # 3. 写入字幕文件
+        # 3. 写入字幕文件 (95-100%)
         print("MSG:Writing subtitle file...", flush=True)
+        print("PROGRESS:97", flush=True)
 
         # 确保输出目录存在
         output_dir = os.path.dirname(args.output_path)

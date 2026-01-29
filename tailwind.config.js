@@ -9,11 +9,21 @@ export default {
     },
     extend: {
       colors: {
-        // Apple-inspired color palette
+        // Modern Apple-inspired color palette
         primary: {
-          DEFAULT: '#007AFF',  // Apple Blue
-          hover: '#0056CC',
-          light: '#E5F1FF',
+          DEFAULT: '#5856D6',  // Apple Indigo - more modern
+          hover: '#4845B0',
+          light: '#EBEBFE',
+        },
+        accent: {
+          DEFAULT: '#AF52DE',  // Apple Purple
+          hover: '#9442BC',
+          light: '#F6E9FA',
+        },
+        teal: {
+          DEFAULT: '#5AC8FA',  // Apple Teal
+          hover: '#3EBAF8',
+          light: '#E8F7FE',
         },
         bg: {
           page: '#FFFFFF',
@@ -31,7 +41,7 @@ export default {
         success: '#34C759',     // Apple Green
         warning: '#FF9500',     // Apple Orange
         danger: '#FF3B30',      // Apple Red
-        info: '#5856D6',        // Apple Purple
+        info: '#007AFF',        // Apple Blue (for info/links)
       },
       borderRadius: {
         sm: '6px',

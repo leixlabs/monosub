@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI Video Altyazı Oluşturucu"
+  },
+  "header": {
+    "completed": "tamamlandı",
+    "settings": "Ayarlar"
+  },
+  "toolbar": {
+    "addFiles": "Dosya Ekle",
+    "filesCount": "{{count}} dosya",
+    "filesCount_one": "{{count}} dosya",
+    "pending": "Bekliyor",
+    "processing": "İşleniyor",
+    "completed": "Tamamlandı",
+    "clear": "Temizle"
+  },
+  "fileList": {
+    "emptyTitle": "Altyazı Oluştur",
+    "emptyDescription": "Video dosyaları ekleyin ve AI otomatik olarak konuşmayı tanıyıp altyazı oluşturacak",
+    "formatSupport": "MP4, MOV, AVI, MKV ve daha fazlasını destekler",
+    "addVideos": "Video Ekle",
+    "featureAsr": "Konuşma Tanıma",
+    "featureSegment": "Akıllı Bölümleme",
+    "featureExport": "Çoklu Format Dışa Aktarma"
+  },
+  "fileItem": {
+    "pending": "Bekliyor",
+    "completed": "Tamamlandı",
+    "error": "Hata",
+    "start": "Başlat",
+    "pause": "Duraklat",
+    "open": "Aç",
+    "delete": "Sil"
+  },
+  "bottomBar": {
+    "saveLocation": "Kaydet",
+    "sameDirectory": "Aynı Klasör",
+    "selectDirectory": "Klasör Seç",
+    "format": "Format:",
+    "language": "Dil:",
+    "auto": "Otomatik",
+    "chinese": "Çince",
+    "english": "İngilizce",
+    "stop": "Durdur"
+  },
+  "settings": {
+    "title": "Ayarlar",
+    "output": {
+      "title": "Çıktı",
+      "format": "Altyazı Formatı",
+      "language": "Tanıma Dili",
+      "bilingual": "İki Dilli Altyazı",
+      "bilingualDesc": "Çeviriyi orijinalle birlikte oluştur",
+      "targetLanguage": "Hedef Dil"
+    },
+    "processing": {
+      "title": "İşleme",
+      "noiseReduction": "Gürültü Azaltma",
+      "noiseReductionDesc": "Arka plan gürültüsünü azalt",
+      "volumeNormalization": "Ses Normalleştirme",
+      "volumeNormalizationDesc": "Ses seviyelerini standartlaştır",
+      "autoQueue": "Otomatik Kuyruk",
+      "autoQueueDesc": "Sonraki dosyayı otomatik işle"
+    },
+    "notifications": {
+      "title": "Bildirimler",
+      "showCompleted": "Tamamlanma Bildirimi",
+      "showCompletedDesc": "Tamamlandığında bildirim göster"
+    },
+    "resetDefaults": "Sıfırla",
+    "done": "Tamam"
+  },
+  "notification": {
+    "completed": "Altyazı oluşturma tamamlandı"
+  },
+  "language": {
+    "auto": "Otomatik Algıla",
+    "zh": "Çince",
+    "en": "İngilizce"
+  }
+}

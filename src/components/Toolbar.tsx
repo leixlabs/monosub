@@ -1,9 +1,11 @@
 import { Plus, Trash2, Film } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 
 export function Toolbar() {
+  const { t } = useTranslation();
   const files = useStore((state) => state.files);
   const addFiles = useStore((state) => state.addFiles);
   const clearFiles = useStore((state) => state.clearFiles);
@@ -18,8 +20,8 @@ export function Toolbar() {
       const selected = await open({
         multiple: true,
         filters: [{
-          name: 'Video',
-          extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v']
+          name: 'Media',
+          extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v', 'mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'wma']
         }]
       });
 
@@ -30,8 +32,11 @@ export function Toolbar() {
       const newFiles = await Promise.all(
         paths.map(async (path) => {
           try {
+            console.log('[Toolbar] Processing file:', path);
             const metadata: any = await invoke('get_video_metadata', { path });
+            console.log('[Toolbar] Metadata:', metadata);
             const thumbnail: any = await invoke('generate_thumbnail', { path });
+            console.log('[Toolbar] Thumbnail generated');
 
             return {
               id: crypto.randomUUID(),
@@ -44,15 +49,26 @@ export function Toolbar() {
               progress: 0,
             };
           } catch (error) {
-            console.error('Failed to process file:', error);
+            console.error('[Toolbar] Failed to process file:', path, error);
+            alert(`Failed to add file: ${path.split('/').pop()}\n\nError: ${error}\n\nPlease make sure ffmpeg and ffprobe are installed on your system.`);
             return null;
           }
         })
       );
 
       const validFiles = newFiles.filter(f => f !== null);
-      if (validFiles.length > 0) {
-        addFiles(validFiles);
+      // Filter out files that already exist (by path)
+      const existingPaths = new Set(files.map(f => f.path));
+      const uniqueFiles = validFiles.filter(f => !existingPaths.has(f.path));
+
+      if (uniqueFiles.length > 0) {
+        addFiles(uniqueFiles);
+      }
+
+      // Notify user if some files were skipped
+      const skippedCount = validFiles.length - uniqueFiles.length;
+      if (skippedCount > 0) {
+        console.warn(`Skipped ${skippedCount} duplicate file(s)`);
       }
     } catch (error) {
       console.error('Failed to select files:', error);
@@ -67,28 +83,28 @@ export function Toolbar() {
           className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors shadow-apple"
         >
           <Plus className="w-4 h-4" />
-          添加文件
+          {t('toolbar.addFiles')}
         </button>
 
         {files.length > 0 && (
           <div className="flex items-center gap-3 pl-4 border-l border-divider">
             <div className="flex items-center gap-1.5 text-xs text-text-secondary">
               <Film className="w-3.5 h-3.5" />
-              <span>{files.length} 个文件</span>
+              <span>{t('toolbar.filesCount', { count: files.length })}</span>
             </div>
             {pendingCount > 0 && (
               <span className="px-2 py-0.5 bg-bg-secondary text-text-secondary text-xs rounded-full">
-                {pendingCount} 待处理
+                {pendingCount} {t('toolbar.pending')}
               </span>
             )}
             {processingCount > 0 && (
               <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full animate-pulse-soft">
-                {processingCount} 处理中
+                {processingCount} {t('toolbar.processing')}
               </span>
             )}
             {completedCount > 0 && (
               <span className="px-2 py-0.5 bg-success/10 text-success text-xs rounded-full">
-                {completedCount} 已完成
+                {completedCount} {t('toolbar.completed')}
               </span>
             )}
           </div>
@@ -102,7 +118,7 @@ export function Toolbar() {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
           >
             <Trash2 className="w-4 h-4" />
-            清空
+            {t('toolbar.clear')}
           </button>
         )}
       </div>

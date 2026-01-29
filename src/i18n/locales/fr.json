@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "Générateur de sous-titres IA"
+  },
+  "header": {
+    "completed": "terminés",
+    "settings": "Paramètres"
+  },
+  "toolbar": {
+    "addFiles": "Ajouter des fichiers",
+    "filesCount": "{{count}} fichiers",
+    "filesCount_one": "{{count}} fichier",
+    "pending": "En attente",
+    "processing": "Traitement",
+    "completed": "Terminé",
+    "clear": "Effacer"
+  },
+  "fileList": {
+    "emptyTitle": "Générer des sous-titres",
+    "emptyDescription": "Ajoutez des fichiers vidéo et l'IA reconnaîtra automatiquement la parole et générera des sous-titres",
+    "formatSupport": "Prend en charge MP4, MOV, AVI, MKV et plus",
+    "addVideos": "Ajouter des vidéos",
+    "featureAsr": "Reconnaissance vocale",
+    "featureSegment": "Segmentation intelligente",
+    "featureExport": "Export multi-format"
+  },
+  "fileItem": {
+    "pending": "En attente",
+    "completed": "Terminé",
+    "error": "Erreur",
+    "start": "Démarrer",
+    "pause": "Pause",
+    "open": "Ouvrir",
+    "delete": "Supprimer"
+  },
+  "bottomBar": {
+    "saveLocation": "Enregistrer dans",
+    "sameDirectory": "Même dossier",
+    "selectDirectory": "Choisir un dossier",
+    "format": "Format :",
+    "language": "Langue :",
+    "auto": "Auto",
+    "chinese": "Chinois",
+    "english": "Anglais",
+    "stop": "Arrêter"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "output": {
+      "title": "Sortie",
+      "format": "Format des sous-titres",
+      "language": "Langue de reconnaissance",
+      "bilingual": "Sous-titres bilingues",
+      "bilingualDesc": "Générer la traduction avec l'original",
+      "targetLanguage": "Langue cible"
+    },
+    "processing": {
+      "title": "Traitement",
+      "noiseReduction": "Réduction du bruit",
+      "noiseReductionDesc": "Réduire le bruit de fond",
+      "volumeNormalization": "Normalisation du volume",
+      "volumeNormalizationDesc": "Standardiser les niveaux audio",
+      "autoQueue": "File d'attente auto",
+      "autoQueueDesc": "Traiter automatiquement le fichier suivant"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "showCompleted": "Alerte de fin",
+      "showCompletedDesc": "Afficher une notification à la fin"
+    },
+    "resetDefaults": "Réinitialiser",
+    "done": "Terminé"
+  },
+  "notification": {
+    "completed": "Génération des sous-titres terminée"
+  },
+  "language": {
+    "auto": "Détection auto",
+    "zh": "Chinois",
+    "en": "Anglais"
+  }
+}

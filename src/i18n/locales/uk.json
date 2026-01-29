@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "ШІ-генератор субтитрів"
+  },
+  "header": {
+    "completed": "завершено",
+    "settings": "Налаштування"
+  },
+  "toolbar": {
+    "addFiles": "Додати файли",
+    "filesCount": "{{count}} файлів",
+    "filesCount_one": "{{count}} файл",
+    "pending": "Очікування",
+    "processing": "Обробка",
+    "completed": "Завершено",
+    "clear": "Очистити"
+  },
+  "fileList": {
+    "emptyTitle": "Створити субтитри",
+    "emptyDescription": "Додайте відеофайли, і ШІ автоматично розпізнає мовлення та створить субтитри",
+    "formatSupport": "Підтримує MP4, MOV, AVI, MKV та інші",
+    "addVideos": "Додати відео",
+    "featureAsr": "Розпізнавання мовлення",
+    "featureSegment": "Розумна сегментація",
+    "featureExport": "Багатоформатний експорт"
+  },
+  "fileItem": {
+    "pending": "Очікування",
+    "completed": "Завершено",
+    "error": "Помилка",
+    "start": "Старт",
+    "pause": "Пауза",
+    "open": "Відкрити",
+    "delete": "Видалити"
+  },
+  "bottomBar": {
+    "saveLocation": "Зберегти в",
+    "sameDirectory": "Та сама папка",
+    "selectDirectory": "Вибрати папку",
+    "format": "Формат:",
+    "language": "Мова:",
+    "auto": "Авто",
+    "chinese": "Китайська",
+    "english": "Англійська",
+    "stop": "Стоп"
+  },
+  "settings": {
+    "title": "Налаштування",
+    "output": {
+      "title": "Вивід",
+      "format": "Формат субтитрів",
+      "language": "Мова розпізнавання",
+      "bilingual": "Двомовні субтитри",
+      "bilingualDesc": "Створити переклад разом з оригіналом",
+      "targetLanguage": "Мова перекладу"
+    },
+    "processing": {
+      "title": "Обробка",
+      "noiseReduction": "Шумозаглушення",
+      "noiseReductionDesc": "Зменшити фоновий шум",
+      "volumeNormalization": "Нормалізація гучності",
+      "volumeNormalizationDesc": "Стандартизувати рівні звуку",
+      "autoQueue": "Авто-черга",
+      "autoQueueDesc": "Автоматично обробляти наступний файл"
+    },
+    "notifications": {
+      "title": "Сповіщення",
+      "showCompleted": "Сповіщення про завершення",
+      "showCompletedDesc": "Показати сповіщення після завершення"
+    },
+    "resetDefaults": "Скинути",
+    "done": "Готово"
+  },
+  "notification": {
+    "completed": "Створення субтитрів завершено"
+  },
+  "language": {
+    "auto": "Автовизначення",
+    "zh": "Китайська",
+    "en": "Англійська"
+  }
+}

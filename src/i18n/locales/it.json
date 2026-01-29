@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "Generatore di Sottotitoli IA"
+  },
+  "header": {
+    "completed": "completati",
+    "settings": "Impostazioni"
+  },
+  "toolbar": {
+    "addFiles": "Aggiungi File",
+    "filesCount": "{{count}} file",
+    "filesCount_one": "{{count}} file",
+    "pending": "In attesa",
+    "processing": "Elaborazione",
+    "completed": "Completato",
+    "clear": "Cancella"
+  },
+  "fileList": {
+    "emptyTitle": "Genera Sottotitoli",
+    "emptyDescription": "Aggiungi file video e l'IA riconoscerà automaticamente il parlato e genererà i sottotitoli",
+    "formatSupport": "Supporta MP4, MOV, AVI, MKV e altri",
+    "addVideos": "Aggiungi Video",
+    "featureAsr": "Riconoscimento Vocale",
+    "featureSegment": "Segmentazione Intelligente",
+    "featureExport": "Esportazione Multi-formato"
+  },
+  "fileItem": {
+    "pending": "In attesa",
+    "completed": "Completato",
+    "error": "Errore",
+    "start": "Avvia",
+    "pause": "Pausa",
+    "open": "Apri",
+    "delete": "Elimina"
+  },
+  "bottomBar": {
+    "saveLocation": "Salva in",
+    "sameDirectory": "Stessa Cartella",
+    "selectDirectory": "Scegli Cartella",
+    "format": "Formato:",
+    "language": "Lingua:",
+    "auto": "Auto",
+    "chinese": "Cinese",
+    "english": "Inglese",
+    "stop": "Stop"
+  },
+  "settings": {
+    "title": "Impostazioni",
+    "output": {
+      "title": "Output",
+      "format": "Formato Sottotitoli",
+      "language": "Lingua di Riconoscimento",
+      "bilingual": "Sottotitoli Bilingue",
+      "bilingualDesc": "Genera traduzione insieme all'originale",
+      "targetLanguage": "Lingua di Traduzione"
+    },
+    "processing": {
+      "title": "Elaborazione",
+      "noiseReduction": "Riduzione Rumore",
+      "noiseReductionDesc": "Riduce il rumore di fondo",
+      "volumeNormalization": "Normalizzazione Volume",
+      "volumeNormalizationDesc": "Standardizza i livelli audio",
+      "autoQueue": "Coda Automatica",
+      "autoQueueDesc": "Elabora automaticamente il file successivo"
+    },
+    "notifications": {
+      "title": "Notifiche",
+      "showCompleted": "Avviso Completamento",
+      "showCompletedDesc": "Mostra notifica al completamento"
+    },
+    "resetDefaults": "Ripristina",
+    "done": "Fatto"
+  },
+  "notification": {
+    "completed": "Generazione sottotitoli completata"
+  },
+  "language": {
+    "auto": "Rilevamento Auto",
+    "zh": "Cinese",
+    "en": "Inglese"
+  }
+}

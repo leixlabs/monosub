@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI 影片字幕生成"
+  },
+  "header": {
+    "completed": "已完成",
+    "settings": "設定"
+  },
+  "toolbar": {
+    "addFiles": "新增檔案",
+    "filesCount": "{{count}} 個檔案",
+    "filesCount_one": "{{count}} 個檔案",
+    "pending": "待處理",
+    "processing": "處理中",
+    "completed": "已完成",
+    "clear": "清空"
+  },
+  "fileList": {
+    "emptyTitle": "開始生成字幕",
+    "emptyDescription": "新增影片檔案，AI 將自動識別語音並生成字幕",
+    "formatSupport": "支援 MP4、MOV、AVI、MKV 等格式",
+    "addVideos": "新增影片檔案",
+    "featureAsr": "自動語音識別",
+    "featureSegment": "智慧斷句",
+    "featureExport": "多格式匯出"
+  },
+  "fileItem": {
+    "pending": "等待處理",
+    "completed": "已完成",
+    "error": "錯誤",
+    "start": "開始",
+    "pause": "暫停",
+    "open": "開啟",
+    "delete": "刪除"
+  },
+  "bottomBar": {
+    "saveLocation": "儲存位置",
+    "sameDirectory": "同目錄",
+    "selectDirectory": "選擇目錄",
+    "format": "格式:",
+    "language": "語言:",
+    "auto": "自動",
+    "chinese": "中文",
+    "english": "EN",
+    "stop": "停止"
+  },
+  "settings": {
+    "title": "設定",
+    "output": {
+      "title": "輸出設定",
+      "format": "字幕格式",
+      "language": "識別語言",
+      "bilingual": "雙語字幕",
+      "bilingualDesc": "同時生成翻譯字幕",
+      "targetLanguage": "翻譯目標語言"
+    },
+    "processing": {
+      "title": "處理設定",
+      "noiseReduction": "音訊降噪",
+      "noiseReductionDesc": "減少背景噪音干擾",
+      "volumeNormalization": "音量標準化",
+      "volumeNormalizationDesc": "統一音量水準",
+      "autoQueue": "自動處理佇列",
+      "autoQueueDesc": "完成後自動處理下一個"
+    },
+    "notifications": {
+      "title": "通知設定",
+      "showCompleted": "完成通知",
+      "showCompletedDesc": "轉換完成時顯示系統通知"
+    },
+    "resetDefaults": "重設預設",
+    "done": "完成"
+  },
+  "notification": {
+    "completed": "字幕生成完成"
+  },
+  "language": {
+    "auto": "自動偵測",
+    "zh": "中文",
+    "en": "English"
+  }
+}

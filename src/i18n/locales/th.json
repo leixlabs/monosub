@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "สร้างคำบรรยายวิดีโอด้วย AI"
+  },
+  "header": {
+    "completed": "เสร็จสิ้น",
+    "settings": "การตั้งค่า"
+  },
+  "toolbar": {
+    "addFiles": "เพิ่มไฟล์",
+    "filesCount": "{{count}} ไฟล์",
+    "filesCount_one": "{{count}} ไฟล์",
+    "pending": "รอดำเนินการ",
+    "processing": "กำลังประมวลผล",
+    "completed": "เสร็จสิ้น",
+    "clear": "ล้าง"
+  },
+  "fileList": {
+    "emptyTitle": "สร้างคำบรรยาย",
+    "emptyDescription": "เพิ่มไฟล์วิดีโอ AI จะรู้จำเสียงพูดและสร้างคำบรรยายอัตโนมัติ",
+    "formatSupport": "รองรับ MP4, MOV, AVI, MKV และอื่นๆ",
+    "addVideos": "เพิ่มวิดีโอ",
+    "featureAsr": "รู้จำเสียงพูด",
+    "featureSegment": "แบ่งส่วนอัจฉริยะ",
+    "featureExport": "ส่งออกหลายรูปแบบ"
+  },
+  "fileItem": {
+    "pending": "รอดำเนินการ",
+    "completed": "เสร็จสิ้น",
+    "error": "ข้อผิดพลาด",
+    "start": "เริ่ม",
+    "pause": "หยุดชั่วคราว",
+    "open": "เปิด",
+    "delete": "ลบ"
+  },
+  "bottomBar": {
+    "saveLocation": "บันทึกที่",
+    "sameDirectory": "โฟลเดอร์เดียวกัน",
+    "selectDirectory": "เลือกโฟลเดอร์",
+    "format": "รูปแบบ:",
+    "language": "ภาษา:",
+    "auto": "อัตโนมัติ",
+    "chinese": "จีน",
+    "english": "อังกฤษ",
+    "stop": "หยุด"
+  },
+  "settings": {
+    "title": "การตั้งค่า",
+    "output": {
+      "title": "เอาต์พุต",
+      "format": "รูปแบบคำบรรยาย",
+      "language": "ภาษาที่รู้จำ",
+      "bilingual": "คำบรรยายสองภาษา",
+      "bilingualDesc": "สร้างคำแปลพร้อมต้นฉบับ",
+      "targetLanguage": "ภาษาเป้าหมาย"
+    },
+    "processing": {
+      "title": "การประมวลผล",
+      "noiseReduction": "ลดเสียงรบกวน",
+      "noiseReductionDesc": "ลดเสียงรบกวนพื้นหลัง",
+      "volumeNormalization": "ปรับระดับเสียง",
+      "volumeNormalizationDesc": "ทำให้ระดับเสียงเป็นมาตรฐาน",
+      "autoQueue": "คิวอัตโนมัติ",
+      "autoQueueDesc": "ประมวลผลไฟล์ถัดไปอัตโนมัติ"
+    },
+    "notifications": {
+      "title": "การแจ้งเตือน",
+      "showCompleted": "แจ้งเตือนเสร็จสิ้น",
+      "showCompletedDesc": "แสดงการแจ้งเตือนเมื่อเสร็จ"
+    },
+    "resetDefaults": "รีเซ็ต",
+    "done": "เสร็จ"
+  },
+  "notification": {
+    "completed": "สร้างคำบรรยายเสร็จสิ้น"
+  },
+  "language": {
+    "auto": "ตรวจจับอัตโนมัติ",
+    "zh": "จีน",
+    "en": "อังกฤษ"
+  }
+}

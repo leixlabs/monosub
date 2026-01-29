@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware'
 export type VideoStatus = 'pending' | 'processing' | 'completed' | 'error' | 'paused'
 export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt'
-export type OutputLanguage = 'zh' | 'en' | 'auto'
+export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
 
 export interface VideoFile {
   id: string
@@ -37,9 +37,16 @@ export interface AppSettings {
 
 // Detect system language
 const detectSystemLanguage = (): OutputLanguage => {
-  const lang = navigator.language || (navigator as any).userLanguage || 'zh'
+  const lang = navigator.language || (navigator as any).userLanguage || 'auto'
+  if (lang.startsWith('zh-TW') || lang.startsWith('zh-HK')) return 'zh-tw'
   if (lang.startsWith('zh')) return 'zh'
   if (lang.startsWith('en')) return 'en'
+  if (lang.startsWith('es')) return 'es'
+  if (lang.startsWith('ja')) return 'ja'
+  if (lang.startsWith('de')) return 'de'
+  if (lang.startsWith('fr')) return 'fr'
+  if (lang.startsWith('pt')) return 'pt'
+  if (lang.startsWith('ko')) return 'ko'
   return 'auto'
 }
 

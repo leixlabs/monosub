@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "ИИ-генератор субтитров"
+  },
+  "header": {
+    "completed": "завершено",
+    "settings": "Настройки"
+  },
+  "toolbar": {
+    "addFiles": "Добавить файлы",
+    "filesCount": "{{count}} файлов",
+    "filesCount_one": "{{count}} файл",
+    "pending": "Ожидание",
+    "processing": "Обработка",
+    "completed": "Завершено",
+    "clear": "Очистить"
+  },
+  "fileList": {
+    "emptyTitle": "Создать субтитры",
+    "emptyDescription": "Добавьте видеофайлы, и ИИ автоматически распознает речь и создаст субтитры",
+    "formatSupport": "Поддержка MP4, MOV, AVI, MKV и других",
+    "addVideos": "Добавить видео",
+    "featureAsr": "Распознавание речи",
+    "featureSegment": "Умная сегментация",
+    "featureExport": "Многоформатный экспорт"
+  },
+  "fileItem": {
+    "pending": "Ожидание",
+    "completed": "Завершено",
+    "error": "Ошибка",
+    "start": "Старт",
+    "pause": "Пауза",
+    "open": "Открыть",
+    "delete": "Удалить"
+  },
+  "bottomBar": {
+    "saveLocation": "Сохранить в",
+    "sameDirectory": "Та же папка",
+    "selectDirectory": "Выбрать папку",
+    "format": "Формат:",
+    "language": "Язык:",
+    "auto": "Авто",
+    "chinese": "Китайский",
+    "english": "Английский",
+    "stop": "Стоп"
+  },
+  "settings": {
+    "title": "Настройки",
+    "output": {
+      "title": "Вывод",
+      "format": "Формат субтитров",
+      "language": "Язык распознавания",
+      "bilingual": "Двуязычные субтитры",
+      "bilingualDesc": "Создать перевод вместе с оригиналом",
+      "targetLanguage": "Язык перевода"
+    },
+    "processing": {
+      "title": "Обработка",
+      "noiseReduction": "Шумоподавление",
+      "noiseReductionDesc": "Уменьшить фоновый шум",
+      "volumeNormalization": "Нормализация громкости",
+      "volumeNormalizationDesc": "Стандартизировать уровни звука",
+      "autoQueue": "Авто-очередь",
+      "autoQueueDesc": "Автоматически обрабатывать следующий файл"
+    },
+    "notifications": {
+      "title": "Уведомления",
+      "showCompleted": "Уведомление о завершении",
+      "showCompletedDesc": "Показать уведомление по окончании"
+    },
+    "resetDefaults": "Сбросить",
+    "done": "Готово"
+  },
+  "notification": {
+    "completed": "Создание субтитров завершено"
+  },
+  "language": {
+    "auto": "Автоопределение",
+    "zh": "Китайский",
+    "en": "Английский"
+  }
+}

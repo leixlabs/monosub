@@ -31,11 +31,11 @@ log_error() {
 
 # 配置
 APP_NAME="MonoSub"
-BUNDLE_ID="com.monosub.app"
+BUNDLE_ID="com.monosub.client"
 VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BUILD_DIR="$PROJECT_ROOT/target/release/bundle/macos"
+BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
 DMG_NAME="${APP_NAME}-${VERSION}-universal.dmg"
 

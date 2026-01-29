@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "Generator Napisów AI"
+  },
+  "header": {
+    "completed": "ukończonych",
+    "settings": "Ustawienia"
+  },
+  "toolbar": {
+    "addFiles": "Dodaj Pliki",
+    "filesCount": "{{count}} plików",
+    "filesCount_one": "{{count}} plik",
+    "pending": "Oczekuje",
+    "processing": "Przetwarzanie",
+    "completed": "Ukończone",
+    "clear": "Wyczyść"
+  },
+  "fileList": {
+    "emptyTitle": "Generuj Napisy",
+    "emptyDescription": "Dodaj pliki wideo, a AI automatycznie rozpozna mowę i wygeneruje napisy",
+    "formatSupport": "Obsługuje MP4, MOV, AVI, MKV i więcej",
+    "addVideos": "Dodaj Wideo",
+    "featureAsr": "Rozpoznawanie Mowy",
+    "featureSegment": "Inteligentna Segmentacja",
+    "featureExport": "Eksport Wieloformatowy"
+  },
+  "fileItem": {
+    "pending": "Oczekuje",
+    "completed": "Ukończone",
+    "error": "Błąd",
+    "start": "Start",
+    "pause": "Pauza",
+    "open": "Otwórz",
+    "delete": "Usuń"
+  },
+  "bottomBar": {
+    "saveLocation": "Zapisz w",
+    "sameDirectory": "Ten Sam Folder",
+    "selectDirectory": "Wybierz Folder",
+    "format": "Format:",
+    "language": "Język:",
+    "auto": "Auto",
+    "chinese": "Chiński",
+    "english": "Angielski",
+    "stop": "Stop"
+  },
+  "settings": {
+    "title": "Ustawienia",
+    "output": {
+      "title": "Wyjście",
+      "format": "Format Napisów",
+      "language": "Język Rozpoznawania",
+      "bilingual": "Napisy Dwujęzyczne",
+      "bilingualDesc": "Generuj tłumaczenie z oryginałem",
+      "targetLanguage": "Język Docelowy"
+    },
+    "processing": {
+      "title": "Przetwarzanie",
+      "noiseReduction": "Redukcja Szumów",
+      "noiseReductionDesc": "Zmniejsz szum tła",
+      "volumeNormalization": "Normalizacja Głośności",
+      "volumeNormalizationDesc": "Standaryzuj poziomy audio",
+      "autoQueue": "Auto Kolejka",
+      "autoQueueDesc": "Automatycznie przetwarzaj następny plik"
+    },
+    "notifications": {
+      "title": "Powiadomienia",
+      "showCompleted": "Powiadomienie o Zakończeniu",
+      "showCompletedDesc": "Pokaż powiadomienie po zakończeniu"
+    },
+    "resetDefaults": "Resetuj",
+    "done": "Gotowe"
+  },
+  "notification": {
+    "completed": "Generowanie napisów zakończone"
+  },
+  "language": {
+    "auto": "Auto Wykrywanie",
+    "zh": "Chiński",
+    "en": "Angielski"
+  }
+}

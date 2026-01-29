@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx tauri dev",
     "dev:servers": "vite",
-    "build": "tsc -b && vite build && export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx tauri build",
+    "build": "tsc -b && vite build",
     "build:frontend": "tsc -b && vite build",
     "build:dmg": "./scripts/build-dmg.sh build",
     "build:dmg-only": "./scripts/build-dmg.sh dmg",
@@ -18,9 +18,12 @@
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
+    "i18next": "^25.8.0",
+    "i18next-browser-languagedetector": "^8.2.0",
     "lucide-react": "^0.511.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^16.5.4",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

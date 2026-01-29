@@ -2,12 +2,16 @@ use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::path::Path;
 
+// Audio file extensions
+const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma"];
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VideoMetadata {
     pub duration: f64,
     pub size: u64,
-    pub width: u32,
-    pub height: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub is_audio: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,7 +19,15 @@ pub struct ThumbnailResult {
     pub thumbnail_base64: String,
 }
 
-/// Get video metadata using ffprobe
+/// Check if file is an audio file based on extension
+fn is_audio_file(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// Get media metadata using ffprobe (supports both video and audio)
 #[tauri::command]
 pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
     let file_path = Path::new(&path);
@@ -24,12 +36,14 @@ pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
         return Err("File does not exist".to_string());
     }
 
+    let is_audio = is_audio_file(file_path);
+
     // Get file size
     let metadata = std::fs::metadata(&path)
         .map_err(|e| format!("Failed to get file metadata: {}", e))?;
     let size = metadata.len();
 
-    // Get video duration using ffprobe
+    // Get media duration using ffprobe
     let output = Command::new("ffprobe")
         .args(&[
             "-v", "error",
@@ -51,20 +65,53 @@ pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
     // Parse JSON manually for simplicity
     let duration = extract_duration(&json_str)
         .ok_or_else(|| "Failed to extract duration".to_string())?;
-    let (width, height) = extract_resolution(&json_str)
-        .ok_or_else(|| "Failed to extract resolution".to_string())?;
+
+    // For audio files, width and height will be None
+    let (width, height) = if is_audio {
+        (None, None)
+    } else {
+        let (w, h) = extract_resolution(&json_str)
+            .ok_or_else(|| "Failed to extract resolution".to_string())?;
+        (Some(w), Some(h))
+    };
 
     Ok(VideoMetadata {
         duration,
         size,
         width,
         height,
+        is_audio,
     })
 }
 
-/// Generate video thumbnail using ffmpeg
+// Default audio icon as SVG (converted to data URI)
+fn get_audio_icon_svg() -> String {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="240" height="135" viewBox="0 0 240 135">
+        <rect fill="#{}" width="240" height="135"/>
+        <circle cx="120" cy="55" r="32" fill="#{}"/>
+        <polygon points="110,42 110,68 130,55" fill="white"/>
+        <text x="120" y="105" text-anchor="middle" fill="#{}" font-size="12">Audio</text>
+        </svg>"##,
+        "1a1a2e", "6366f1", "9ca3af"
+    )
+}
+
+/// Generate thumbnail for media file (video: frame extract, audio: default icon)
 #[tauri::command]
 pub async fn generate_thumbnail(path: String) -> Result<ThumbnailResult, String> {
+    let file_path = Path::new(&path);
+
+    // For audio files, return a default audio icon
+    if is_audio_file(file_path) {
+        let svg_content = get_audio_icon_svg();
+        let svg_base64 = base64_encode(svg_content.as_bytes());
+        return Ok(ThumbnailResult {
+            thumbnail_base64: format!("data:image/svg+xml;base64,{}", svg_base64),
+        });
+    }
+
+    // For video files, generate thumbnail using ffmpeg
     let temp_dir = std::env::temp_dir();
     let uuid = uuid::Uuid::new_v4();
     let thumbnail_path = temp_dir.join(format!("thumb_{}.jpg", uuid));

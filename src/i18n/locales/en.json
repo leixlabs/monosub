@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "AI Video Subtitle Generator"
+  },
+  "header": {
+    "completed": "completed",
+    "settings": "Settings"
+  },
+  "toolbar": {
+    "addFiles": "Add Files",
+    "filesCount": "{{count}} files",
+    "filesCount_one": "{{count}} file",
+    "pending": "Pending",
+    "processing": "Processing",
+    "completed": "Completed",
+    "clear": "Clear"
+  },
+  "fileList": {
+    "emptyTitle": "Generate Subtitles",
+    "emptyDescription": "Add video files and AI will automatically recognize speech and generate subtitles",
+    "formatSupport": "Supports MP4, MOV, AVI, MKV and more",
+    "addVideos": "Add Video Files",
+    "featureAsr": "Speech Recognition",
+    "featureSegment": "Smart Segmentation",
+    "featureExport": "Multi-format Export"
+  },
+  "fileItem": {
+    "pending": "Pending",
+    "completed": "Completed",
+    "error": "Error",
+    "start": "Start",
+    "pause": "Pause",
+    "open": "Open",
+    "delete": "Delete"
+  },
+  "bottomBar": {
+    "saveLocation": "Save to",
+    "sameDirectory": "Same Folder",
+    "selectDirectory": "Choose Folder",
+    "format": "Format:",
+    "language": "Language:",
+    "auto": "Auto",
+    "chinese": "Chinese",
+    "english": "English",
+    "stop": "Stop"
+  },
+  "settings": {
+    "title": "Settings",
+    "output": {
+      "title": "Output",
+      "format": "Subtitle Format",
+      "language": "Recognition Language",
+      "bilingual": "Bilingual Subtitles",
+      "bilingualDesc": "Generate translation alongside original",
+      "targetLanguage": "Translation Target"
+    },
+    "processing": {
+      "title": "Processing",
+      "noiseReduction": "Noise Reduction",
+      "noiseReductionDesc": "Reduce background noise",
+      "volumeNormalization": "Volume Normalization",
+      "volumeNormalizationDesc": "Standardize audio levels",
+      "autoQueue": "Auto Process Queue",
+      "autoQueueDesc": "Automatically process next file"
+    },
+    "notifications": {
+      "title": "Notifications",
+      "showCompleted": "Completion Alert",
+      "showCompletedDesc": "Show notification when done"
+    },
+    "resetDefaults": "Reset Defaults",
+    "done": "Done"
+  },
+  "notification": {
+    "completed": "Subtitle generation completed"
+  },
+  "language": {
+    "auto": "Auto Detect",
+    "zh": "Chinese",
+    "en": "English"
+  }
+}

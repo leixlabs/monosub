@@ -1,0 +1,83 @@
+{
+  "app": {
+    "name": "MonoSub",
+    "tagline": "تولیدکننده زیرنویس ویدیو با هوش مصنوعی"
+  },
+  "header": {
+    "completed": "تکمیل شده",
+    "settings": "تنظیمات"
+  },
+  "toolbar": {
+    "addFiles": "افزودن فایل",
+    "filesCount": "{{count}} فایل",
+    "filesCount_one": "{{count}} فایل",
+    "pending": "در انتظار",
+    "processing": "در حال پردازش",
+    "completed": "تکمیل شده",
+    "clear": "پاک کردن"
+  },
+  "fileList": {
+    "emptyTitle": "ایجاد زیرنویس",
+    "emptyDescription": "فایل‌های ویدیو را اضافه کنید و هوش مصنوعی به طور خودکار گفتار را تشخیص داده و زیرنویس ایجاد می‌کند",
+    "formatSupport": "پشتیبانی از MP4، MOV، AVI، MKV و بیشتر",
+    "addVideos": "افزودن ویدیو",
+    "featureAsr": "تشخیص گفتار",
+    "featureSegment": "تقسیم‌بندی هوشمند",
+    "featureExport": "خروجی چند فرمتی"
+  },
+  "fileItem": {
+    "pending": "در انتظار",
+    "completed": "تکمیل شده",
+    "error": "خطا",
+    "start": "شروع",
+    "pause": "توقف",
+    "open": "باز کردن",
+    "delete": "حذف"
+  },
+  "bottomBar": {
+    "saveLocation": "ذخیره در",
+    "sameDirectory": "همان پوشه",
+    "selectDirectory": "انتخاب پوشه",
+    "format": "فرمت:",
+    "language": "زبان:",
+    "auto": "خودکار",
+    "chinese": "چینی",
+    "english": "انگلیسی",
+    "stop": "توقف"
+  },
+  "settings": {
+    "title": "تنظیمات",
+    "output": {
+      "title": "خروجی",
+      "format": "فرمت زیرنویس",
+      "language": "زبان تشخیص",
+      "bilingual": "زیرنویس دوزبانه",
+      "bilingualDesc": "ایجاد ترجمه همراه با اصلی",
+      "targetLanguage": "زبان مقصد"
+    },
+    "processing": {
+      "title": "پردازش",
+      "noiseReduction": "کاهش نویز",
+      "noiseReductionDesc": "کاهش نویز پس‌زمینه",
+      "volumeNormalization": "نرمال‌سازی صدا",
+      "volumeNormalizationDesc": "استانداردسازی سطوح صدا",
+      "autoQueue": "صف خودکار",
+      "autoQueueDesc": "پردازش خودکار فایل بعدی"
+    },
+    "notifications": {
+      "title": "اعلان‌ها",
+      "showCompleted": "اعلان تکمیل",
+      "showCompletedDesc": "نمایش اعلان پس از تکمیل"
+    },
+    "resetDefaults": "بازنشانی",
+    "done": "انجام شد"
+  },
+  "notification": {
+    "completed": "ایجاد زیرنویس تکمیل شد"
+  },
+  "language": {
+    "auto": "تشخیص خودکار",
+    "zh": "چینی",
+    "en": "انگلیسی"
+  }
+}
