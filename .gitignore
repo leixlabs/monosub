@@ -52,3 +52,5 @@ src-tauri/target/
 /tmp/
 
 .trae
+
+src-tauri/resources/bin/

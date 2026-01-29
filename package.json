@@ -10,6 +10,9 @@
     "build:frontend": "tsc -b && vite build",
     "build:dmg": "./scripts/build-dmg.sh build",
     "build:dmg-only": "./scripts/build-dmg.sh dmg",
+    "prepare:resources": "./scripts/prepare-resources.sh",
+    "install:deps": "./scripts/install-deps.sh",
+    "clean:temp": "./scripts/clean-temp-files.sh",
     "lint": "eslint .",
     "preview": "vite preview",
     "check": "tsc -b --noEmit",
@@ -44,7 +47,7 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5",
-    "vite-plugin-trae-solo-badge": "^1.0.0",
+
     "vite-tsconfig-paths": "^5.1.4"
   }
 }

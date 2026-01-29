@@ -1,9 +1,50 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::path::Path;
+use tauri::AppHandle;
 
 // Audio file extensions
 const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma"];
+
+/// Get ffmpeg binary path
+fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
+    // 在打包后，externalBin 文件位于 Contents/MacOS/ 目录
+    // 与主可执行文件在同一目录
+    if let Some(_app) = app {
+        // 尝试在当前可执行文件目录查找
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let ffmpeg_bin = exe_dir.join("ffmpeg");
+                if ffmpeg_bin.exists() {
+                    return ffmpeg_bin.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    // 回退到系统 ffmpeg
+    "ffmpeg".to_string()
+}
+
+/// Get ffprobe binary path
+fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
+    // 在打包后，externalBin 文件位于 Contents/MacOS/ 目录
+    // 与主可执行文件在同一目录
+    if let Some(_app) = app {
+        // 尝试在当前可执行文件目录查找
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let ffprobe_bin = exe_dir.join("ffprobe");
+                if ffprobe_bin.exists() {
+                    return ffprobe_bin.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    // 回退到系统 ffprobe
+    "ffprobe".to_string()
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VideoMetadata {
@@ -29,22 +70,31 @@ fn is_audio_file(path: &Path) -> bool {
 
 /// Get media metadata using ffprobe (supports both video and audio)
 #[tauri::command]
-pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
+pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMetadata, String> {
+    tracing::info!(path = %path, "Getting video metadata");
     let file_path = Path::new(&path);
 
     if !file_path.exists() {
+        tracing::error!(path = %path, "File does not exist");
         return Err("File does not exist".to_string());
     }
 
     let is_audio = is_audio_file(file_path);
+    tracing::debug!(path = %path, is_audio = is_audio, "Detected file type");
 
     // Get file size
     let metadata = std::fs::metadata(&path)
-        .map_err(|e| format!("Failed to get file metadata: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(path = %path, error = %e, "Failed to get file metadata");
+            format!("Failed to get file metadata: {}", e)
+        })?;
     let size = metadata.len();
 
     // Get media duration using ffprobe
-    let output = Command::new("ffprobe")
+    let ffprobe_cmd = get_ffprobe_path(Some(&app));
+    tracing::debug!(path = %path, ffprobe_cmd = %ffprobe_cmd, "Using ffprobe command");
+
+    let output = Command::new(&ffprobe_cmd)
         .args(&[
             "-v", "error",
             "-show_entries", "format=duration",
@@ -53,27 +103,50 @@ pub async fn get_video_metadata(path: String) -> Result<VideoMetadata, String> {
             &path,
         ])
         .output()
-        .map_err(|e| format!("Failed to execute ffprobe: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(path = %path, error = %e, "Failed to execute ffprobe");
+            format!("Failed to execute ffprobe: {}", e)
+        })?;
 
     if !output.status.success() {
+        tracing::error!(path = %path, "ffprobe command failed");
         return Err("ffprobe command failed".to_string());
     }
 
     let json_str = String::from_utf8(output.stdout)
-        .map_err(|e| format!("Failed to parse ffprobe output: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(path = %path, error = %e, "Failed to parse ffprobe output");
+            format!("Failed to parse ffprobe output: {}", e)
+        })?;
 
     // Parse JSON manually for simplicity
     let duration = extract_duration(&json_str)
-        .ok_or_else(|| "Failed to extract duration".to_string())?;
+        .ok_or_else(|| {
+            tracing::error!(path = %path, "Failed to extract duration");
+            "Failed to extract duration".to_string()
+        })?;
 
     // For audio files, width and height will be None
     let (width, height) = if is_audio {
         (None, None)
     } else {
         let (w, h) = extract_resolution(&json_str)
-            .ok_or_else(|| "Failed to extract resolution".to_string())?;
+            .ok_or_else(|| {
+                tracing::error!(path = %path, "Failed to extract resolution");
+                "Failed to extract resolution".to_string()
+            })?;
         (Some(w), Some(h))
     };
+
+    tracing::info!(
+        path = %path,
+        duration = duration,
+        size = size,
+        width = ?width,
+        height = ?height,
+        is_audio = is_audio,
+        "Video metadata extracted successfully"
+    );
 
     Ok(VideoMetadata {
         duration,
@@ -99,11 +172,13 @@ fn get_audio_icon_svg() -> String {
 
 /// Generate thumbnail for media file (video: frame extract, audio: default icon)
 #[tauri::command]
-pub async fn generate_thumbnail(path: String) -> Result<ThumbnailResult, String> {
+pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<ThumbnailResult, String> {
+    tracing::info!(path = %path, "Generating thumbnail");
     let file_path = Path::new(&path);
 
     // For audio files, return a default audio icon
     if is_audio_file(file_path) {
+        tracing::debug!(path = %path, "Generating default audio icon");
         let svg_content = get_audio_icon_svg();
         let svg_base64 = base64_encode(svg_content.as_bytes());
         return Ok(ThumbnailResult {
@@ -116,8 +191,17 @@ pub async fn generate_thumbnail(path: String) -> Result<ThumbnailResult, String>
     let uuid = uuid::Uuid::new_v4();
     let thumbnail_path = temp_dir.join(format!("thumb_{}.jpg", uuid));
 
+    tracing::debug!(
+        path = %path,
+        thumbnail_path = ?thumbnail_path,
+        "Generating video thumbnail"
+    );
+
     // Generate thumbnail at 3 seconds
-    let output = Command::new("ffmpeg")
+    let ffmpeg_cmd = get_ffmpeg_path(Some(&app));
+    tracing::debug!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, "Using ffmpeg command");
+
+    let output = Command::new(&ffmpeg_cmd)
         .args(&[
             "-i", &path,
             "-ss", "00:00:03",
@@ -127,20 +211,31 @@ pub async fn generate_thumbnail(path: String) -> Result<ThumbnailResult, String>
             thumbnail_path.to_str().unwrap(),
         ])
         .output()
-        .map_err(|e| format!("Failed to execute ffmpeg: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(path = %path, error = %e, "Failed to execute ffmpeg");
+            format!("Failed to execute ffmpeg: {}", e)
+        })?;
 
     if !output.status.success() {
+        tracing::error!(path = %path, "ffmpeg command failed");
         return Err("ffmpeg command failed".to_string());
     }
 
     // Read thumbnail and encode as base64
     let image_data = std::fs::read(&thumbnail_path)
-        .map_err(|e| format!("Failed to read thumbnail: {}", e))?;
+        .map_err(|e| {
+            tracing::error!(path = %path, thumbnail_path = ?thumbnail_path, error = %e, "Failed to read thumbnail");
+            format!("Failed to read thumbnail: {}", e)
+        })?;
 
     let base64_image = base64_encode(&image_data);
 
     // Clean up temp file
-    let _ = std::fs::remove_file(&thumbnail_path);
+    if let Err(e) = std::fs::remove_file(&thumbnail_path) {
+        tracing::warn!(thumbnail_path = ?thumbnail_path, error = %e, "Failed to remove temp thumbnail file");
+    }
+
+    tracing::info!(path = %path, "Thumbnail generated successfully");
 
     Ok(ThumbnailResult {
         thumbnail_base64: format!("data:image/jpeg;base64,{}", base64_image),
@@ -213,14 +308,13 @@ fn base64_encode(data: &[u8]) -> String {
 /// Open file in Finder (macOS) or File Explorer (Windows/Linux)
 #[tauri::command]
 pub async fn open_in_finder(path: String) -> Result<(), String> {
+    tracing::info!(path = %path, "Opening file in file manager");
     let file_path = Path::new(&path);
 
     if !file_path.exists() {
+        tracing::error!(path = %path, "File does not exist");
         return Err("File does not exist".to_string());
     }
-
-    let parent_dir = file_path.parent()
-        .ok_or_else(|| "Failed to get parent directory".to_string())?;
 
     #[cfg(target_os = "macos")]
     {
@@ -228,7 +322,11 @@ pub async fn open_in_finder(path: String) -> Result<(), String> {
             .arg("-R")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to open Finder: {}", e))?;
+            .map_err(|e| {
+                tracing::error!(path = %path, error = %e, "Failed to open Finder");
+                format!("Failed to open Finder: {}", e)
+            })?;
+        tracing::debug!(path = %path, "Opened in Finder");
     }
 
     #[cfg(target_os = "windows")]
@@ -237,15 +335,28 @@ pub async fn open_in_finder(path: String) -> Result<(), String> {
             .arg("/select,")
             .arg(&path)
             .spawn()
-            .map_err(|e| format!("Failed to open Explorer: {}", e))?;
+            .map_err(|e| {
+                tracing::error!(path = %path, error = %e, "Failed to open Explorer");
+                format!("Failed to open Explorer: {}", e)
+            })?;
+        tracing::debug!(path = %path, "Opened in Explorer");
     }
 
     #[cfg(target_os = "linux")]
     {
+        let parent_dir = file_path.parent()
+            .ok_or_else(|| {
+                tracing::error!(path = %path, "Failed to get parent directory");
+                "Failed to get parent directory".to_string()
+            })?;
         Command::new("xdg-open")
             .arg(parent_dir)
             .spawn()
-            .map_err(|e| format!("Failed to open file manager: {}", e))?;
+            .map_err(|e| {
+                tracing::error!(path = %path, error = %e, "Failed to open file manager");
+                format!("Failed to open file manager: {}", e)
+            })?;
+        tracing::debug!(path = %path, "Opened in file manager");
     }
 
     Ok(())

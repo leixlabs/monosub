@@ -2,7 +2,7 @@
 
 基于 Tauri + React + FunASR 的本地语音转字幕桌面应用。
 
-![UI Design](design/UI.pen)
+![UI Design](design/screenShot.png)
 
 ## 特性
 
@@ -137,13 +137,7 @@ voice-to-subtitle/
 
 ## 配置
 
-### 修改模型
-编辑 `core-engine/asr/transcriber.py`:
-```python
-model_name = "paraformer-zh"  # 中文
-# model_name = "paraformer-en"  # 英文
-```
-
+ 
 ### 修改输出格式
 在前端或通过命令行参数:
 ```bash
@@ -156,9 +150,7 @@ uv run python main.py video.mp4 output.srt --format vtt
 ## 开发指南
 
 详见以下文档：
-- [PROJECT.md](PROJECT.md) - 项目详细说明
 - [core-engine/README.md](core-engine/README.md) - Python 引擎文档
-- [CLEANUP_SUMMARY.md](CLEANUP_SUMMARY.md) - 项目重构记录
 
 ## 故障排除
 
@@ -203,18 +195,11 @@ cargo build
 - [ ] 完成 FunASR 集成测试
 - [ ] 支持 GPU 加速
 - [ ] 批量处理队列
-- [ ] 字幕编辑功能
-- [ ] 导出设置保存
 - [ ] 多语言界面
 - [ ] Windows 和 Linux 支持
 
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 许可证
-
-MIT License
+ 
+ 
 
 ## 致谢
 

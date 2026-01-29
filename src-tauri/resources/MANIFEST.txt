@@ -1,0 +1,15 @@
+# MonoSub 资源清单
+# 生成时间: Thu Jan 29 21:42:55 CST 2026
+
+## 二进制文件
+bin/ffmpeg
+bin/ffprobe
+
+## Python 核心引擎
+core-engine/main.py
+core-engine/monosub_core/
+core-engine/requirements.txt
+
+## 说明
+这些资源文件会被打包到应用程序中
+运行时会被复制到应用数据目录

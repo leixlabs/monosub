@@ -254,6 +254,19 @@ clean() {
     log_success "清理完成"
 }
 
+# 准备资源文件
+prepare_resources() {
+    log_info "准备资源文件..."
+    cd "$PROJECT_ROOT"
+
+    if [ -f "$SCRIPT_DIR/prepare-resources.sh" ]; then
+        bash "$SCRIPT_DIR/prepare-resources.sh"
+        log_success "资源文件准备完成"
+    else
+        log_warning "未找到 prepare-resources.sh，跳过资源准备"
+    fi
+}
+
 # 完整构建流程
 full_build() {
     log_info "开始完整构建流程..."
@@ -261,6 +274,7 @@ full_build() {
     log_info "版本: $VERSION"
 
     check_dependencies
+    prepare_resources
     install_frontend_deps
     build_frontend
     build_tauri
@@ -282,6 +296,7 @@ show_help() {
     echo ""
     echo "命令:"
     echo "  build     完整构建流程 (默认)"
+    echo "  prepare   仅准备资源文件 (FFmpeg, Python)"
     echo "  frontend  仅构建前端"
     echo "  tauri     仅构建 Tauri 应用"
     echo "  dmg       仅创建 DMG (需要先构建)"
@@ -304,6 +319,9 @@ main() {
     case "${1:-build}" in
         build)
             full_build
+            ;;
+        prepare)
+            prepare_resources
             ;;
         frontend)
             build_frontend
