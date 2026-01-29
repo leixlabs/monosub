@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="page_title">MonoSub - 本地AI字幕生成 | 一次购买,终身使用</title>
+    <meta name="description" content="告别订阅制,拥抱买断制。MonoSub 提供100%本地AI字幕生成,保护隐私,极速处理,一次付费终身使用。">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        * {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+        
+        body {
+            background-color: #0a0a0f;
+            color: #ffffff;
+            transition: all 0.3s ease;
+        }
+        
+        /* RTL Support */
+        body.rtl-mode {
+            direction: rtl;
+        }
+        
+        body.rtl-mode .gradient-text,
+        body.rtl-mode h1,
+        body.rtl-mode h2,
+        body.rtl-mode h3 {
+            direction: rtl;
+            text-align: right;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #141419;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #2a2a35;
+            border-radius: 5px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #f59e0b;
+        }
+        
+        /* Gradient text */
+        .gradient-text {
+            background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        /* CTA Button glow effect */
+        .cta-button {
+            background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+            box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+            transition: all 0.3s ease;
+        }
+        
+        .cta-button:hover {
+            box-shadow: 0 6px 25px rgba(245, 158, 11, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .cta-button:active {
+            transform: scale(0.98);
+        }
+        
+        /* Card styles */
+        .card {
+            background: #141419;
+            border: 1px solid #2a2a35;
+            transition: all 0.3s ease;
+        }
+        
+        .card:hover {
+            border-color: #f59e0b;
+            transform: translateY(-5px);
+        }
+        
+        /* Fade in animation */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+        
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        /* Navbar blur effect */
+        .nav-blur {
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+        
+        /* Comparison grid */
+        .comparison-bad {
+            border-left: 3px solid #ef4444;
+        }
+        
+        .comparison-good {
+            border-left: 3px solid #22c55e;
+        }
+        
+        /* FAQ accordion */
+        .faq-answer {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+        
+        .faq-answer.open {
+            max-height: 500px;
+        }
+        
+        /* Hero image tilt */
+        .hero-image {
+            transform: perspective(1000px) rotateY(-5deg) rotateX(2deg);
+            transition: transform 0.3s ease;
+        }
+        
+        .hero-image:hover {
+            transform: perspective(1000px) rotateY(0deg) rotateX(0deg);
+        }
+        
+        /* Language Dropdown Styles */
+        .lang-dropdown {
+            position: relative;
+        }
+        
+        .lang-trigger {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #141419;
+            border: 1px solid #2a2a35;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        
+        .lang-trigger:hover {
+            border-color: #f59e0b;
+            background: #1a1a1f;
+        }
+        
+        .lang-trigger .flag {
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+        
+        .lang-trigger .arrow {
+            transition: transform 0.3s ease;
+            width: 1rem;
+            height: 1rem;
+        }
+        
+        .lang-dropdown.open .lang-trigger .arrow {
+            transform: rotate(180deg);
+        }
+        
+        .lang-menu {
+            position: absolute;
+            top: calc(100% + 0.5rem);
+            right: 0;
+            min-width: 220px;
+            max-height: 400px;
+            overflow-y: auto;
+            background: #141419;
+            border: 1px solid #2a2a35;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s ease;
+            z-index: 100;
+        }
+        
+        .lang-dropdown.open .lang-menu {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+        
+        .lang-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.875rem;
+        }
+        
+        .lang-menu-item:hover {
+            background: #1a1a1f;
+        }
+        
+        .lang-menu-item.active {
+            background: #f59e0b1a;
+            color: #f59e0b;
+        }
+        
+        .lang-menu-item .flag {
+            font-size: 1.25rem;
+            line-height: 1;
+        }
+        
+        .lang-menu-item .checkmark {
+            margin-left: auto;
+            color: #f59e0b;
+        }
+        
+        /* Mobile language selector */
+        .mobile-lang-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .mobile-lang-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: #141419;
+            border: 1px solid #2a2a35;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        
+        .mobile-lang-item:hover,
+        .mobile-lang-item.active {
+            border-color: #f59e0b;
+            background: #f59e0b1a;
+        }
+        
+        .mobile-lang-item .flag {
+            font-size: 1.5rem;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Navigation -->
+    <nav id="navbar" class="fixed top-0 left-0 right-0 z-50 transition-all duration-300">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="text-2xl font-bold">
+                <span class="gradient-text">MonoSub</span>
+            </div>
+            <div class="hidden md:flex items-center gap-8">
+                <a href="#features" class="text-gray-400 hover:text-amber-500 transition" data-i18n="nav_features">功能</a>
+                <a href="#pricing" class="text-gray-400 hover:text-amber-500 transition" data-i18n="nav_pricing">价格</a>
+                <a href="#faq" class="text-gray-400 hover:text-amber-500 transition" data-i18n="nav_faq">FAQ</a>
+                
+                <!-- Language Dropdown -->
+                <div class="lang-dropdown" id="lang-dropdown-desktop">
+                    <div class="lang-trigger" onclick="toggleLangDropdown('desktop')">
+                        <span class="flag" id="current-flag-desktop">🇨🇳</span>
+                        <span id="current-lang-desktop">中文</span>
+                        <svg class="arrow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </div>
+                    <div class="lang-menu" id="lang-menu-desktop">
+                        <!-- Language items will be dynamically inserted -->
+                    </div>
+                </div>
+                
+                <a href="#cta" class="cta-button px-6 py-2 rounded-lg font-semibold text-sm uppercase text-white" data-i18n="nav_cta">
+                    立即购买
+                </a>
+            </div>
+            <button id="mobile-menu-btn" class="md:hidden text-white">
+<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Mobile Menu -->
+    <div id="mobile-menu" class="hidden fixed inset-0 z-40 bg-black bg-opacity-95 md:hidden">
+        <div class="flex flex-col items-center justify-center h-full gap-8 text-xl px-6">
+            <a href="#features" class="mobile-menu-link text-gray-400 hover:text-amber-500" data-i18n="nav_features">功能</a>
+            <a href="#pricing" class="mobile-menu-link text-gray-400 hover:text-amber-500" data-i18n="nav_pricing">价格</a>
+            <a href="#faq" class="mobile-menu-link text-gray-400 hover:text-amber-500" data-i18n="nav_faq">FAQ</a>
+            
+            <!-- Mobile Language List -->
+            <div class="w-full max-w-xs">
+                <div class="text-gray-500 text-sm mb-2" data-i18n="mobile_select_language">选择语言</div>
+                <div class="mobile-lang-list" id="mobile-lang-list">
+                    <!-- Language items will be dynamically inserted -->
+                </div>
+            </div>
+            
+            <a href="#cta" class="cta-button px-8 py-3 rounded-lg font-semibold uppercase" data-i18n="nav_cta">立即购买</a>
+        </div>
+    </div>
+
+    <!-- Hero Section -->
+    <section class="relative min-h-screen flex items-center pt-20 px-6 overflow-hidden">
+        <div class="max-w-7xl mx-auto w-full grid md:grid-cols-2 gap-12 items-center">
+            <!-- Left: Text Content -->
+            <div class="fade-in space-y-6">
+                <h1 class="text-5xl md:text-6xl lg:text-7xl font-bold leading-tight">
+                    <span data-i18n="hero_title_line1">停止按月付费</span><br>
+                    <span class="gradient-text" data-i18n="hero_title_line2">永久拥有</span><span data-i18n="hero_title_line3">字幕工具</span>
+                </h1>
+                <p class="text-xl md:text-2xl text-gray-400 leading-relaxed">
+                    <span data-i18n="hero_subtitle_line1">100% 本地 AI 字幕生成</span><br>
+                    <span data-i18n="hero_subtitle_line2">一次购买,终身使用</span>
+                </p>
+                <div class="flex flex-col sm:flex-row gap-4">
+                    <a href="#cta" class="cta-button px-8 py-4 rounded-lg font-semibold uppercase text-center inline-block" data-i18n="hero_cta">
+                        获取终身访问权 - ¥299
+                    </a>
+                    <a href="#features" class="px-8 py-4 rounded-lg font-semibold uppercase border-2 border-gray-700 hover:border-amber-500 transition text-center" data-i18n="hero_learn_more">
+                        了解更多
+                    </a>
+                </div>
+                <div class="flex items-center gap-2 text-sm text-gray-500">
+                    <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                    </svg>
+                    <span data-i18n="hero_trust">7天无理由退款保证</span>
+                </div>
+            </div>
+            
+            <!-- Right: Product Screenshot -->
+            <div class="fade-in">
+                <img src="./imgs/hero-mockup.png" 
+                     alt="MonoSub 产品界面" 
+                     class="hero-image w-full rounded-xl shadow-2xl"
+                     onerror="this.style.display='none'">
+            </div>
+        </div>
+        
+        <!-- Animated gradient background -->
+        <div class="absolute top-1/4 right-1/4 w-96 h-96 bg-amber-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-pulse"></div>
+        <div class="absolute bottom-1/4 left-1/4 w-96 h-96 bg-red-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-pulse delay-1000"></div>
+    </section>
+
+    <!-- Pain Point Section -->
+    <section id="pain" class="py-20 px-6">
+        <div class="max-w-6xl mx-auto">
+            <h2 class="text-4xl md:text-5xl font-bold text-center mb-4 fade-in" data-i18n="pain_title">
+                厌倦了每月付费?
+            </h2>
+            <p class="text-xl text-gray-400 text-center mb-16 fade-in" data-i18n="pain_subtitle">
+                订阅制让你付出更多,获得更少
+            </p>
+            
+            <div class="grid md:grid-cols-2 gap-8">
+                <!-- Cloud Services Problems -->
+                <div class="card comparison-bad p-8 rounded-xl fade-in">
+                    <h3 class="text-2xl font-bold mb-6 text-red-400"><span data-i18n="pain_cloud_title">❌ 云端订阅服务</span></h3>
+                    <ul class="space-y-4 text-gray-300">
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_cloud_1">每月 ¥99-199 永无止境的订阅费</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_cloud_2">上传视频到云端,隐私风险高</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_cloud_3">依赖网络,速度受网速限制</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-red-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_cloud_4">使用时长限制,超时额外付费</span>
+                        </li>
+                    </ul>
+                </div>
+                
+                <!-- MonoSub Solution -->
+                <div class="card comparison-good p-8 rounded-xl fade-in bg-gradient-to-br from-green-900/20 to-transparent">
+                    <h3 class="text-2xl font-bold mb-6 text-green-400"><span data-i18n="pain_local_title">✅ MonoSub 解决方案</span></h3>
+                    <ul class="space-y-4 text-gray-300">
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-green-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_local_1">一次支付 ¥299,终身拥有</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-green-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_local_2">100% 本地处理,数据绝不离开你的电脑</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-green-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_local_3">完全离线可用,硬件加速极速处理</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <svg class="w-6 h-6 text-green-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                            <span data-i18n="pain_local_4">无限制使用,想用多少用多少</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 px-6 bg-gradient-to-b from-transparent to-black/50">
+        <div class="max-w-7xl mx-auto">
+            <h2 class="text-4xl md:text-5xl font-bold text-center mb-4 fade-in" data-i18n="features_title">
+                你拥有的完整字幕解决方案
+            </h2>
+            <p class="text-xl text-gray-400 text-center mb-16 fade-in" data-i18n="features_subtitle">
+                专业级功能,无需专业级价格
+            </p>
+            
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div class="card p-8 rounded-xl fade-in">
+                    <div class="w-16 h-16 bg-amber-500/10 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="feature_1_title">🏠 100% 本地处理</h3>
+                    <p class="text-gray-400" data-i18n="feature_1_desc">
+                        无需云端,无需上传。所有处理都在你的电脑本地完成,数据完全掌控在你手中,保护隐私。
+                    </p>
+                </div>
+                
+                <!-- Feature 2 -->
+                <div class="card p-8 rounded-xl fade-in">
+                    <div class="w-16 h-16 bg-amber-500/10 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="feature_2_title">💰 一次购买终身使用</h3>
+                    <p class="text-gray-400" data-i18n="feature_2_desc">
+                        无订阅费,无隐藏费用。¥299 买断制,永久拥有所有功能和未来更新。
+                    </p>
+                </div>
+                
+                <!-- Feature 3 -->
+                <div class="card p-8 rounded-xl fade-in">
+                    <div class="w-16 h-16 bg-amber-500/10 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="feature_3_title">⚡ 硬件加速</h3>
+                    <p class="text-gray-400" data-i18n="feature_3_desc">
+                        支持 Apple Silicon MPS 和 NVIDIA CUDA 硬件加速,处理速度提升 10 倍,节省你的宝贵时间。
+                    </p>
+                </div>
+                
+                <!-- Feature 4 -->
+                <div class="card p-8 rounded-xlfade-in">
+                    <div class="w-16 h-16 bg-amber-500/10 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="feature_4_title">🌍 多语言支持</h3>
+                    <p class="text-gray-400" data-i18n="feature_4_desc">
+                        自动检测和识别中文、英文及更多语言。基于 SenseVoice 2024 最新 AI 模型,准确率高达 98%。
+                    </p>
+                </div>
+                
+                <!-- Feature 5 -->
+                <div class="card p-8 rounded-xl fade-in">
+                    <div class="w-16 h-16 bg-amber-500/10 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="feature_5_title">📝 多格式输出</h3>
+                    <p class="text-gray-400" data-i18n="feature_5_desc">
+                        导出 SRT、VTT、TXT 字幕格式,兼容所有主流视频编辑软件和播放器。
+                    </p>
+                </div>
+                
+                <!-- Feature 6 -->
+                <div class="card p-8 rounded-xl fade-in">
+                    <div class="w-16 h-16 bg-amber-500/10 rounded-xl flex items-center justify-center mb-6">
+                        <svg class="w-8 h-8 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-2xl font-bold mb-3" data-i18n="feature_6_title">🎯 智能断句</h3>
+                    <p class="text-gray-400" data-i18n="feature_6_desc">
+                        基于标点和语音停顿的智能分句算法,生成自然流畅的字幕,无需手动调整。
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Comparison Section -->
+    <section id="pricing" class="py-20 px-6">
+        <div class="max-w-5xl mx-auto">
+            <h2 class="text-4xl md:text-5xl font-bold text-center mb-4 fade-in" data-i18n="pricing_title">
+                算笔简单的账
+            </h2>
+            <p class="text-xl text-gray-400 text-center mb-16 fade-in" data-i18n="pricing_subtitle">
+                订阅制 vs 买断制,哪个更划算?
+            </p>
+            
+            <div class="card p-8 rounded-xl overflow-x-auto fade-in">
+                <table class="w-full text-left">
+                    <thead>
+                        <tr class="border-b border-gray-700">
+                            <th class="pb-4 text-xl font-semibold text-gray-400" data-i18n="pricing_period">时间周期</th>
+                            <th class="pb-4 text-xl font-semibold text-red-400" data-i18n="pricing_cloud">云端订阅服务</th>
+                            <th class="pb-4 text-xl font-semibold text-amber-500" data-i18n="pricing_monosub">MonoSub 买断制</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-lg">
+                        <tr class="border-b border-gray-800">
+                            <td class="py-4 text-gray-300" data-i18n="pricing_1month">1 个月</td>
+                            <td class="py-4 text-gray-300" data-i18n="pricing_cloud_1month">¥149</td>
+                            <td class="py-4 text-amber-500 font-bold" data-i18n="pricing_monosub_price">¥299(永久)</td>
+                        </tr>
+                        <tr class="border-b border-gray-800">
+                            <td class="py-4 text-gray-300" data-i18n="pricing_6months">6 个月</td>
+                            <td class="py-4 text-gray-300" data-i18n="pricing_cloud_6months">¥894</td>
+                            <td class="py-4 text-amber-500 font-bold" data-i18n="pricing_monosub_price">¥299(永久)</td>
+                        </tr>
+                        <tr class="border-b border-gray-800">
+                            <td class="py-4 text-gray-300" data-i18n="pricing_1year">1 年</td>
+                            <td class="py-4 text-gray-300" data-i18n="pricing_cloud_1year">¥1,788</td>
+                            <td class="py-4 text-amber-500 font-bold" data-i18n="pricing_monosub_price">¥299(永久)</td>
+                        </tr>
+                        <tr class="border-b border-gray-800">
+                            <td class="py-4 text-gray-300 font-bold" data-i18n="pricing_2years">2 年</td>
+                            <td class="py-4 text-red-400 font-bold" data-i18n="pricing_cloud_2years">¥3,576</td>
+                            <td class="py-4 text-amber-500 font-bold" data-i18n="pricing_monosub_price">¥299(永久)</td>
+                        </tr>
+                        <tr>
+                            <td class="py-4 text-gray-300 font-bold" data-i18n="pricing_5years">5 年</td>
+                            <td class="py-4 text-red-400 font-bold text-2xl" data-i18n="pricing_cloud_5years">¥8,940</td>
+                            <td class="py-4 text-green-400 font-bold text-2xl" data-i18n="pricing_monosub_price">¥299(永久)</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <div class="mt-8 p-6 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                    <p class="text-2xl font-bold text-amber-500 text-center" data-i18n="pricing_cta">
+                        💡 仅需 2 个月订阅费,即可永久拥有 MonoSub
+                    </p>
+                    <p class="text-center text-gray-400 mt-2" data-i18n="pricing_save">
+                        第一年就节省 ¥1,489,长期节省超过 ¥8,000
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Technical Specs Section -->
+    <section class="py-20 px-6 bg-gradient-to-b from-black/50 to-transparent">
+        <div class="max-w-4xl mx-auto text-center">
+            <h2 class="text-4xl md:text-5xl font-bold mb-4 fade-in" data-i18n="tech_title">
+                基于前沿 AI 技术
+            </h2>
+            <p class="text-xl text-gray-400 mb-12 fade-in" data-i18n="tech_subtitle">
+                专业级引擎,桌面级体验
+            </p>
+            
+            <div class="grid md:grid-cols-3 gap-6 fade-in">
+                <div class="card p-6 rounded-xl">
+                    <h3 class="text-lg font-semibold text-amber-500 mb-2" data-i18n="tech_model">AI 模型</h3>
+                    <p class="text-gray-300" data-i18n="tech_model_value">FunASR / SenseVoice 2024</p>
+                </div>
+                <div class="card p-6 rounded-xl">
+                    <h3 class="text-lg font-semibold text-amber-500 mb-2" data-i18n="tech_framework">桌面框架</h3>
+                    <p class="text-gray-300" data-i18n="tech_framework_value">Tauri 2.0</p>
+                </div>
+                <div class="card p-6 rounded-xl">
+                    <h3 class="text-lg font-semibold text-amber-500 mb-2" data-i18n="tech_acceleration">硬件加速</h3>
+                    <p class="text-gray-300" data-i18n="tech_acceleration_value">Apple MPS / NVIDIA CUDA</p>
+                </div>
+            </div>
+            
+            <div class="mt-12 card p-6 rounded-xl fade-in">
+                <h3 class="text-xl font-semibold mb-4" data-i18n="tech_platforms">支持平台</h3>
+                <div class="flex flex-wrap justify-center gap-4 text-gray-300">
+                    <span class="px-4 py-2 bg-green-500/10 text-green-400 rounded-lg border border-green-500/30" data-i18n="tech_platform_macos">
+                        ✅ macOS (M1/M2/M3 优化)
+                    </span>
+                    <span class="px-4 py-2 bg-gray-700/50 text-gray-400 rounded-lg border border-gray-600" data-i18n="tech_platform_windows">
+                        🔜 Windows (即将推出)
+                    </span>
+                    <span class="px-4 py-2 bg-gray-700/50 text-gray-400 rounded-lg border border-gray-600" data-i18n="tech_platform_linux">
+                        🔜 Linux (即将推出)
+                    </span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 px-6">
+        <div class="max-w-4xl mx-auto">
+            <h2 class="text-4xl md:text-5xl font-bold text-center mb-4 fade-in" data-i18n="faq_title">
+                常见问题
+            </h2>
+            <p class="text-xl text-gray-400 text-center mb-16 fade-in" data-i18n="faq_subtitle">
+                快速解答你的疑问
+            </p>
+            
+            <div class="space-y-4">
+                <!-- FAQ 1 -->
+                <div class="card rounded-xl overflow-hidden fade-in">
+                    <button class="faq-question w-full text-left p-6 flex items-center justify-between hover:bg-gray-800/50 transition" onclick="toggleFAQ(this)">
+                        <span class="text-xl font-semibold" data-i18n="faq_1_q">支持哪些操作系统?</span>
+                        <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6 pb-6 text-gray-400">
+                        <p data-i18n="faq_1_a">目前 MonoSub 支持 macOS(特别针对 Apple Silicon M1/M2/M3 芯片优化)。Windows 和 Linux 版本正在开发中,预计近期推出。购买后可免费获得未来所有平台版本。</p>
+                    </div>
+                </div>
+                
+                <!-- FAQ 2 -->
+                <div class="card rounded-xl overflow-hidden fade-in">
+                    <button class="faq-question w-full text-left p-6 flex items-center justify-between hover:bg-gray-800/50 transition" onclick="toggleFAQ(this)">
+                        <span class="text-xl font-semibold" data-i18n="faq_2_q">有退款政策吗?</span>
+                        <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6 pb-6 text-gray-400">
+                        <p data-i18n="faq_2_a">是的,我们提供 7 天无理由退款保证。如果 MonoSub 不符合你的需求,购买后 7 天内可以申请全额退款,无需提供理由。</p>
+                    </div>
+                </div>
+                
+                <!-- FAQ 3 -->
+                <div class="card rounded-xl overflow-hidden fade-in">
+                    <button class="faq-question w-full text-left p-6 flex items-center justify-between hover:bg-gray-800/50 transition" onclick="toggleFAQ(this)">
+                        <span class="text-xl font-semibold" data-i18n="faq_3_q">需要联网才能使用吗?</span>
+                        <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6 pb-6 text-gray-400">
+                        <p data-i18n="faq_3_a">完全不需要。MonoSub 在安装后即可完全离线使用。所有 AI 模型和处理引擎都在本地运行,无需上传视频到云端,也不需要网络连接。</p>
+                    </div>
+                </div>
+                
+                <!-- FAQ 4 -->
+                <div class="card rounded-xl overflow-hidden fade-in">
+                    <button class="faq-question w-full text-left p-6 flex items-center justify-between hover:bg-gray-800/50 transition" onclick="toggleFAQ(this)">
+                        <span class="text-xl font-semibold" data-i18n="faq_4_q">与云端服务相比有什么优势?</span>
+                        <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6 pb-6 text-gray-400">
+                        <p data-i18n="faq_4_a">主要优势包括:1. 成本:一次购买 vs 持续订阅,长期节省数千元;2. 隐私:数据不出本机,完全掌控;3. 速度:本地硬件加速,处理更快;4. 自由:离线可用,无使用限制</p>
+                    </div>
+                </div>
+                
+                <!-- FAQ 5 -->
+                <div class="card rounded-xl overflow-hidden fade-in">
+                    <button class="faq-question w-full text-left p-6 flex items-center justify-between hover:bg-gray-800/50 transition" onclick="toggleFAQ(this)">
+                        <span class="text-xl font-semibold" data-i18n="faq_5_q">购买后能获得更新吗?</span>
+                        <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6 pb-6 text-gray-400">
+                        <p data-i18n="faq_5_a">是的!一次购买包含终身免费更新。包括功能改进、Bug 修复、新语言支持、以及未来的 Windows 和 Linux 版本,全部免费。</p>
+                    </div>
+                </div>
+                
+                <!-- FAQ 6 -->
+                <div class="card rounded-xl overflow-hidden fade-in">
+                    <button class="faq-question w-full text-left p-6 flex items-center justify-between hover:bg-gray-800/50 transition" onclick="toggleFAQ(this)">
+                        <span class="text-xl font-semibold" data-i18n="faq_6_q">支持哪些视频格式?</span>
+                        <svg class="w-6 h-6 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                    <div class="faq-answer px-6 pb-6 text-gray-400">
+                        <p data-i18n="faq_6_a">MonoSub 支持几乎所有主流视频格式,包括:MP4, MOV, AVI, MKV, FLV, WMV 等。只要包含音频轨道的视频文件都可以生成字幕。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Final CTA Section -->
+    <section id="cta" class="py-20 px-6">
+        <div class="max-w-4xl mx-auto text-center">
+            <div class="card p-12 rounded-2xl bg-gradient-to-br from-amber-500/10 to-red-500/10 border-2 border-amber-500/30 fade-in">
+                <h2 class="text-4xl md:text-5xl font-bold mb-6" data-i18n="final_title">
+                    准备好拥有你的字幕工作流?
+                </h2>
+                <p class="text-xl text-gray-300 mb-8" data-i18n="final_subtitle">
+                    加入选择隐私和节约的创作者行列
+                </p>
+                
+                <a href="https://gumroad.com" target="_blank" class="cta-button inline-block px-12 py-5 rounded-xl font-bold text-xl uppercase" data-i18n="final_cta">
+                    获取终身访问权 - 仅需 ¥299
+                </a>
+                
+                <div class="mt-8 flex flex-wrap justify-center gap-6 text-gray-400">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span data-i18n="final_trust_1">通过 Gumroad 安全支付</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span data-i18n="final_trust_2">7 天无理由退款</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                        </svg>
+                        <span data-i18n="final_trust_3">即时下载</span>
+                    </div>
+                </div>
+                
+                <p class="mt-8 text-gray-500 text-sm" data-i18n="final_payment">
+                    支持支付宝、微信支付、信用卡等多种支付方式
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 px-6 border-t border-gray-800">
+        <div class="max-w-7xl mx-auto">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-6">
+                <div class="text-center md:text-left">
+                    <div class="text-2xl font-bold gradient-text mb-2">MonoSub</div>
+                    <p class="text-gray-500 text-sm" data-i18n="footer_copyright">© 2025 MonoSub. Built by Matrix Agent.</p>
+                </div>
+                
+                <div class="flex gap-8 text-sm text-gray-400">
+                    <a href="#" class="hover:text-amber-500 transition" data-i18n="footer_terms">服务条款</a>
+                    <a href="#" class="hover:text-amber-500 transition" data-i18n="footer_privacy">隐私政策</a>
+                    <a href="mailto:support@monosub.com" class="hover:text-amber-500 transition" data-i18n="footer_contact">联系我们</a>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="./translations.js"></script>
+</body>
+</html>

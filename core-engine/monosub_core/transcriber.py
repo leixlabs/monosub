@@ -2,11 +2,42 @@
 FunASR 转录器
 使用 FunASR 进行语音识别
 支持 Paraformer 和 SenseVoice 模型
+针对 Mac 优化 (MPS 加速)
 """
 import re
+import platform
 from typing import List, Dict, Callable, Optional
 from funasr import AutoModel
 
+
+def get_optimal_device() -> str:
+    """
+    自动检测最优设备
+
+    Returns:
+        'mps' - Mac Apple Silicon (M1/M2/M3)
+        'cuda' - NVIDIA GPU
+        'cpu' - 默认 CPU
+    """
+    try:
+        import torch
+
+        # 优先检测 Mac MPS (Metal Performance Shaders)
+        if platform.system() == 'Darwin':
+            if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+                print("DEBUG: MPS (Metal) acceleration available", flush=True)
+                return 'mps'
+
+        # 检测 CUDA
+        if torch.cuda.is_available():
+            print(f"DEBUG: CUDA acceleration available: {torch.cuda.get_device_name(0)}", flush=True)
+            return 'cuda'
+
+    except ImportError:
+        pass
+
+    print("DEBUG: Using CPU for inference", flush=True)
+    return 'cpu'
 
 
 class ProgressCallback:
@@ -33,7 +64,7 @@ class ProgressCallback:
 
 
 class FunASRTranscriber:
-    """FunASR 转录器 - 支持多种模型配置"""
+    """FunASR 转录器 - 支持多种模型配置和 Mac MPS 加速"""
 
     # 预定义模型配置
     MODEL_CONFIGS = {
@@ -63,10 +94,18 @@ class FunASRTranscriber:
         }
     }
 
+    # 字幕合并参数
+    MERGE_CONFIG = {
+        'min_duration': 0.8,  # 最小字幕时长（秒）
+        'max_duration': 10.0,  # 最大字幕时长（秒）
+        'max_chars': 50,  # 单条字幕最大字符数
+        'gap_threshold': 0.5,  # 合并间隔阈值（秒）
+    }
+
     def __init__(
         self,
         model_name: str = "paraformer-zh",
-        device: str = "cpu",
+        device: str = "auto",
         use_vad: bool = True,
         use_punc: bool = True,
         vad_model: Optional[str] = "fsmn-vad",
@@ -77,13 +116,18 @@ class FunASRTranscriber:
 
         Args:
             model_name: 模型名称 (paraformer-zh, sensevoice, paraformer-large) 或自定义模型路径
-            device: 设备 (cpu 或 cuda)
+            device: 设备 (auto, cpu, cuda, mps)
             use_vad: 是否使用 VAD 模型进行语音活动检测
             use_punc: 是否使用标点预测模型
             vad_model: VAD 模型名称 (仅在使用自定义模型时生效)
             punc_model: 标点预测模型名称 (仅在使用自定义模型时生效)
         """
-        self.device = device
+        # 自动检测最优设备
+        if device == "auto":
+            self.device = get_optimal_device()
+        else:
+            self.device = device
+
         self.use_vad = use_vad
         self.use_punc = use_punc
         self.model = None
@@ -104,7 +148,7 @@ class FunASRTranscriber:
             self.use_itn = False
             self.model_type = "paraformer"
 
-        print(f"DEBUG: Model config - model={self.model_name}, vad={self.vad_model_name}, punc={self.punc_model_name}, type={self.model_type}", flush=True)
+        print(f"DEBUG: Model config - model={self.model_name}, vad={self.vad_model_name}, punc={self.punc_model_name}, type={self.model_type}, device={self.device}", flush=True)
 
     def load_model(self, progress_callback: ProgressCallback):
         """加载模型 - VAD和Punc在初始化时一起加载"""
@@ -192,6 +236,9 @@ class FunASRTranscriber:
 
             # 解析结果
             segments = self._parse_result(result)
+
+            # 合并过短字幕
+            segments = self._merge_short_segments(segments)
 
             progress_callback.update(95, "Transcription complete")
 
@@ -524,6 +571,7 @@ class FunASRTranscriber:
     def _estimate_timestamps(self, segments: List[Dict]) -> List[Dict]:
         """
         估算时间戳（当 FunASR 不返回时间戳时）
+        改进版：基于字符类型和标点进行更精确的估算
 
         Args:
             segments: 字幕片段
@@ -534,14 +582,96 @@ class FunASRTranscriber:
         current_time = 0.0
 
         for segment in segments:
-            text_length = len(segment['text'])
-            # 中文约每字0.25秒，英文约每字0.1秒
-            has_chinese = any('\u4e00' <= c <= '\u9fff' for c in segment['text'])
-            char_duration = 0.25 if has_chinese else 0.1
-            duration = text_length * char_duration
+            text = segment['text']
+            duration = self._estimate_duration(text)
 
             segment['start'] = current_time
             segment['end'] = current_time + duration
             current_time = segment['end'] + 0.3  # 片段间隔
 
         return segments
+
+    def _estimate_duration(self, text: str) -> float:
+        """
+        估算文本朗读时长（更精确的算法）
+
+        Args:
+            text: 文本内容
+
+        Returns:
+            估算时长（秒）
+        """
+        duration = 0.0
+
+        for char in text:
+            if '\u4e00' <= char <= '\u9fff':
+                # 中文字符：约 0.22 秒/字
+                duration += 0.22
+            elif char.isalpha():
+                # 英文字母：约 0.08 秒/字母
+                duration += 0.08
+            elif char.isdigit():
+                # 数字：约 0.15 秒/数字
+                duration += 0.15
+            elif char in '。！？.!?':
+                # 句末标点：增加停顿
+                duration += 0.3
+            elif char in '，、；：,;:':
+                # 句中标点：增加小停顿
+                duration += 0.15
+
+        # 最小时长 0.5 秒
+        return max(duration, 0.5)
+
+    def _merge_short_segments(self, segments: List[Dict]) -> List[Dict]:
+        """
+        合并过短的字幕片段
+
+        规则：
+        1. 时长小于 min_duration 的片段与前后合并
+        2. 合并后不超过 max_duration 和 max_chars
+        3. 间隔小于 gap_threshold 的相邻片段优先合并
+
+        Args:
+            segments: 原始字幕片段
+
+        Returns:
+            合并后的字幕片段
+        """
+        if not segments or len(segments) <= 1:
+            return segments
+
+        config = self.MERGE_CONFIG
+        merged = []
+
+        i = 0
+        while i < len(segments):
+            current = segments[i].copy()
+            current_duration = current['end'] - current['start']
+            current_chars = len(current['text'])
+
+            # 如果当前片段太短，尝试与下一个合并
+            while (current_duration < config['min_duration'] or current_chars < 5) and i + 1 < len(segments):
+                next_seg = segments[i + 1]
+                gap = next_seg['start'] - current['end']
+                combined_duration = next_seg['end'] - current['start']
+                combined_chars = len(current['text']) + len(next_seg['text'])
+
+                # 检查是否可以合并
+                if (gap < config['gap_threshold'] and
+                    combined_duration <= config['max_duration'] and
+                    combined_chars <= config['max_chars']):
+                    # 合并
+                    current['end'] = next_seg['end']
+                    current['text'] = current['text'] + next_seg['text']
+                    current_duration = current['end'] - current['start']
+                    current_chars = len(current['text'])
+                    i += 1
+                else:
+                    break
+
+            merged.append(current)
+            i += 1
+
+        print(f"DEBUG: Merged segments: {len(segments)} -> {len(merged)}", flush=True)
+        return merged

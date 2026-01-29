@@ -69,7 +69,7 @@ def main():
 
         transcriber = FunASRTranscriber(
             model_name="sensevoice",  # 使用 SenseVoice 模型
-            device=args.device,
+            device="auto",  # 自动检测最优设备 (MPS/CUDA/CPU)
         )
 
         progress_callback = ProgressCallback()

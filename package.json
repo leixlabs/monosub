@@ -7,9 +7,13 @@
     "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx tauri dev",
     "dev:servers": "vite",
     "build": "tsc -b && vite build && export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx tauri build",
+    "build:frontend": "tsc -b && vite build",
+    "build:dmg": "./scripts/build-dmg.sh build",
+    "build:dmg-only": "./scripts/build-dmg.sh dmg",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "clean": "./scripts/build-dmg.sh clean"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

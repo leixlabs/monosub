@@ -1,0 +1,148 @@
+{
+  "en": {
+    "name": "English",
+    "flag": "🇺🇸",
+    "price": "$39",
+    "monthly": "$19"
+  },
+  "es": {
+    "name": "Español",
+    "flag": "🇪🇸",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "es-419": {
+    "name": "Español (Latinoamérica)",
+    "flag": "🇲🇽",
+    "price": "$39",
+    "monthly": "$19"
+  },
+  "ru": {
+    "name": "Русский",
+    "flag": "🇷🇺",
+    "price": "₽3,500",
+    "monthly": "₽1,500"
+  },
+  "pt-BR": {
+    "name": "Português (BR)",
+    "flag": "🇧🇷",
+    "price": "R$ 199",
+    "monthly": "R$ 89"
+  },
+  "zh-CN": {
+    "name": "中文（简体）",
+    "flag": "🇨🇳",
+    "price": "¥299",
+    "monthly": "¥149"
+  },
+  "id": {
+    "name": "Bahasa Indonesia",
+    "flag": "🇮🇩",
+    "price": "$39",
+    "monthly": "$19"
+  },
+  "cs": {
+    "name": "Čeština",
+    "flag": "🇨🇿",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "de": {
+    "name": "Deutsch",
+    "flag": "🇩🇪",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "fr": {
+    "name": "Français",
+    "flag": "🇫🇷",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "it": {
+    "name": "Italiano",
+    "flag": "🇮🇹",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "nl": {
+    "name": "Nederlands",
+    "flag": "🇳🇱",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "pt-PT": {
+    "name": "Português (PT)",
+    "flag": "🇵🇹",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "pl": {
+    "name": "Polski",
+    "flag": "🇵🇱",
+    "price": "€35",
+    "monthly": "€15"
+  },
+  "vi": {
+    "name": "Tiếng Việt",
+    "flag": "🇻🇳",
+    "price": "$39",
+    "monthly": "$19"
+  },
+  "tr": {
+    "name": "Türkçe",
+    "flag": "🇹🇷",
+    "price": "$39",
+    "monthly": "$19"
+  },
+  "uk": {
+    "name": "Українська",
+    "flag": "🇺🇦",
+    "price": "₴1,500",
+    "monthly": "₴700"
+  },
+  "zh-TW": {
+    "name": "繁體中文",
+    "flag": "🇹🇼",
+    "price": "NT$ 1,299",
+    "monthly": "NT$ 599"
+  },
+  "ja": {
+    "name": "日本語",
+    "flag": "🇯🇵",
+    "price": "¥5,900",
+    "monthly": "¥2,900"
+  },
+  "ko": {
+    "name": "한국어",
+    "flag": "🇰🇷",
+    "price": "₩59,000",
+    "monthly": "₩29,000"
+  },
+  "ar": {
+    "name": "العربية",
+    "flag": "🇸🇦",
+    "price": "$39",
+    "monthly": "$19",
+    "rtl": true
+  },
+  "fa": {
+    "name": "فارسی",
+    "flag": "🇮🇷",
+    "price": "$39",
+    "monthly": "$19",
+    "rtl": true
+  },
+  "th": {
+    "name": "ภาษาไทย",
+    "flag": "🇹🇭",
+    "price": "฿1,490",
+    "monthly": "฿690"
+  },
+  "hi": {
+    "name": "हिन्दी",
+    "flag": "🇮🇳",
+    "price": "₹3,299",
+    "monthly": "₹1,599"
+  }
+}
