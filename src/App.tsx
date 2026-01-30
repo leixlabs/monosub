@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useTranslation } from 'react-i18next';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { Header } from './components/Header';
 import { Toolbar } from './components/Toolbar';
 import { FileList } from './components/FileList';
@@ -110,13 +111,15 @@ function App() {
   }, [updateFile, setIsProcessing, incrementProcessedCount, t]);
 
   return (
-    <div className="min-h-screen bg-bg-secondary flex flex-col">
-      <Header />
-      <Toolbar />
-      <FileList />
-      <BottomBar />
-      <Settings />
-    </div>
+    <ThemeProvider>
+      <div className="min-h-screen bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
+        <Header />
+        <Toolbar />
+        <FileList />
+        <BottomBar />
+        <Settings />
+      </div>
+    </ThemeProvider>
   );
 }
 

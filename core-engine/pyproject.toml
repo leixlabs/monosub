@@ -9,6 +9,7 @@ dependencies = [
     "ffmpeg-python>=0.2.0",
     "torch>=2.0.0",
     "torchaudio>=2.0.0",
+    "charset-normalizer>=3.0.0",
 ]
 
 [project.optional-dependencies]

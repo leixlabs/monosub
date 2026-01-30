@@ -59,8 +59,13 @@ check_dependencies() {
         exit 1
     fi
 
-    # 检查 create-dmg (可选)
-    if ! command -v create-dmg &> /dev/null; then
+    # 对于 Full 版本，强制使用基础方式（ditto）来正确处理大文件
+    # create-dmg 工具在处理包含大量符号链接的大型 app bundle 时可能有问题
+    local build_type="${BUILD_TYPE:-lite}"
+    if [ "$build_type" = "full" ]; then
+        log_info "Full 版本：使用基础方式创建 DMG（ditto + hdiutil）"
+        USE_CREATE_DMG=false
+    elif ! command -v create-dmg &> /dev/null; then
         log_warning "create-dmg 未安装，将使用基础方式创建 DMG"
         log_info "可通过 'brew install create-dmg' 安装以获得更好的 DMG 效果"
         USE_CREATE_DMG=false
@@ -91,9 +96,9 @@ build_frontend() {
     cd "$PROJECT_ROOT"
 
     if [ "$PKG_MANAGER" = "bun" ]; then
-        bun run build:frontend
+        bun run build
     else
-        npm run build:frontend
+        npm run build
     fi
 
     log_success "前端构建完成"
@@ -113,13 +118,42 @@ build_tauri() {
         # Apple Silicon
         log_info "为 Apple Silicon (arm64) 构建..."
         cargo tauri build --target aarch64-apple-darwin
+        TARGET_TRIPLE="aarch64-apple-darwin"
     else
         # Intel
         log_info "为 Intel (x86_64) 构建..."
         cargo tauri build --target x86_64-apple-darwin
+        TARGET_TRIPLE="x86_64-apple-darwin"
     fi
 
     log_success "Tauri 应用构建完成"
+
+    # 如果是 Full 版本，需要手动复制资源到 app bundle
+    local build_type="${BUILD_TYPE:-lite}"
+    if [ "$build_type" = "full" ]; then
+        log_info "复制 Full 版本资源到 app bundle..."
+
+        local app_path="$PROJECT_ROOT/src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/MonoSub.app"
+        local resources_src="$PROJECT_ROOT/src-tauri/resources"
+        local resources_dst="$app_path/Contents/Resources"
+
+        if [ -d "$app_path" ] && [ -d "$resources_src" ]; then
+            # 复制所有资源（bin, core-engine, python-venv, MANIFEST.txt）
+            cp -R "$resources_src"/* "$resources_dst/"
+
+            # 验证关键文件
+            if [ -f "$resources_dst/python-venv/bin/python" ]; then
+                local venv_size=$(du -sh "$resources_dst/python-venv" | cut -f1)
+                log_success "资源复制完成 (venv: $venv_size)"
+            else
+                log_error "资源复制失败：python-venv 不存在"
+                exit 1
+            fi
+        else
+            log_error "找不到 app 或资源目录"
+            exit 1
+        fi
+    fi
 }
 
 # 创建 DMG
@@ -129,8 +163,12 @@ create_dmg() {
     # 创建输出目录
     mkdir -p "$OUTPUT_DIR"
 
-    # 查找 .app 文件
-    APP_PATH=$(find "$BUILD_DIR" -name "*.app" -type d | head -1)
+    # 删除 Tauri 自动生成的 dmg（它不包含我们手动复制的资源）
+    log_info "删除 Tauri 自动生成的 dmg..."
+    rm -rf "$BUILD_DIR"/*/release/bundle/dmg/*.dmg
+
+    # 查找 .app 文件（从 macos 目录，不是 dmg 目录）
+    APP_PATH=$(find "$BUILD_DIR"/*/release/bundle/macos -name "*.app" -type d | head -1)
 
     if [ -z "$APP_PATH" ]; then
         log_error "未找到 .app 文件，请先运行构建"
@@ -138,6 +176,26 @@ create_dmg() {
     fi
 
     log_info "找到应用: $APP_PATH"
+
+    # 验证 app 大小
+    local build_type="${BUILD_TYPE:-lite}"
+    local app_size=$(du -sm "$APP_PATH" | cut -f1)
+
+    if [ "$build_type" = "full" ]; then
+        # Full 版本应该 > 800M
+        if [ "$app_size" -lt 800 ]; then
+            log_error "App 大小异常 (${app_size}M < 800M)，资源可能未正确复制"
+            exit 1
+        fi
+        log_info "App 大小验证通过 (Full): ${app_size}M"
+    elif [ "$build_type" = "lite" ]; then
+        # Lite 版本应该 > 80M（Python ~60M + FFmpeg ~50M + 其他）
+        if [ "$app_size" -lt 80 ]; then
+            log_error "App 大小异常 (${app_size}M < 80M)，资源可能未正确复制"
+            exit 1
+        fi
+        log_info "App 大小验证通过 (Lite): ${app_size}M"
+    fi
 
     DMG_PATH="$OUTPUT_DIR/$DMG_NAME"
 
@@ -180,16 +238,63 @@ create_dmg() {
 
         # 创建临时目录
         TMP_DIR=$(mktemp -d)
-        cp -R "$APP_PATH" "$TMP_DIR/"
+        log_info "临时目录: $TMP_DIR"
+
+        # 使用 ditto 替代 cp，正确处理符号链接和扩展属性
+        log_info "复制 app bundle 到临时目录 (使用 ditto)..."
+        APP_NAME_BASE="$(basename "$APP_PATH")"
+        ditto "$APP_PATH" "$TMP_DIR/$APP_NAME_BASE"
+
+        # 验证临时目录中的 app
+        local tmp_app_size=$(du -sm "$TMP_DIR/$APP_NAME_BASE" | cut -f1)
+        log_info "临时目录中的 app 大小: ${tmp_app_size}M"
+
+        if [ -d "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/python-venv" ]; then
+            local tmp_venv_size=$(du -sh "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/python-venv" | cut -f1)
+            log_info "venv 已复制到临时目录: $tmp_venv_size"
+        else
+            log_error "venv 未复制到临时目录！"
+            log_info "临时目录内容:"
+            ls -lh "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/"
+            exit 1
+        fi
 
         # 创建 Applications 链接
         ln -s /Applications "$TMP_DIR/Applications"
 
         # 创建 DMG
+        log_info "开始创建 DMG，源目录: $TMP_DIR"
+        log_info "hdiutil create 参数: -volname $APP_NAME -srcfolder $TMP_DIR -ov -format UDZO $DMG_PATH"
+
+        # 使用 -verbose 参数查看详细输出
         hdiutil create -volname "$APP_NAME" \
             -srcfolder "$TMP_DIR" \
             -ov -format UDZO \
-            "$DMG_PATH"
+            -verbose \
+            "$DMG_PATH" 2>&1 | tail -20
+
+        # 验证创建的 DMG
+        log_info "验证创建的 DMG..."
+        hdiutil attach "$DMG_PATH" -quiet
+        sleep 2
+        local dmg_app_size=$(du -sm "/Volumes/$APP_NAME/$(basename "$APP_PATH")" 2>/dev/null | cut -f1 || echo "0")
+        log_info "DMG 中的 app 大小: ${dmg_app_size}M"
+        hdiutil detach "/Volumes/$APP_NAME" -quiet 2>/dev/null || true
+
+        # 根据构建类型验证大小
+        if [ "$build_type" = "full" ]; then
+            if [ "$dmg_app_size" -lt 800 ]; then
+                log_error "DMG 创建失败！app 大小异常: ${dmg_app_size}M < 800M"
+                log_info "保留临时目录用于调试: $TMP_DIR"
+                exit 1
+            fi
+        elif [ "$build_type" = "lite" ]; then
+            if [ "$dmg_app_size" -lt 80 ]; then
+                log_error "DMG 创建失败！app 大小异常: ${dmg_app_size}M < 80M"
+                log_info "保留临时目录用于调试: $TMP_DIR"
+                exit 1
+            fi
+        fi
 
         # 清理临时目录
         rm -rf "$TMP_DIR"
@@ -266,11 +371,33 @@ prepare_resources() {
     log_info "准备资源文件..."
     cd "$PROJECT_ROOT"
 
-    if [ -f "$SCRIPT_DIR/prepare-resources.sh" ]; then
-        bash "$SCRIPT_DIR/prepare-resources.sh"
-        log_success "资源文件准备完成"
+    # 根据 BUILD_TYPE 选择不同的准备脚本
+    # BUILD_TYPE=lite (默认): Python + uv 动态依赖（推荐）
+    # BUILD_TYPE=full: 使用完整 venv 打包（稳定，体积大）
+    local build_type="${BUILD_TYPE:-lite}"
+
+    if [ "$build_type" = "full" ]; then
+        log_info "使用 Full 版本打包（完整 Python venv）"
+        if [ -f "$SCRIPT_DIR/prepare-venv.sh" ]; then
+            bash "$SCRIPT_DIR/prepare-venv.sh"
+            log_success "Full 版本资源文件准备完成"
+        else
+            log_error "未找到 prepare-venv.sh"
+            exit 1
+        fi
+    elif [ "$build_type" = "lite" ]; then
+        log_info "使用 Lite 版本打包（Python + uv 动态依赖）"
+        if [ -f "$SCRIPT_DIR/prepare-lite.sh" ]; then
+            bash "$SCRIPT_DIR/prepare-lite.sh"
+            log_success "Lite 版本资源文件准备完成"
+        else
+            log_error "未找到 prepare-lite.sh"
+            exit 1
+        fi
     else
-        log_warning "未找到 prepare-resources.sh，跳过资源准备"
+        log_error "未知的 BUILD_TYPE: $build_type"
+        log_info "支持的类型: lite (默认), full"
+        exit 1
     fi
 }
 

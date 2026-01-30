@@ -31,9 +31,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {
-      "resources/*": "./"
-    },
+    "resources": [
+      "resources/**/*"
+    ],
     "externalBin": [
       "resources/bin/ffmpeg",
       "resources/bin/ffprobe",

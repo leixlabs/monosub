@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { FileItem } from './FileItem';
 import { Film, Plus, Subtitles } from 'lucide-react';
@@ -93,34 +94,34 @@ export function FileList() {
       >
         <div className="text-center max-w-md">
           {/* Illustration */}
-          <div className="relative w-32 h-32 mx-auto mb-6">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-accent/10 rounded-3xl transform rotate-6" />
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 rounded-3xl transform -rotate-3" />
-            <div className="relative bg-white rounded-3xl shadow-apple-lg w-full h-full flex items-center justify-center">
+          <div className="relative w-32 h-32 mx-auto mb-8">
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-accent/10 dark:from-primary/20 dark:to-accent/20 rounded-3xl transform rotate-6" />
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 dark:from-primary/30 dark:to-accent/30 rounded-3xl transform -rotate-3" />
+            <div className="relative glass-medium dark:glass-dark rounded-3xl shadow-glass-lg w-full h-full flex items-center justify-center">
               <div className="relative">
                 <Film className="w-12 h-12 text-primary" />
-                <Subtitles className="w-6 h-6 text-accent absolute -bottom-1 -right-2 bg-white rounded-full p-0.5" />
+                <Subtitles className="w-6 h-6 text-accent absolute -bottom-1 -right-2 bg-white dark:bg-zinc-900 rounded-full p-0.5" />
               </div>
             </div>
           </div>
 
           {/* Title */}
-          <h2 className="text-xl font-semibold text-text-primary mb-2">
+          <h2 className="text-2xl font-semibold text-text-primary dark:text-white mb-3">
             {t('fileList.emptyTitle')}
           </h2>
-          <p className="text-sm text-text-secondary mb-4 leading-relaxed">
+          <p className="text-sm text-text-secondary dark:text-gray-400 mb-6 leading-relaxed">
             {t('fileList.emptyDescription')}
           </p>
 
           {/* Supported Formats */}
-          <div className="mb-6 p-4 bg-bg-secondary/50 rounded-lg border border-divider">
-            <div className="grid grid-cols-2 gap-4 text-xs">
+          <div className="mb-8 p-6 glass-medium dark:glass-dark rounded-2xl">
+            <div className="grid grid-cols-2 gap-6 text-xs">
               <div>
                 <div className="flex items-center gap-1.5 mb-2">
                   <Film className="w-3.5 h-3.5 text-primary" />
-                  <span className="font-medium text-text-primary">Video</span>
+                  <span className="font-medium text-text-primary dark:text-white">Video</span>
                 </div>
-                <div className="text-text-tertiary space-y-0.5">
+                <div className="text-text-tertiary dark:text-gray-500 space-y-0.5">
                   <div>MP4, MOV, AVI, MKV</div>
                   <div>WEBM, FLV, M4V</div>
                 </div>
@@ -128,9 +129,9 @@ export function FileList() {
               <div>
                 <div className="flex items-center gap-1.5 mb-2">
                   <Subtitles className="w-3.5 h-3.5 text-accent" />
-                  <span className="font-medium text-text-primary">Audio</span>
+                  <span className="font-medium text-text-primary dark:text-white">Audio</span>
                 </div>
-                <div className="text-text-tertiary space-y-0.5">
+                <div className="text-text-tertiary dark:text-gray-500 space-y-0.5">
                   <div>MP3, WAV, FLAC, AAC</div>
                   <div>M4A, OGG, WMA</div>
                 </div>
@@ -139,16 +140,17 @@ export function FileList() {
           </div>
 
           {/* Action button */}
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={handleAddFiles}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-all shadow-apple hover:shadow-apple-lg"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-all shadow-glass-md hover:shadow-glass-lg"
           >
             <Plus className="w-5 h-5" />
             {t('fileList.addVideos')}
-          </button>
+          </motion.button>
 
           {/* Features */}
-          <div className="mt-8 flex items-center justify-center gap-6 text-xs text-text-tertiary">
+          <div className="mt-8 flex items-center justify-center gap-6 text-xs text-text-tertiary dark:text-gray-500">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               {t('fileList.featureAsr')}

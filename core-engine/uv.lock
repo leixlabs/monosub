@@ -1119,6 +1119,7 @@ name = "monosub-core"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "charset-normalizer" },
     { name = "ffmpeg-python" },
     { name = "funasr" },
     { name = "modelscope" },
@@ -1151,6 +1152,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
+    { name = "charset-normalizer", specifier = ">=3.0.0" },
     { name = "ffmpeg-python", specifier = ">=0.2.0" },
     { name = "funasr", specifier = ">=1.0.0" },
     { name = "modelscope", specifier = ">=1.9.0" },

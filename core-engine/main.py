@@ -12,6 +12,40 @@ import os
 import argparse
 from pathlib import Path
 
+# CRITICAL FIX #1: Monkey patch subprocess.run to replace ffmpeg/ffprobe commands
+# This MUST happen BEFORE any imports that might use subprocess (especially FunASR)
+# Reason: FunASR internally calls bare 'ffmpeg' command without checking env vars
+import subprocess
+_original_run = subprocess.run
+
+def _patched_run(args, *pargs, **kwargs):
+    """Intercept subprocess.run and replace bare ffmpeg/ffprobe with env var paths"""
+    if isinstance(args, (list, tuple)) and len(args) > 0:
+        if args[0] == 'ffmpeg':
+            ffmpeg_path = os.environ.get('MONOSUB_FFMPEG_PATH', 'ffmpeg')
+            args = list(args)
+            args[0] = ffmpeg_path
+        elif args[0] == 'ffprobe':
+            ffprobe_path = os.environ.get('MONOSUB_FFPROBE_PATH', 'ffprobe')
+            args = list(args)
+            args[0] = ffprobe_path
+    return _original_run(args, *pargs, **kwargs)
+
+subprocess.run = _patched_run
+
+# CRITICAL FIX #2: Pre-load torch to avoid circular import issues in PyInstaller
+# This must happen BEFORE importing FunASR or any module that uses torch
+# Resolves: "partially initialized module 'torch' has no attribute 'autograd'"
+if getattr(sys, 'frozen', False):
+    print("DEBUG: Pre-loading torch to avoid circular imports...", flush=True)
+    try:
+        import torch
+        # Trigger full initialization
+        _ = torch.tensor([1.0])
+        print("DEBUG: torch pre-loaded successfully", flush=True)
+    except Exception as e:
+        print(f"WARNING: Failed to pre-load torch: {e}", flush=True)
+
 # 添加当前目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

@@ -7,31 +7,34 @@
     "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx tauri dev",
     "dev:servers": "vite",
     "build": "tsc -b && vite build",
-    "build:frontend": "tsc -b && vite build",
     "build:dmg": "./scripts/build-dmg.sh build",
-    "build:dmg-only": "./scripts/build-dmg.sh dmg",
-    "prepare:resources": "./scripts/prepare-resources.sh",
-    "install:deps": "./scripts/install-deps.sh",
-    "clean:temp": "./scripts/clean-temp-files.sh",
+    "build:dmg:lite": "BUILD_TYPE=lite ./scripts/build-dmg.sh build",
+    "build:dmg:full": "BUILD_TYPE=full ./scripts/build-dmg.sh build",
+    "build:windows": "./scripts/build-windows.sh build",
+    "build:windows:lite": "BUILD_TYPE=lite ./scripts/build-windows.sh build",
+    "build:windows:full": "BUILD_TYPE=full ./scripts/build-windows.sh build",
     "lint": "eslint .",
-    "preview": "vite preview",
     "check": "tsc -b --noEmit",
     "clean": "./scripts/build-dmg.sh clean"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.29.2",
     "i18next": "^25.8.0",
     "i18next-browser-languagedetector": "^8.2.0",
     "lucide-react": "^0.511.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-i18next": "^16.5.4",
+    "tailwind-merge": "^3.4.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@eslint/js": "^9.25.0",
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^22.15.30",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -44,10 +47,10 @@
     "globals": "^16.0.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
     "vite": "^6.3.5",
-
     "vite-tsconfig-paths": "^5.1.4"
   }
 }

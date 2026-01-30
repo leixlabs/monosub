@@ -77,14 +77,32 @@ bun run lint
 
 ### 构建
 
+**方式一：Lite 版本（推荐）**
 ```bash
-# 构建应用
-bun run build
+# 使用 Python + uv 动态依赖打包
+bun run build:dmg
+# 或
+BUILD_TYPE=lite ./scripts/build-dmg.sh
+```
+
+**方式二：Full 版本（稳定）**
+```bash
+# 使用完整 Python venv 打包
+BUILD_TYPE=full ./scripts/build-dmg.sh
 ```
 
 构建产物：
-- macOS: `src-tauri/target/release/bundle/macos/`
-- Windows: `src-tauri/target/release/bundle/msi/`
+- macOS DMG: `dist/MonoSub-{version}-universal.dmg`
+- 开发构建: `src-tauri/target/release/bundle/macos/`
+
+**打包方案说明：**
+- **Lite 版本**（~80MB）：打包 Python 解释器 + uv 工具 + 源码，首次运行时自动安装依赖
+- **Full 版本**（~800MB）：打包完整 Python venv，无需首次安装，稳定性更好
+
+**重要说明：**
+- `core-engine/` 是 Python 源代码目录
+- `src-tauri/resources/` 在构建时自动生成，不提交到 git
+- 构建脚本会自动复制 Python 代码到打包目录
 
 ## 项目结构
 
@@ -103,13 +121,14 @@ voice-to-subtitle/
 │   │   └── main.rs        # 入口
 │   └── Cargo.toml
 │
-├── core-engine/             # Python AI 引擎
-│   ├── asr/                # 核心模块
+├── core-engine/             # Python AI 引擎（源代码）
+│   ├── monosub_core/       # 核心模块
 │   │   ├── audio_extractor.py
 │   │   ├── transcriber.py
 │   │   └── subtitle_writer.py
 │   ├── main.py             # 入口
-│   └── requirements.txt
+│   ├── pyproject.toml      # uv 项目配置
+│   └── .venv/              # Python 虚拟环境（自动生成，已忽略）
 │
 ├── design/                  # UI 设计文件
 ├── _docs/                   # 产品文档

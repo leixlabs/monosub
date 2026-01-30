@@ -1,5 +1,6 @@
 import { Plus, Trash2, Film } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
@@ -76,34 +77,35 @@ export function Toolbar() {
   };
 
   return (
-    <div className="bg-bg-card/80 backdrop-blur-lg h-[64px] px-6 flex items-center justify-between border-b border-divider">
+    <div className="glass-light dark:glass-dark h-[64px] px-6 flex items-center justify-between border-b border-glass-border-light dark:border-glass-border-dark">
       <div className="flex items-center gap-4">
-        <button
+        <motion.button
+          whileTap={{ scale: 0.97 }}
           onClick={handleAddFiles}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors shadow-apple"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors shadow-glass-md"
         >
           <Plus className="w-4 h-4" />
           {t('toolbar.addFiles')}
-        </button>
+        </motion.button>
 
         {files.length > 0 && (
-          <div className="flex items-center gap-3 pl-4 border-l border-divider">
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+          <div className="flex items-center gap-3 pl-4 border-l border-divider dark:border-zinc-700">
+            <div className="flex items-center gap-1.5 text-xs text-text-secondary dark:text-gray-400">
               <Film className="w-3.5 h-3.5" />
               <span>{t('toolbar.filesCount', { count: files.length })}</span>
             </div>
             {pendingCount > 0 && (
-              <span className="px-2 py-0.5 bg-bg-secondary text-text-secondary text-xs rounded-full">
+              <span className="px-2 py-0.5 bg-bg-secondary dark:bg-zinc-800 text-text-secondary dark:text-gray-400 text-xs rounded-full">
                 {pendingCount} {t('toolbar.pending')}
               </span>
             )}
             {processingCount > 0 && (
-              <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs rounded-full animate-pulse-soft">
+              <span className="px-2 py-0.5 bg-primary/10 dark:bg-primary/20 text-primary text-xs rounded-full animate-pulse-soft">
                 {processingCount} {t('toolbar.processing')}
               </span>
             )}
             {completedCount > 0 && (
-              <span className="px-2 py-0.5 bg-success/10 text-success text-xs rounded-full">
+              <span className="px-2 py-0.5 bg-success/10 dark:bg-success/20 text-success text-xs rounded-full">
                 {completedCount} {t('toolbar.completed')}
               </span>
             )}
@@ -113,13 +115,14 @@ export function Toolbar() {
 
       <div className="flex items-center gap-3">
         {files.length > 0 && !isProcessing && (
-          <button
+          <motion.button
+            whileTap={{ scale: 0.97 }}
             onClick={clearFiles}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary dark:text-gray-400 hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/20 rounded-xl transition-colors"
           >
             <Trash2 className="w-4 h-4" />
             {t('toolbar.clear')}
-          </button>
+          </motion.button>
         )}
       </div>
     </div>

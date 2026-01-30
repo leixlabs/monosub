@@ -42,17 +42,37 @@ export default {
         warning: '#FF9500',     // Apple Orange
         danger: '#FF3B30',      // Apple Red
         info: '#007AFF',        // Apple Blue (for info/links)
+
+        // Dark mode glass backgrounds (2026 Liquid Glass aesthetic)
+        'dark-glass': {
+          50: 'rgba(30, 30, 40, 0.4)',
+          100: 'rgba(30, 30, 40, 0.5)',
+          200: 'rgba(30, 30, 40, 0.6)',
+          300: 'rgba(30, 30, 40, 0.7)',
+        },
+
+        // Glass borders for glassmorphism
+        'glass-border-light': 'rgba(255, 255, 255, 0.12)',
+        'glass-border-dark': 'rgba(255, 255, 255, 0.08)',
       },
       borderRadius: {
         sm: '6px',
         md: '10px',
         lg: '14px',
         xl: '18px',
+        '2xl': '20px',  // macOS window corners
+        '3xl': '24px',  // larger cards
       },
       boxShadow: {
         'apple': '0 2px 8px rgba(0, 0, 0, 0.08)',
         'apple-lg': '0 4px 16px rgba(0, 0, 0, 0.12)',
         'apple-inset': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)',
+        // Glass shadows for Liquid Glass aesthetic
+        'glass-sm': '0 2px 12px rgba(0, 0, 0, 0.05)',
+        'glass-md': '0 4px 20px rgba(0, 0, 0, 0.08)',
+        'glass-lg': '0 8px 32px rgba(0, 0, 0, 0.12)',
+        'float': '0 8px 24px rgba(88, 86, 214, 0.12)',      // Primary color float
+        'float-hover': '0 12px 32px rgba(88, 86, 214, 0.16)',
       },
       fontFamily: {
         sans: [
@@ -98,5 +118,5 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [require("tailwindcss-animate")],
 };

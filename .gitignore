@@ -35,6 +35,9 @@ core-engine/.venv/
 *.egg-info/
 dist/
 build/
+core-engine/dist/
+core-engine/build/
+core-engine/*.spec
 
 # uv
 .python-version
@@ -45,6 +48,8 @@ core-engine/models/*
 
 # Tauri
 src-tauri/target/
+src-tauri/resources/*
+!src-tauri/resources/MANIFEST.txt
 
 # Temporary files
 *.wav
@@ -53,4 +58,4 @@ src-tauri/target/
 
 .trae
 
-src-tauri/resources/bin/
+.claude/skills/ui-ux-pro-max
