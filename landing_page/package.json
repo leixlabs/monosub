@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "deploy": "bun run build"
+    "deploy": "bun run build && bunx wrangler pages deploy dist --project-name=monosub"
   },
   "dependencies": {
     "react": "^18.3.1",
