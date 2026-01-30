@@ -119,33 +119,50 @@ fix_python_dylib() {
         log_info "libpython 已存在于 venv/lib"
     else
         # 查找源 Python 的 lib 目录
-        local source_python_home=$(dirname "$(dirname "$python_bin")")
+        # 首先尝试从当前使用的 Python 获取路径
+        local current_python=$(which python3.11 || which python3)
+        local python_prefix=""
+        if [ -n "$current_python" ]; then
+            python_prefix=$("$current_python" -c "import sys; print(sys.prefix)" 2>/dev/null || echo "")
+        fi
+
         local possible_lib_paths=(
+            # uv 管理的 Python（优先）
+            "$python_prefix/lib/$libpython_name"
+            "$HOME/.local/share/uv/python/cpython-3.11.*/lib/$libpython_name"
+            # 资源目录中的独立 Python
             "$RESOURCES_DIR/python/lib/$libpython_name"
+            # Homebrew Python
             "/usr/local/opt/python@${python_version}/Frameworks/Python.framework/Versions/${python_version}/lib/$libpython_name"
             "/opt/homebrew/opt/python@${python_version}/Frameworks/Python.framework/Versions/${python_version}/lib/$libpython_name"
+            # 系统 Python
             "/Library/Frameworks/Python.framework/Versions/${python_version}/lib/$libpython_name"
         )
 
         local found_lib=""
         for lib_path in "${possible_lib_paths[@]}"; do
-            if [ -f "$lib_path" ]; then
-                found_lib="$lib_path"
-                log_info "找到 libpython: $lib_path"
-                break
-            fi
+            # 展开通配符
+            for expanded_path in $lib_path; do
+                if [ -f "$expanded_path" ]; then
+                    found_lib="$expanded_path"
+                    log_info "找到 libpython: $expanded_path"
+                    break 2
+                fi
+            done
         done
 
         if [ -n "$found_lib" ]; then
             log_info "复制 $libpython_name 到 venv/lib..."
             mkdir -p "$lib_dir"
             cp "$found_lib" "$lib_dir/"
+            log_success "libpython 复制完成"
         else
-            log_warning "未找到 libpython，将尝试从 resources/python/ 查找"
-            if [ -f "$RESOURCES_DIR/python/lib/$libpython_name" ]; then
-                mkdir -p "$lib_dir"
-                cp "$RESOURCES_DIR/python/lib/$libpython_name" "$lib_dir/"
-            fi
+            log_error "未找到 libpython3.11.dylib！"
+            log_info "尝试过的路径:"
+            for lib_path in "${possible_lib_paths[@]}"; do
+                log_info "  - $lib_path"
+            done
+            return 1
         fi
     fi
 
@@ -286,6 +303,7 @@ RESOURCES_DIR="$APP_CONTENTS/Resources/resources"
 
 # Python venv paths
 VENV_PYTHON="$RESOURCES_DIR/python-venv/bin/python"
+VENV_LIB="$RESOURCES_DIR/python-venv/lib"
 MAIN_PY="$RESOURCES_DIR/core-engine/main.py"
 
 # Check if files exist
@@ -300,6 +318,9 @@ if [ ! -f "$MAIN_PY" ]; then
     echo "ERROR: main.py not found: $MAIN_PY" >&2
     exit 1
 fi
+
+# 设置动态库搜索路径（作为 rpath 的备用方案）
+export DYLD_LIBRARY_PATH="$VENV_LIB:${DYLD_LIBRARY_PATH:-}"
 
 # Run Python with all arguments
 exec "$VENV_PYTHON" "$MAIN_PY" "$@"
