@@ -49,7 +49,6 @@ core-engine/models/*
 # Tauri
 src-tauri/target/
 src-tauri/resources/*
-!src-tauri/resources/MANIFEST.txt
 
 # Temporary files
 *.wav
