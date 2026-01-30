@@ -224,12 +224,7 @@ copy_python_scripts() {
     cp "$CORE_ENGINE_DIR/main.py" "$scripts_target/"
     cp -R "$CORE_ENGINE_DIR/monosub_core" "$scripts_target/"
 
-    # 复制 requirements.txt（用于首次安装）
-    if [ -f "$CORE_ENGINE_DIR/requirements.txt" ]; then
-        cp "$CORE_ENGINE_DIR/requirements.txt" "$scripts_target/"
-    fi
-
-    # 也复制 pyproject.toml（如果存在）
+    # 复制 pyproject.toml（uv 需要它来安装依赖）
     if [ -f "$CORE_ENGINE_DIR/pyproject.toml" ]; then
         cp "$CORE_ENGINE_DIR/pyproject.toml" "$scripts_target/"
     fi
@@ -254,90 +249,18 @@ create_launcher() {
     fi
 
     local launcher="$RESOURCES_DIR/bin/monosub-engine-$target_triple"
+    local template_file="$SCRIPT_DIR/launcher-template.sh"
 
-    cat > "$launcher" << 'EOF'
-#!/bin/bash
-# MonoSub Python Engine Launcher (Lite version)
-# Auto-installs dependencies on first run using uv
-
-set -e
-
-# Get the directory of this script
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# In Tauri app bundle:
-# - Sidecars are executed from: Contents/MacOS/
-# - Resources are in: Contents/Resources/resources/ (array syntax preserves "resources/" prefix)
-# During execution, check where we are
-if [[ "$SCRIPT_DIR" == *"/Contents/MacOS"* ]]; then
-    # Running as sidecar from MacOS folder
-    APP_CONTENTS="$(dirname "$SCRIPT_DIR")"
-    RESOURCES_DIR="$APP_CONTENTS/Resources/resources"
-elif [[ "$SCRIPT_DIR" == *"/Contents/Resources/resources/bin"* ]]; then
-    # Running from Resources/resources/bin folder
-    RESOURCES_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
-else
-    # Development mode
-    RESOURCES_DIR="$(dirname "$SCRIPT_DIR")"
-fi
-
-# Paths
-PYTHON_BIN="$RESOURCES_DIR/python/bin/python3"
-UV_BIN="$RESOURCES_DIR/bin/uv"
-MAIN_PY="$RESOURCES_DIR/core-engine/main.py"
-REQUIREMENTS="$RESOURCES_DIR/core-engine/requirements.txt"
-
-# Cache directory for dependencies
-CACHE_DIR="$HOME/Library/Caches/MonoSub/python-deps"
-DEPS_INSTALLED_MARKER="$CACHE_DIR/.installed"
-
-# Check if Python exists
-if [ ! -f "$PYTHON_BIN" ]; then
-    echo "ERROR: Python not found: $PYTHON_BIN" >&2
-    exit 1
-fi
-
-if [ ! -f "$MAIN_PY" ]; then
-    echo "ERROR: main.py not found: $MAIN_PY" >&2
-    exit 1
-fi
-
-# Check if dependencies are installed
-if [ ! -f "$DEPS_INSTALLED_MARKER" ]; then
-    echo "MSG:首次运行，正在安装 AI 依赖..." >&2
-    echo "MSG:这可能需要 3-5 分钟，请耐心等待..." >&2
-    echo "PROGRESS:0" >&2
-
-    # Create cache directory
-    mkdir -p "$CACHE_DIR"
-
-    # Install dependencies using uv
-    if [ -f "$UV_BIN" ]; then
-        echo "MSG:使用 uv 安装依赖到缓存目录..." >&2
-        "$UV_BIN" pip install -r "$REQUIREMENTS" --target "$CACHE_DIR" --python "$PYTHON_BIN" 2>&1 | while read -r line; do
-            echo "MSG:$line" >&2
-        done
-    else
-        echo "MSG:使用 pip 安装依赖..." >&2
-        "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS" --target "$CACHE_DIR" 2>&1 | while read -r line; do
-            echo "MSG:$line" >&2
-        done
+    # Check if template file exists
+    if [ ! -f "$template_file" ]; then
+        log_error "启动脚本模板不存在: $template_file"
+        exit 1
     fi
 
-    # Mark as installed
-    touch "$DEPS_INSTALLED_MARKER"
-    echo "MSG:依赖安装完成！" >&2
-    echo "PROGRESS:5" >&2
-fi
-
-# Set PYTHONPATH to include cached dependencies
-export PYTHONPATH="$CACHE_DIR:$PYTHONPATH"
-
-# Run the Python script with all arguments
-exec "$PYTHON_BIN" "$MAIN_PY" "$@"
-EOF
-
+    # Copy template to launcher
+    cp "$template_file" "$launcher"
     chmod +x "$launcher"
+
     log_success "启动脚本创建完成: monosub-engine-$target_triple (Lite 版本)"
 }
 
@@ -368,7 +291,7 @@ python/                    # 独立 Python 3.11 (~60MB)
 core-engine/
 ├── main.py                # 入口脚本
 ├── monosub_core/          # 核心模块
-└── requirements.txt       # 依赖列表
+└── pyproject.toml         # 依赖配置 (uv 读取)
 
 ## 版本信息
 - 打包方式: Lite（动态依赖安装）

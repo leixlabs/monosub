@@ -1,4 +1,5 @@
 import { useLanguage } from '../hooks/useLanguage';
+import { HeroCarousel } from './HeroCarousel';
 
 export const Hero = () => {
   const { t, config } = useLanguage();
@@ -38,16 +39,9 @@ export const Hero = () => {
             </div>
           </div>
           
-          {/* Right: Hero Image */}
+          {/* Right: Hero Carousel */}
           <div className="relative">
-            <div className="hero-image rounded-2xl overflow-hidden shadow-2xl border border-dark-border">
-              <img
-                src="/imgs/hero-mockup.png"
-                alt="MonoSub Interface"
-                className="w-full h-auto"
-                loading="eager"
-              />
-            </div>
+            <HeroCarousel />
           </div>
         </div>
       </div>

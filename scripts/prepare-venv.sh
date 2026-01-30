@@ -102,6 +102,73 @@ download_ffmpeg
 # ============================================
 log_info "准备完整 Python 虚拟环境..."
 
+# 修复 Python 虚拟环境中的动态库路径
+fix_python_dylib() {
+    local venv_target="$1"
+    local python_bin="$venv_target/bin/python"
+    local python_link="$venv_target/bin/python3"
+
+    # 查找 libpython3.11.dylib 的位置
+    # 1. 尝试从系统 Python 复制
+    local python_version="3.11"
+    local libpython_name="libpython${python_version}.dylib"
+    local lib_dir="$venv_target/lib"
+
+    # 检查 venv 的 lib 目录是否已有该库
+    if [ -f "$lib_dir/$libpython_name" ]; then
+        log_info "libpython 已存在于 venv/lib"
+    else
+        # 查找源 Python 的 lib 目录
+        local source_python_home=$(dirname "$(dirname "$python_bin")")
+        local possible_lib_paths=(
+            "$RESOURCES_DIR/python/lib/$libpython_name"
+            "/usr/local/opt/python@${python_version}/Frameworks/Python.framework/Versions/${python_version}/lib/$libpython_name"
+            "/opt/homebrew/opt/python@${python_version}/Frameworks/Python.framework/Versions/${python_version}/lib/$libpython_name"
+            "/Library/Frameworks/Python.framework/Versions/${python_version}/lib/$libpython_name"
+        )
+
+        local found_lib=""
+        for lib_path in "${possible_lib_paths[@]}"; do
+            if [ -f "$lib_path" ]; then
+                found_lib="$lib_path"
+                log_info "找到 libpython: $lib_path"
+                break
+            fi
+        done
+
+        if [ -n "$found_lib" ]; then
+            log_info "复制 $libpython_name 到 venv/lib..."
+            mkdir -p "$lib_dir"
+            cp "$found_lib" "$lib_dir/"
+        else
+            log_warning "未找到 libpython，将尝试从 resources/python/ 查找"
+            if [ -f "$RESOURCES_DIR/python/lib/$libpython_name" ]; then
+                mkdir -p "$lib_dir"
+                cp "$RESOURCES_DIR/python/lib/$libpython_name" "$lib_dir/"
+            fi
+        fi
+    fi
+
+    # 使用 install_name_tool 修改 Python 可执行文件的动态库搜索路径
+    if [ -f "$python_bin" ]; then
+        log_info "修改 Python 可执行文件的 rpath..."
+
+        # 为 Python 二进制文件添加 @executable_path/../lib 到 rpath
+        # 这样它会在 venv/lib 中查找 libpython
+        install_name_tool -add_rpath "@executable_path/../lib" "$python_bin" 2>/dev/null || true
+
+        # 也为 python3 链接做同样的处理
+        if [ -L "$python_link" ]; then
+            local real_python=$(readlink "$python_link")
+            if [ -f "$venv_target/bin/$real_python" ]; then
+                install_name_tool -add_rpath "@executable_path/../lib" "$venv_target/bin/$real_python" 2>/dev/null || true
+            fi
+        fi
+
+        log_success "动态库路径修复完成"
+    fi
+}
+
 prepare_venv() {
     local venv_source="$CORE_ENGINE_DIR/.venv"
     local venv_target="$RESOURCES_DIR/python-venv"
@@ -137,6 +204,10 @@ prepare_venv() {
         log_error "Python 可执行文件未找到: $python_bin"
         return 1
     fi
+
+    # 修复 macOS 动态库路径问题
+    log_info "修复 Python 动态库路径..."
+    fix_python_dylib "$venv_target"
 
     # 测试 Python 环境
     log_info "测试 Python 环境..."

@@ -13,8 +13,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       # Run your project's build step
-      # - name: Build
-      #   run: npm install && npm run build
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v1
+      - name: Build
+        run: |
+          cd landing_page
+          bun install
+          bun run build
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:

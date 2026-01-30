@@ -37,7 +37,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
-DMG_NAME="${APP_NAME}-${VERSION}-universal.dmg"
+BUILD_TYPE="${BUILD_TYPE:-lite}"
+DMG_NAME="${APP_NAME}-${VERSION}-${BUILD_TYPE}-universal.dmg"
 
 # 检查依赖
 check_dependencies() {
@@ -128,32 +129,9 @@ build_tauri() {
 
     log_success "Tauri 应用构建完成"
 
-    # 如果是 Full 版本，需要手动复制资源到 app bundle
-    local build_type="${BUILD_TYPE:-lite}"
-    if [ "$build_type" = "full" ]; then
-        log_info "复制 Full 版本资源到 app bundle..."
-
-        local app_path="$PROJECT_ROOT/src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/MonoSub.app"
-        local resources_src="$PROJECT_ROOT/src-tauri/resources"
-        local resources_dst="$app_path/Contents/Resources"
-
-        if [ -d "$app_path" ] && [ -d "$resources_src" ]; then
-            # 复制所有资源（bin, core-engine, python-venv, MANIFEST.txt）
-            cp -R "$resources_src"/* "$resources_dst/"
-
-            # 验证关键文件
-            if [ -f "$resources_dst/python-venv/bin/python" ]; then
-                local venv_size=$(du -sh "$resources_dst/python-venv" | cut -f1)
-                log_success "资源复制完成 (venv: $venv_size)"
-            else
-                log_error "资源复制失败：python-venv 不存在"
-                exit 1
-            fi
-        else
-            log_error "找不到 app 或资源目录"
-            exit 1
-        fi
-    fi
+    # 资源文件已通过 Tauri 的 resources 配置自动打包
+    # prepare-venv.sh (full) 或 prepare-lite.sh 将资源准备到 src-tauri/resources/
+    # Tauri 会自动将其复制到 app bundle，无需手动干预
 }
 
 # 创建 DMG
@@ -249,13 +227,16 @@ create_dmg() {
         local tmp_app_size=$(du -sm "$TMP_DIR/$APP_NAME_BASE" | cut -f1)
         log_info "临时目录中的 app 大小: ${tmp_app_size}M"
 
-        if [ -d "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/python-venv" ]; then
-            local tmp_venv_size=$(du -sh "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/python-venv" | cut -f1)
+        # Tauri 的 resources 配置保留了目录结构：resources/ -> Contents/Resources/resources/
+        if [ -d "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/resources/python-venv" ]; then
+            local tmp_venv_size=$(du -sh "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/resources/python-venv" | cut -f1)
             log_info "venv 已复制到临时目录: $tmp_venv_size"
         else
             log_error "venv 未复制到临时目录！"
             log_info "临时目录内容:"
             ls -lh "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/"
+            log_info "Resources 子目录内容:"
+            ls -lh "$TMP_DIR/$APP_NAME_BASE/Contents/Resources/resources/" 2>/dev/null || echo "resources/ 目录不存在"
             exit 1
         fi
 
