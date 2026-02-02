@@ -338,11 +338,20 @@ notarize_app() {
 
 # 清理
 clean() {
-    log_info "清理构建产物..."
+    local build_type="${BUILD_TYPE:-}"
     cd "$PROJECT_ROOT"
 
-    rm -rf target/release/bundle
-    rm -rf dist/*.dmg
+    if [ -z "$build_type" ]; then
+        # 未指定 BUILD_TYPE，清理所有
+        log_info "清理所有构建产物..."
+        rm -rf target/release/bundle
+        rm -rf dist/*.dmg
+    else
+        # 指定了 BUILD_TYPE，只清理对应类型的文件
+        log_info "清理 ${build_type} 版本构建产物..."
+        rm -rf target/release/bundle
+        rm -f dist/*-${build_type}-*.dmg
+    fi
 
     log_success "清理完成"
 }
