@@ -77,7 +77,7 @@ export function Toolbar() {
   };
 
   return (
-    <div className="glass-light dark:glass-dark h-[64px] px-6 flex items-center justify-between border-b border-glass-border-light dark:border-glass-border-dark">
+    <div className="bg-bg-secondary dark:bg-zinc-950 h-[64px] px-6 flex items-center justify-between transition-colors">
       <div className="flex items-center gap-4">
         <motion.button
           whileTap={{ scale: 0.97 }}

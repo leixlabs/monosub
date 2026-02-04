@@ -12,7 +12,7 @@ export function Header() {
   const totalCount = files.length;
 
   return (
-    <header className="glass-light dark:glass-dark rounded-b-2xl shadow-glass-sm h-[52px] flex items-center justify-between px-6 sticky top-0 z-40">
+    <header className="bg-bg-secondary dark:bg-zinc-950 h-[52px] flex items-center justify-between pl-20 pr-6 sticky top-0 z-40 transition-colors">
       {/* Logo & Title */}
       <div className="flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
@@ -29,7 +29,7 @@ export function Header() {
       </div>
 
       {/* Status & Settings */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 no-drag">
         {totalCount > 0 && (
           <div className="flex items-center gap-2">
             <span className="text-xs text-text-secondary dark:text-gray-400">

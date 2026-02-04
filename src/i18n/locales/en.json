@@ -64,6 +64,21 @@
       "autoQueue": "Auto Process Queue",
       "autoQueueDesc": "Automatically process next file"
     },
+    "environment": {
+      "title": "AI Environment",
+      "check": "Check Status",
+      "repair": "Repair Dependencies",
+      "repairDesc": "Re-install AI dependencies if transcription fails",
+      "status": {
+        "checking": "Checking...",
+        "healthy": "Environment Ready",
+        "broken": "Dependencies Missing or Broken",
+        "error": "Check Failed"
+      },
+      "repairing": "Repairing AI dependencies... (3-5 mins)",
+      "repairSuccess": "Repair successful",
+      "repairFailed": "Repair failed"
+    },
     "notifications": {
       "title": "Notifications",
       "showCompleted": "Completion Alert",

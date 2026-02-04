@@ -37,6 +37,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
+
+# 保存原始环境变量，用于区分是特定清理还是全局清理
+RAW_BUILD_TYPE="$BUILD_TYPE"
 BUILD_TYPE="${BUILD_TYPE:-lite}"
 DMG_NAME="${APP_NAME}-${VERSION}-${BUILD_TYPE}-universal.dmg"
 
@@ -338,19 +341,40 @@ notarize_app() {
 
 # 清理
 clean() {
-    local build_type="${BUILD_TYPE:-}"
+    # 优先使用传入的参数，其次使用原始环境变量设置，最后为空（表示清理所有）
+    local target_type="${1:-$RAW_BUILD_TYPE}"
     cd "$PROJECT_ROOT"
 
-    if [ -z "$build_type" ]; then
+    if [ -z "$target_type" ]; then
         # 未指定 BUILD_TYPE，清理所有
         log_info "清理所有构建产物..."
         rm -rf target/release/bundle
         rm -rf dist/*.dmg
+        # 清理资源目录
+        rm -rf src-tauri/resources/python
+        rm -rf src-tauri/resources/python-venv
+        rm -rf src-tauri/resources/core-engine
     else
         # 指定了 BUILD_TYPE，只清理对应类型的文件
-        log_info "清理 ${build_type} 版本构建产物..."
-        rm -rf target/release/bundle
-        rm -f dist/*-${build_type}-*.dmg
+        log_info "清理 ${target_type} 版本构建产物..."
+        
+        # 1. 清理 dist 中的对应 DMG
+        rm -f dist/*-${target_type}-*.dmg
+        
+        # 2. 清理资源目录中的对应内容，防止混用
+        if [ "$target_type" = "full" ]; then
+            log_info "清理 Full 版本资源..."
+            rm -rf src-tauri/resources/python-venv
+        else
+            log_info "清理 Lite 版本资源..."
+            rm -rf src-tauri/resources/python
+            rm -rf src-tauri/resources/bin/uv
+        fi
+        
+        # 注意：target/release/bundle 通常包含共享的编译产物，
+        # 在特定类型的清理中，我们不删除整个目录，以免破坏其他版本的增量编译。
+        # 但我们会删除 Tauri 在该目录下生成的临时 DMG
+        rm -f "$BUILD_DIR"/*/release/bundle/dmg/*.dmg 2>/dev/null || true
     fi
 
     log_success "清理完成"
@@ -396,6 +420,10 @@ full_build() {
     log_info "开始完整构建流程..."
     log_info "应用名称: $APP_NAME"
     log_info "版本: $VERSION"
+    log_info "构建类型: $BUILD_TYPE"
+
+    # 先执行特定类型的清理，确保环境纯净
+    clean "$BUILD_TYPE"
 
     check_dependencies
     prepare_resources

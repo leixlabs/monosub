@@ -10,11 +10,16 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "MonoSub",
         "width": 1200,
-        "height": 800
+        "height": 800,
+        "titleBarStyle": "Transparent",
+        "hiddenTitle": true,
+        "transparent": true
       }
     ],
     "security": {

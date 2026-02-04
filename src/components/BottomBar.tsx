@@ -72,7 +72,7 @@ export function BottomBar() {
   };
 
   return (
-    <div className="glass-light dark:glass-dark rounded-t-2xl shadow-glass-md h-14 px-6 flex items-center justify-between">
+    <div className="bg-bg-secondary dark:bg-zinc-950 h-14 px-6 flex items-center justify-between border-t border-divider/40 dark:border-zinc-800/40 transition-colors">
       <div className="flex items-center gap-2">
         <HardDrive className="w-4 h-4 text-text-tertiary dark:text-gray-500" />
         <span className="text-xs text-text-tertiary dark:text-gray-500 mr-2">{t('bottomBar.saveLocation')}</span>
@@ -81,11 +81,10 @@ export function BottomBar() {
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={() => setStorageMode('same')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-all ${
-              storageMode === 'same'
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-all ${storageMode === 'same'
                 ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple'
                 : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
-            }`}
+              }`}
           >
             <Folder className="w-3.5 h-3.5" />
             {t('bottomBar.sameDirectory')}
@@ -93,11 +92,10 @@ export function BottomBar() {
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={handleSelectCustomPath}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-all ${
-              storageMode === 'custom'
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-all ${storageMode === 'custom'
                 ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple'
                 : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
-            }`}
+              }`}
           >
             <FolderOpen className="w-3.5 h-3.5" />
             {storageMode === 'custom' && customStoragePath

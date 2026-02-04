@@ -1,4 +1,5 @@
 import React, { createContext, useEffect, useState } from 'react'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 type Theme = 'light' | 'dark' | 'system'
 
@@ -60,6 +61,24 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       return () => mediaQuery.removeEventListener('change', handleChange)
     }
   }, [theme])
+
+  // Synchronize native window theme
+  useEffect(() => {
+    const syncNativeTheme = async () => {
+      // Only run in Tauri environment
+      if (typeof window !== 'undefined' && (window as any).__TAURI_INTERNALS__) {
+        try {
+          const win = getCurrentWindow()
+          if (win && typeof win.setTheme === 'function') {
+            await win.setTheme(effectiveTheme)
+          }
+        } catch (error) {
+          console.error('Failed to sync native theme:', error)
+        }
+      }
+    }
+    syncNativeTheme()
+  }, [effectiveTheme])
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, effectiveTheme }}>

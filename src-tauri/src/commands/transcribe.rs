@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
-use std::collections::HashMap;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TranscribeProgress {
@@ -33,11 +33,24 @@ fn is_dev_mode() -> bool {
     // 检查是否存在 core-engine/.venv 目录
     let current_dir = std::env::current_dir().ok();
     if let Some(dir) = current_dir {
-        if let Some(parent) = dir.parent() {
-            return parent.join("core-engine/.venv").exists();
+        // Dev: monosub/src-tauri -> monosub/core-engine/.venv
+        if dir.join("../core-engine/.venv").exists() {
+            return true;
         }
     }
     false
+}
+
+/// Get the core-engine directory
+fn get_core_engine_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    if is_dev_mode() {
+        let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+        Ok(current_dir.join("../core-engine"))
+    } else {
+        let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
+        Ok(resource_dir.join("resources").join("core-engine"))
+    }
 }
 
 /// Start transcription task using Tauri sidecar
@@ -77,11 +90,14 @@ pub async fn start_transcription(
         let task_id = task_id_for_spawn;
 
         // Emit initial progress
-        let _ = app.emit("transcribe_progress", TranscribeProgress {
-            task_id: task_id.clone(),
-            progress: 0.0,
-            status: "Starting...".to_string(),
-        });
+        let _ = app.emit(
+            "transcribe_progress",
+            TranscribeProgress {
+                task_id: task_id.clone(),
+                progress: 0.0,
+                status: "Starting...".to_string(),
+            },
+        );
 
         // 开发模式：使用 Python 直接运行
         // 生产模式：使用 sidecar 运行打包的可执行文件
@@ -89,19 +105,38 @@ pub async fn start_transcription(
         tracing::info!(task_id = %task_id, is_dev_mode = is_dev, "Running transcription");
 
         let result = if is_dev {
-            run_dev_mode(&app, &task_id, &video_path, &output_path, &format, &language).await
+            run_dev_mode(
+                &app,
+                &task_id,
+                &video_path,
+                &output_path,
+                &format,
+                &language,
+            )
+            .await
         } else {
-            run_sidecar(&app, &task_id, &video_path, &output_path, &format, &language).await
+            run_sidecar(
+                &app,
+                &task_id,
+                &video_path,
+                &output_path,
+                &format,
+                &language,
+            )
+            .await
         };
 
         if let Err(e) = result {
             tracing::error!(task_id = %task_id, error = %e, "Transcription failed");
             // 发送错误事件（不是 progress 事件）
-            let _ = app.emit("transcribe_error", TranscribeProgress {
-                task_id: task_id.clone(),
-                progress: 0.0,
-                status: format!("Error: {}", e),
-            });
+            let _ = app.emit(
+                "transcribe_error",
+                TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 0.0,
+                    status: format!("Error: {}", e),
+                },
+            );
         } else {
             tracing::info!(task_id = %task_id, "Transcription completed successfully");
         }
@@ -140,12 +175,10 @@ async fn run_sidecar(
     );
 
     // 使用 sidecar 运行 monosub-engine
-    let sidecar_command = shell
-        .sidecar("monosub-engine")
-        .map_err(|e| {
-            tracing::error!(task_id = %task_id, error = %e, "Failed to create sidecar command");
-            format!("Failed to create sidecar command: {}", e)
-        })?;
+    let sidecar_command = shell.sidecar("monosub-engine").map_err(|e| {
+        tracing::error!(task_id = %task_id, error = %e, "Failed to create sidecar command");
+        format!("Failed to create sidecar command: {}", e)
+    })?;
 
     let (mut rx, _child) = sidecar_command
         .args(&[
@@ -179,11 +212,14 @@ async fn run_sidecar(
 
                 // 如果是 Python 错误（ModuleNotFoundError, ImportError 等），发送错误事件
                 if line_str.contains("Error") || line_str.contains("Traceback") {
-                    let _ = app.emit("transcribe_error", TranscribeProgress {
-                        task_id: task_id.to_string(),
-                        progress: 0.0,
-                        status: format!("Python Error: {}", line_str.trim()),
-                    });
+                    let _ = app.emit(
+                        "transcribe_error",
+                        TranscribeProgress {
+                            task_id: task_id.to_string(),
+                            progress: 0.0,
+                            status: format!("Python Error: {}", line_str.trim()),
+                        },
+                    );
                 }
             }
             tauri_plugin_shell::process::CommandEvent::Error(err) => {
@@ -194,11 +230,14 @@ async fn run_sidecar(
                 tracing::info!(task_id = %task_id, exit_code = ?payload.code, "Sidecar process terminated");
                 if payload.code != Some(0) {
                     let error_msg = format!("Process exited with code: {:?}", payload.code);
-                    let _ = app.emit("transcribe_error", TranscribeProgress {
-                        task_id: task_id.to_string(),
-                        progress: 0.0,
-                        status: error_msg.clone(),
-                    });
+                    let _ = app.emit(
+                        "transcribe_error",
+                        TranscribeProgress {
+                            task_id: task_id.to_string(),
+                            progress: 0.0,
+                            status: error_msg.clone(),
+                        },
+                    );
                     return Err(error_msg);
                 }
             }
@@ -258,11 +297,14 @@ async fn run_dev_mode(
 
     tracing::info!(task_id = %task_id, command = %cmd_str, "Executing Python command");
 
-    let _ = app.emit("transcribe_progress", TranscribeProgress {
-        task_id: task_id.to_string(),
-        progress: 0.0,
-        status: format!("CMD: {}", cmd_str),
-    });
+    let _ = app.emit(
+        "transcribe_progress",
+        TranscribeProgress {
+            task_id: task_id.to_string(),
+            progress: 0.0,
+            status: format!("CMD: {}", cmd_str),
+        },
+    );
 
     // Get ffmpeg path from video.rs helper
     let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(app));
@@ -310,11 +352,14 @@ async fn run_dev_mode(
 
             // 如果是 Python 错误，发送错误事件
             if line.contains("Error") || line.contains("Traceback") {
-                let _ = app_clone.emit("transcribe_error", TranscribeProgress {
-                    task_id: task_id_clone.clone(),
-                    progress: 0.0,
-                    status: format!("Python Error: {}", line.trim()),
-                });
+                let _ = app_clone.emit(
+                    "transcribe_error",
+                    TranscribeProgress {
+                        task_id: task_id_clone.clone(),
+                        progress: 0.0,
+                        status: format!("Python Error: {}", line.trim()),
+                    },
+                );
             }
         }
     });
@@ -336,11 +381,14 @@ async fn run_dev_mode(
     if !status.success() {
         tracing::error!(task_id = %task_id, exit_code = ?status.code(), "Python process failed");
         let error_msg = format!("Process exited with code: {:?}", status.code());
-        let _ = app.emit("transcribe_error", TranscribeProgress {
-            task_id: task_id.to_string(),
-            progress: 0.0,
-            status: error_msg.clone(),
-        });
+        let _ = app.emit(
+            "transcribe_error",
+            TranscribeProgress {
+                task_id: task_id.to_string(),
+                progress: 0.0,
+                status: error_msg.clone(),
+            },
+        );
         return Err(error_msg);
     }
 
@@ -352,37 +400,49 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
     if line.starts_with("PROGRESS:") {
         if let Ok(progress) = line[9..].trim().parse::<f64>() {
             tracing::debug!(task_id = %task_id, progress = progress, "Transcription progress");
-            let _ = app.emit("transcribe_progress", TranscribeProgress {
-                task_id: task_id.to_string(),
-                progress,
-                status: "Processing...".to_string(),
-            });
+            let _ = app.emit(
+                "transcribe_progress",
+                TranscribeProgress {
+                    task_id: task_id.to_string(),
+                    progress,
+                    status: "Processing...".to_string(),
+                },
+            );
         }
     } else if line.starts_with("MSG:") {
         let message = &line[4..];
         tracing::info!(task_id = %task_id, message = %message, "Transcription message");
-        let _ = app.emit("transcribe_progress", TranscribeProgress {
-            task_id: task_id.to_string(),
-            progress: 0.0,
-            status: message.to_string(),
-        });
+        let _ = app.emit(
+            "transcribe_progress",
+            TranscribeProgress {
+                task_id: task_id.to_string(),
+                progress: 0.0,
+                status: message.to_string(),
+            },
+        );
     } else if line.starts_with("SUCCESS:") {
         let output_file = &line[8..];
         tracing::info!(task_id = %task_id, output_file = %output_file, "Transcription completed");
-        let _ = app.emit("transcribe_complete", TranscribeProgress {
-            task_id: task_id.to_string(),
-            progress: 100.0,
-            status: format!("Completed: {}", output_file),
-        });
+        let _ = app.emit(
+            "transcribe_complete",
+            TranscribeProgress {
+                task_id: task_id.to_string(),
+                progress: 100.0,
+                status: format!("Completed: {}", output_file),
+            },
+        );
     } else if line.starts_with("ERROR:") {
         let error_msg = &line[6..];
         tracing::error!(task_id = %task_id, error = %error_msg, "Transcription error");
         // Python 脚本中的 ERROR: 消息，发送到 transcribe_error 事件
-        let _ = app.emit("transcribe_error", TranscribeProgress {
-            task_id: task_id.to_string(),
-            progress: 0.0,
-            status: format!("Error: {}", error_msg),
-        });
+        let _ = app.emit(
+            "transcribe_error",
+            TranscribeProgress {
+                task_id: task_id.to_string(),
+                progress: 0.0,
+                status: format!("Error: {}", error_msg),
+            },
+        );
     }
 }
 
@@ -405,5 +465,146 @@ pub async fn cancel_transcription(task_id: String) -> Result<(), String> {
     } else {
         tracing::warn!(task_id = %task_id, "Cannot cancel: task not found");
         Err("Task not found".to_string())
+    }
+}
+
+/// Check if AI dependencies are correctly installed
+#[tauri::command]
+pub async fn check_dependencies(app: AppHandle) -> Result<bool, String> {
+    tracing::info!("Checking AI dependencies...");
+    let is_dev = is_dev_mode();
+
+    if is_dev {
+        let core_dir = get_core_engine_dir(&app)?;
+        let venv_python = core_dir.join(".venv/bin/python");
+        if !venv_python.exists() {
+            return Ok(false);
+        }
+
+        let output = tokio::process::Command::new(&venv_python)
+            .arg("-c")
+            .arg("import funasr; print('OK')")
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        return Ok(output.status.success());
+    } else {
+        // sidecar mode
+        use tauri_plugin_shell::ShellExt;
+        let shell = app.shell();
+        let sidecar_command = shell
+            .sidecar("monosub-engine")
+            .map_err(|e| format!("Sidecar error: {}", e))?;
+
+        // We run with --help to check if it can start and import everything
+        let output = sidecar_command
+            .arg("--help")
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run sidecar: {}", e))?;
+
+        // If it exits with 0, it means imports were successful
+        Ok(output.status.success())
+    }
+}
+
+/// Repair AI dependencies by deleting venv and re-installing
+#[tauri::command]
+pub async fn install_dependencies(app: AppHandle) -> Result<(), String> {
+    tracing::info!("Repairing AI dependencies...");
+
+    let core_dir = get_core_engine_dir(&app)?;
+    let venv_dir = core_dir.join(".venv");
+
+    if venv_dir.exists() {
+        tracing::info!("Removing existing venv: {:?}", venv_dir);
+        std::fs::remove_dir_all(&venv_dir).map_err(|e| format!("Failed to remove venv: {}", e))?;
+    }
+
+    // Emit initial progress
+    let _ = app.emit(
+        "install_progress",
+        TranscribeProgress {
+            task_id: "install".to_string(),
+            progress: 0.0,
+            status: "Starting installation...".to_string(),
+        },
+    );
+
+    // Run sidecar with a dummy task to trigger installation
+    // Actually, we can just run sidecar with --help, it will trigger the launcher's install logic
+    let is_dev = is_dev_mode();
+    if is_dev {
+        // In dev mode, we might need to manual run uv sync if we want to show it
+        // But for now, let's just use the sidecar approach if possible
+        // Actually dev mode sidecar is just running python.
+        return Err("Manual repair not supported in dev mode. Please run 'uv sync' in core-engine directory.".to_string());
+    }
+
+    use tauri_plugin_shell::ShellExt;
+    let shell = app.shell();
+    let sidecar_command = shell
+        .sidecar("monosub-engine")
+        .map_err(|e| format!("Sidecar error: {}", e))?;
+
+    let (mut rx, _child) = sidecar_command
+        .arg("--help")
+        .spawn()
+        .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
+                let line_str = String::from_utf8_lossy(&line);
+                process_install_output_line(&app, &line_str);
+            }
+            tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
+                let line_str = String::from_utf8_lossy(&line);
+                process_install_output_line(&app, &line_str);
+            }
+            tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
+                if payload.code == Some(0) {
+                    let _ = app.emit("install_complete", ());
+                    return Ok(());
+                } else {
+                    return Err(format!("Installation failed with code {:?}", payload.code));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn process_install_output_line(app: &AppHandle, line: &str) {
+    if line.contains("MSG:") {
+        let msg = line.split("MSG:").last().unwrap_or("").trim();
+        let _ = app.emit(
+            "install_progress",
+            TranscribeProgress {
+                task_id: "install".to_string(),
+                progress: 0.0,
+                status: msg.to_string(),
+            },
+        );
+    } else if line.contains("PROGRESS:") {
+        if let Ok(p) = line
+            .split("PROGRESS:")
+            .last()
+            .unwrap_or("0")
+            .trim()
+            .parse::<f64>()
+        {
+            let _ = app.emit(
+                "install_progress",
+                TranscribeProgress {
+                    task_id: "install".to_string(),
+                    progress: p,
+                    status: "Installing...".to_string(),
+                },
+            );
+        }
     }
 }

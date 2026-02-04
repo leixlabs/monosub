@@ -64,6 +64,21 @@
       "autoQueue": "自动处理队列",
       "autoQueueDesc": "完成后自动处理下一个"
     },
+    "environment": {
+      "title": "AI 运行环境",
+      "check": "检测状态",
+      "repair": "修复依赖",
+      "repairDesc": "如果转录一直失败，尝试重新安装 AI 依赖",
+      "status": {
+        "checking": "正在检测...",
+        "healthy": "运行环境正常",
+        "broken": "依赖受损或缺失",
+        "error": "检测失败"
+      },
+      "repairing": "正在修复 AI 依赖... (通常 3-5 分钟)",
+      "repairSuccess": "修复成功",
+      "repairFailed": "修复失败"
+    },
     "notifications": {
       "title": "通知设置",
       "showCompleted": "完成通知",
