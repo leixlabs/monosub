@@ -13,6 +13,7 @@ export function BottomBar() {
   const setCustomStoragePath = useStore((state) => state.setCustomStoragePath);
   const isProcessing = useStore((state) => state.isProcessing);
   const setIsProcessing = useStore((state) => state.setIsProcessing);
+  const setCurrentTaskId = useStore((state) => state.setCurrentTaskId);
   const files = useStore((state) => state.files);
   const updateFile = useStore((state) => state.updateFile);
   const settings = useStore((state) => state.settings);
@@ -66,6 +67,7 @@ export function BottomBar() {
       await invoke('cancel_transcription', { taskId: processingFile.id });
       updateFile(processingFile.id, { status: 'pending', progress: 0 });
       setIsProcessing(false);
+      setCurrentTaskId(null);
     } catch (error) {
       console.error('[cancel_transcription] Failed:', error);
     }

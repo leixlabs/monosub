@@ -17,9 +17,9 @@
         "title": "MonoSub",
         "width": 1200,
         "height": 800,
-        "titleBarStyle": "Transparent",
+        "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "transparent": true
+        "transparent": false
       }
     ],
     "security": {

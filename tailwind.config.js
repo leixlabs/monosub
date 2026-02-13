@@ -11,14 +11,14 @@ export default {
       colors: {
         // Modern Apple-inspired color palette
         primary: {
-          DEFAULT: '#5856D6',  // Apple Indigo - more modern
-          hover: '#4845B0',
-          light: '#EBEBFE',
+          DEFAULT: '#34C759',  // Apple Green
+          hover: '#2EB24F',
+          light: '#E8F8EC',
         },
         accent: {
-          DEFAULT: '#AF52DE',  // Apple Purple
-          hover: '#9442BC',
-          light: '#F6E9FA',
+          DEFAULT: '#5AC8FA',  // Apple Teal/Blue accent
+          hover: '#3EBAF8',
+          light: '#E8F7FE',
         },
         teal: {
           DEFAULT: '#5AC8FA',  // Apple Teal
@@ -71,8 +71,8 @@ export default {
         'glass-sm': '0 2px 12px rgba(0, 0, 0, 0.05)',
         'glass-md': '0 4px 20px rgba(0, 0, 0, 0.08)',
         'glass-lg': '0 8px 32px rgba(0, 0, 0, 0.12)',
-        'float': '0 8px 24px rgba(88, 86, 214, 0.12)',      // Primary color float
-        'float-hover': '0 12px 32px rgba(88, 86, 214, 0.16)',
+        'float': '0 8px 24px rgba(52, 199, 89, 0.2)',
+        'float-hover': '0 12px 32px rgba(52, 199, 89, 0.26)',
       },
       fontFamily: {
         sans: [

@@ -12,14 +12,17 @@ export function Header() {
   const totalCount = files.length;
 
   return (
-    <header className="bg-bg-secondary dark:bg-zinc-950 h-[52px] flex items-center justify-between pl-20 pr-6 sticky top-0 z-40 transition-colors">
+    <header className="bg-bg-secondary dark:bg-zinc-950 h-[52px] flex items-center pl-20 pr-6 sticky top-0 z-40 transition-colors">
       {/* Logo & Title */}
-      <div className="flex items-center gap-3">
+      <div
+        data-tauri-drag-region
+        className="drag-region flex items-center gap-3 cursor-grab active:cursor-grabbing"
+      >
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
           <Subtitles className="w-4.5 h-4.5 text-white" />
         </div>
         <div>
-          <h1 className="text-base font-semibold text-text-primary dark:text-white leading-tight">
+          <h1 className="window-title text-base font-semibold leading-tight transition-colors">
             {t('app.name')}
           </h1>
           <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-tight">
@@ -27,6 +30,8 @@ export function Header() {
           </p>
         </div>
       </div>
+
+      <div data-tauri-drag-region className="drag-region flex-1 h-full cursor-grab active:cursor-grabbing" />
 
       {/* Status & Settings */}
       <div className="flex items-center gap-3 no-drag">

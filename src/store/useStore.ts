@@ -57,7 +57,7 @@ const defaultSettings: AppSettings = {
   bilingualTargetLang: 'en',
   enableNoiseReduction: true,
   enableVolumeNormalization: true,
-  autoProcessQueue: false,
+  autoProcessQueue: true,
   showCompletedNotification: true,
 }
 

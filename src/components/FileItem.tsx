@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
 import { invoke } from '@tauri-apps/api/core';
+import { startTranscriptionTask } from '@/lib/transcription';
 
 interface FileItemProps {
   file: VideoFile;
@@ -12,45 +13,11 @@ interface FileItemProps {
 export function FileItem({ file }: FileItemProps) {
   const { t } = useTranslation();
   const removeFile = useStore((state) => state.removeFile);
-  const updateFile = useStore((state) => state.updateFile);
   const isProcessing = useStore((state) => state.isProcessing);
-  const setIsProcessing = useStore((state) => state.setIsProcessing);
-  const storageMode = useStore((state) => state.storageMode);
-  const customStoragePath = useStore((state) => state.customStoragePath);
   const settings = useStore((state) => state.settings);
 
   const handleStart = async () => {
-    if (file.status === 'processing') return;
-
-    const extension = `.${settings.outputFormat}`;
-    const outputPath = storageMode === 'same'
-      ? file.path.replace(/\.[^/.]+$/, extension)
-      : `${customStoragePath}/${file.name.replace(/\.[^/.]+$/, extension)}`;
-
-    console.log('[handleStart]', { id: file.id, path: file.path, outputPath });
-
-    updateFile(file.id, { status: 'processing', progress: 0 });
-    setIsProcessing(true);
-
-    try {
-      const result = await invoke('start_transcription', {
-        request: {
-          id: file.id,
-          path: file.path,
-          output_path: outputPath,
-          format: settings.outputFormat,
-          language: settings.outputLanguage,
-        }
-      });
-      console.log('[start_transcription] Success:', result);
-    } catch (error) {
-      console.error('[start_transcription] Failed:', error);
-      updateFile(file.id, {
-        status: 'error',
-        error: String(error)
-      });
-      setIsProcessing(false);
-    }
+    await startTranscriptionTask(file.id);
   };
 
   const handleDelete = () => {
@@ -62,7 +29,7 @@ export function FileItem({ file }: FileItemProps) {
 
     try {
       await invoke('pause_transcription', { taskId: file.id });
-      updateFile(file.id, { status: 'paused' });
+      useStore.getState().updateFile(file.id, { status: 'paused' });
     } catch (error) {
       console.error('[pause_transcription] Failed:', error);
       // Pause is not fully implemented yet in the backend

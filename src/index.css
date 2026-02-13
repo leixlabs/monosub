@@ -12,6 +12,7 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   line-height: 1.5;
   font-weight: 400;
+  --window-title-color: #1d1d1f;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -21,6 +22,10 @@ html, body {
   /* Disable text selection on UI elements */
   -webkit-user-select: none;
   user-select: none;
+}
+
+.dark {
+  --window-title-color: #ffffff;
 }
 
 /* Allow text selection on specific elements */
@@ -68,7 +73,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.3);
+  box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.3);
 }
 
 /* Button press effect */
@@ -143,4 +148,8 @@ img {
 
 .no-drag {
   -webkit-app-region: no-drag;
+}
+
+.window-title {
+  color: var(--window-title-color);
 }

@@ -8,6 +8,7 @@ import { FileList } from './components/FileList';
 import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
+import { startTranscriptionTask } from './lib/transcription';
 
 interface TranscribeProgressPayload {
   task_id: string;
@@ -20,6 +21,8 @@ function App() {
   const updateFile = useStore((state) => state.updateFile);
   const setIsProcessing = useStore((state) => state.setIsProcessing);
   const incrementProcessedCount = useStore((state) => state.incrementProcessedCount);
+  const setCurrentTaskId = useStore((state) => state.setCurrentTaskId);
+  const queueStartingRef = useRef(false);
 
   // Use refs to avoid stale closure issues
   const filesRef = useRef(useStore.getState().files);
@@ -54,6 +57,7 @@ function App() {
         progress: 100,
       });
       setIsProcessing(false);
+      setCurrentTaskId(null);
       incrementProcessedCount();
 
       // Show notification if enabled (use ref to get latest settings)
@@ -72,9 +76,12 @@ function App() {
 
       // Auto process next file if enabled
       if (settings.autoProcessQueue) {
-        const nextPending = files.find(f => f.status === 'pending');
-        if (nextPending) {
-          console.log('[autoProcessQueue] Next file:', nextPending.name);
+        const nextPending = files.find((f) => f.status === 'pending');
+        if (nextPending && !queueStartingRef.current) {
+          queueStartingRef.current = true;
+          void startTranscriptionTask(nextPending.id).finally(() => {
+            queueStartingRef.current = false;
+          });
         }
       }
     });
@@ -89,6 +96,7 @@ function App() {
         error: status,
       });
       setIsProcessing(false);
+      setCurrentTaskId(null);
 
       // Show error notification if enabled
       const settings = settingsRef.current;
@@ -101,6 +109,16 @@ function App() {
           });
         }
       }
+
+      if (settings.autoProcessQueue) {
+        const nextPending = files.find((f) => f.status === 'pending');
+        if (nextPending && !queueStartingRef.current) {
+          queueStartingRef.current = true;
+          void startTranscriptionTask(nextPending.id).finally(() => {
+            queueStartingRef.current = false;
+          });
+        }
+      }
     });
 
     return () => {
@@ -108,7 +126,7 @@ function App() {
       completeUnlisten.then((f) => f());
       errorUnlisten.then((f) => f());
     };
-  }, [updateFile, setIsProcessing, incrementProcessedCount, t]);
+  }, [updateFile, setIsProcessing, setCurrentTaskId, incrementProcessedCount, t]);
 
   return (
     <ThemeProvider>

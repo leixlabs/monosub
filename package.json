@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx tauri dev",
+    "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx @tauri-apps/cli dev",
     "dev:servers": "vite dev",
     "build": "tsc -b && vite build",
     "build:dmg": "./scripts/build-dmg.sh build",

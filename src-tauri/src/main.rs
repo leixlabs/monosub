@@ -4,7 +4,6 @@ mod tray;
 
 use commands::*;
 use tauri::Manager;
-use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 
 fn main() {
     // Initialize logging system
@@ -21,23 +20,10 @@ fn main() {
             // 获取主窗口
             let window = app.get_webview_window("main").unwrap();
 
-            // 为 macOS 应用活力效果 (vibrancy)
+            // macOS 标题栏使用 Overlay，避免透明标题色异常
             #[cfg(target_os = "macos")]
             {
-                let _ = apply_vibrancy(
-                    &window,
-                    NSVisualEffectMaterial::UnderWindowBackground,
-                    None,
-                    None,
-                );
-                let _ = window.set_title_bar_style(tauri::TitleBarStyle::Transparent);
-            }
-
-            // 也尝试设置透明背景 (如果尚未设置)
-            #[cfg(target_os = "macos")]
-            {
-                // 注意：在 Tauri 2 中，transparent 属性通常在 tauri.conf.json 中设置
-                // 这里我们确保它是激活的
+                let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
             }
 
             // 创建系统托盘
