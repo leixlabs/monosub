@@ -75,6 +75,10 @@ interface AppState {
   customStoragePath: string
   setCustomStoragePath: (path: string) => void
 
+  // Speaker diarization (multi-speaker recognition)
+  enableSpeakerDiarization: boolean
+  setEnableSpeakerDiarization: (enabled: boolean) => void
+
   // Global state
   isProcessing: boolean
   setIsProcessing: (isProcessing: boolean) => void
@@ -115,6 +119,10 @@ export const useStore = create<AppState>()(
       setStorageMode: (mode) => set({ storageMode: mode }),
       customStoragePath: '',
       setCustomStoragePath: (path) => set({ customStoragePath: path }),
+
+      // Speaker diarization
+      enableSpeakerDiarization: false,
+      setEnableSpeakerDiarization: (enabled) => set({ enableSpeakerDiarization: enabled }),
 
       // Global state
       isProcessing: false,

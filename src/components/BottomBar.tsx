@@ -1,4 +1,4 @@
-import { Folder, FolderOpen, StopCircle, HardDrive } from 'lucide-react';
+import { Folder, FolderOpen, StopCircle, HardDrive, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
@@ -17,6 +17,8 @@ export function BottomBar() {
   const files = useStore((state) => state.files);
   const updateFile = useStore((state) => state.updateFile);
   const settings = useStore((state) => state.settings);
+  const enableSpeakerDiarization = useStore((state) => state.enableSpeakerDiarization);
+  const setEnableSpeakerDiarization = useStore((state) => state.setEnableSpeakerDiarization);
 
   const handleSelectCustomPath = async () => {
     try {
@@ -118,6 +120,31 @@ export function BottomBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Multi-speaker toggle */}
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-text-tertiary dark:text-gray-500" />
+          <span className="text-xs text-text-tertiary dark:text-gray-500">
+            {t('bottomBar.multiSpeaker')}
+          </span>
+          <button
+            onClick={() => setEnableSpeakerDiarization(!enableSpeakerDiarization)}
+            disabled={isProcessing}
+            className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+              enableSpeakerDiarization
+                ? 'bg-primary'
+                : 'bg-bg-tertiary dark:bg-zinc-700'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+                enableSpeakerDiarization ? 'translate-x-5' : ''
+              }`}
+            />
+          </button>
+        </div>
+
+        <span className="w-px h-4 bg-divider dark:bg-zinc-700" />
+
         {isProcessing && (
           <motion.button
             whileTap={{ scale: 0.97 }}

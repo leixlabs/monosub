@@ -675,3 +675,136 @@ class FunASRTranscriber:
 
         print(f"DEBUG: Merged segments: {len(segments)} -> {len(merged)}", flush=True)
         return merged
+
+    def transcribe_with_diarization(
+        self,
+        audio_path: str,
+        progress_callback: ProgressCallback,
+        language: str = "zh"
+    ) -> List[Dict]:
+        """
+        带说话人分离的转录（使用 FunASR 内置 spk_model）
+
+        使用 FunASR 的 spk_model="cam++" 一次性完成 ASR + 说话人分离
+
+        Args:
+            audio_path: 音频文件路径
+            progress_callback: 进度回调
+            language: 语言
+
+        Returns:
+            带 speaker 字段的转录结果列表
+        """
+        progress_callback.update(5, "Loading models with speaker diarization...")
+
+        try:
+            # 使用 paraformer-zh + spk_model 组合
+            model_kwargs = {
+                "model": "paraformer-zh",
+                "device": self.device,
+                "vad_model": "fsmn-vad",
+                "vad_kwargs": {"max_single_segment_time": 30000},
+                "punc_model": "ct-punc",
+                "spk_model": "cam++",  # 启用说话人分离
+            }
+
+            print(f"DEBUG: Loading model with spk_model: {model_kwargs}", flush=True)
+
+            # 加载模型（如果还没加载，或者当前模型没有 spk_model）
+            spk_model = AutoModel(**model_kwargs)
+
+            progress_callback.update(25, "Models loaded")
+            progress_callback.update(30, "Starting transcription with speaker diarization...")
+
+            # 执行转录
+            result = spk_model.generate(
+                input=audio_path,
+                batch_size_s=300,
+            )
+
+            print(f"DEBUG: Raw result with spk: {type(result)}", flush=True)
+            if isinstance(result, list) and len(result) > 0:
+                print(f"DEBUG: First result keys: {result[0].keys() if isinstance(result[0], dict) else 'not dict'}", flush=True)
+                if isinstance(result[0], dict):
+                    # 检查是否有 sentence_info（包含说话人信息）
+                    if 'sentence_info' in result[0]:
+                        print(f"DEBUG: sentence_info count: {len(result[0]['sentence_info'])}", flush=True)
+                        if result[0]['sentence_info']:
+                            print(f"DEBUG: First sentence_info: {result[0]['sentence_info'][0]}", flush=True)
+
+            progress_callback.update(85, "Processing results...")
+
+            # 解析带说话人信息的结果
+            segments = self._parse_result_with_speaker(result)
+
+            # 合并过短字幕
+            segments = self._merge_short_segments(segments)
+
+            # 检查是否只有一个说话人
+            unique_speakers = set(s.get('speaker') for s in segments if s.get('speaker'))
+            if len(unique_speakers) <= 1:
+                print("DEBUG: Only one speaker detected, removing speaker labels", flush=True)
+                for seg in segments:
+                    seg['speaker'] = None
+
+            progress_callback.update(92, "Transcription with diarization complete")
+
+            return segments
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"Transcription with diarization failed: {str(e)}")
+
+    def _parse_result_with_speaker(self, result) -> List[Dict]:
+        """
+        解析带说话人信息的 FunASR 结果
+
+        Args:
+            result: FunASR 返回结果（带 spk_model）
+
+        Returns:
+            字幕片段列表，每个元素包含 start, end, text, speaker
+        """
+        segments = []
+
+        if not isinstance(result, list) or len(result) == 0:
+            return segments
+
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+
+            # FunASR with spk_model 返回 sentence_info 包含每句的说话人信息
+            if 'sentence_info' in item and item['sentence_info']:
+                for sent in item['sentence_info']:
+                    text = sent.get('text', '').strip()
+                    start = sent.get('start', 0)
+                    end = sent.get('end', 0)
+                    spk = sent.get('spk', None)
+
+                    if text:
+                        # 转换时间戳（毫秒 -> 秒）
+                        start_sec = start / 1000.0 if start > 100 else start
+                        end_sec = end / 1000.0 if end > 100 else end
+
+                        # 映射说话人 ID 为可读标签
+                        speaker_label = None
+                        if spk is not None:
+                            speaker_label = f"Speaker {chr(ord('A') + int(spk) % 26)}"
+
+                        segments.append({
+                            'start': start_sec,
+                            'end': end_sec,
+                            'text': text,
+                            'speaker': speaker_label
+                        })
+            else:
+                # 回退到普通解析（无说话人信息）
+                parsed = self._parse_result([item])
+                for seg in parsed:
+                    seg['speaker'] = None
+                segments.extend(parsed)
+
+        print(f"DEBUG: Parsed {len(segments)} segments with speaker info", flush=True)
+        return segments

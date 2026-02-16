@@ -41,6 +41,22 @@ class SubtitleWriter:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
 
     @staticmethod
+    def _format_text_with_speaker(text: str, speaker: Optional[str]) -> str:
+        """
+        格式化文本，如果有说话人则添加前缀
+
+        Args:
+            text: 原始文本
+            speaker: 说话人标签（如 "Speaker A"）
+
+        Returns:
+            格式化后的文本，如 "[Speaker A]: 你好"
+        """
+        if speaker:
+            return f"[{speaker}]: {text}"
+        return text
+
+    @staticmethod
     def write_srt(
         segments: List[Dict],
         output_path: str,
@@ -50,7 +66,7 @@ class SubtitleWriter:
         写入 SRT 格式字幕
 
         Args:
-            segments: 字幕片段列表，每个片段包含 start, end, text
+            segments: 字幕片段列表，每个片段包含 start, end, text, speaker(可选)
             output_path: 输出文件路径
             translation_segments: 翻译字幕片段（可选，用于双语字幕）
         """
@@ -59,6 +75,10 @@ class SubtitleWriter:
                 start = SubtitleWriter.format_timestamp_srt(segment['start'])
                 end = SubtitleWriter.format_timestamp_srt(segment['end'])
                 text = segment['text'].strip()
+                speaker = segment.get('speaker')  # 获取说话人标签
+
+                # 添加说话人前缀
+                text = SubtitleWriter._format_text_with_speaker(text, speaker)
 
                 f.write(f"{idx}\n")
                 f.write(f"{start} --> {end}\n")
@@ -94,6 +114,10 @@ class SubtitleWriter:
                 start = SubtitleWriter.format_timestamp_vtt(segment['start'])
                 end = SubtitleWriter.format_timestamp_vtt(segment['end'])
                 text = segment['text'].strip()
+                speaker = segment.get('speaker')  # 获取说话人标签
+
+                # 添加说话人前缀
+                text = SubtitleWriter._format_text_with_speaker(text, speaker)
 
                 f.write(f"{idx}\n")
                 f.write(f"{start} --> {end}\n")
@@ -124,7 +148,13 @@ class SubtitleWriter:
         with open(output_path, 'w', encoding='utf-8') as f:
             for idx, segment in enumerate(segments):
                 text = segment['text'].strip()
-                f.write(f"{text}\n")
+                speaker = segment.get('speaker')  # 获取说话人标签
+
+                # TXT 格式使用简化的说话人标签
+                if speaker:
+                    f.write(f"{speaker}: {text}\n")
+                else:
+                    f.write(f"{text}\n")
 
                 if translation_segments and idx < len(translation_segments):
                     trans_text = translation_segments[idx].get('text', '').strip()

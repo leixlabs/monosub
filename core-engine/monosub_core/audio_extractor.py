@@ -33,25 +33,35 @@ class AudioExtractor:
         output_audio_path: Optional[str] = None,
         enable_preprocessing: bool = True,
         normalize_volume: bool = True,
-        noise_reduction: bool = True
+        noise_reduction: bool = True,
+        use_cache: bool = True
     ) -> str:
         """
         使用 ffmpeg 从视频中提取音频，支持预处理优化
 
         Args:
             video_path: 视频文件路径
-            output_audio_path: 输出音频路径，如果为 None 则使用临时文件
+            output_audio_path: 输出音频路径，如果为 None 则使用同目录隐藏文件
             enable_preprocessing: 是否启用音频预处理
             normalize_volume: 是否进行音量标准化
             noise_reduction: 是否进行降噪处理
+            use_cache: 是否使用缓存（如果已存在则跳过提取）
 
         Returns:
             音频文件路径
         """
         if output_audio_path is None:
-            # 创建临时音频文件路径
-            video_name = Path(video_path).stem
-            output_audio_path = f"/tmp/{video_name}_audio.wav"
+            # 在视频同目录创建隐藏音频文件
+            video_path_obj = Path(video_path)
+            video_name = video_path_obj.stem
+            output_audio_path = str(video_path_obj.parent / f".{video_name}_audio.wav")
+
+        # 检查缓存：如果文件已存在且有效，直接返回
+        if use_cache and os.path.exists(output_audio_path):
+            # 检查缓存文件是否比源视频新（避免使用过期缓存）
+            if os.path.getmtime(output_audio_path) >= os.path.getmtime(video_path):
+                print(f"MSG:Using cached audio", flush=True)
+                return output_audio_path
 
         # 构建 ffmpeg 滤镜链
         audio_filters = []

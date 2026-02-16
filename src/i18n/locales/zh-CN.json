@@ -43,6 +43,7 @@
     "auto": "自动",
     "chinese": "中文",
     "english": "EN",
+    "multiSpeaker": "多人识别",
     "stop": "停止"
   },
   "settings": {

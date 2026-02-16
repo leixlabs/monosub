@@ -80,6 +80,11 @@ def main():
         choices=["cpu", "cuda"],
         help="Device to use (default: cpu)",
     )
+    parser.add_argument(
+        "--diarization",
+        action="store_true",
+        help="Enable speaker diarization (multi-speaker recognition)",
+    )
 
     args = parser.parse_args()
 
@@ -113,7 +118,13 @@ def main():
         progress_callback = ProgressCallback()
 
         print("MSG:Transcribing audio...", flush=True)
-        segments = transcriber.transcribe(audio_path, progress_callback, args.language)
+        
+        # 根据是否启用说话人分离选择不同的转录方式
+        if args.diarization:
+            print("MSG:Multi-speaker mode enabled", flush=True)
+            segments = transcriber.transcribe_with_diarization(audio_path, progress_callback, args.language)
+        else:
+            segments = transcriber.transcribe(audio_path, progress_callback, args.language)
 
         print(f"MSG:Transcription complete, {len(segments)} segments", flush=True)
         print("PROGRESS:95", flush=True)

@@ -19,6 +19,7 @@ pub struct TranscribeRequest {
     pub output_path: String,
     pub format: Option<String>,
     pub language: Option<String>,
+    pub enable_diarization: Option<bool>,
 }
 
 // Global task manager
@@ -64,6 +65,7 @@ pub async fn start_transcription(
     let output_path = request.output_path.clone();
     let format = request.format.unwrap_or_else(|| "srt".to_string());
     let language = request.language.unwrap_or_else(|| "zh".to_string());
+    let enable_diarization = request.enable_diarization.unwrap_or(false);
 
     tracing::info!(
         task_id = %task_id,
@@ -71,6 +73,7 @@ pub async fn start_transcription(
         output_path = %output_path,
         format = %format,
         language = %language,
+        enable_diarization = %enable_diarization,
         "Starting transcription task"
     );
 
@@ -112,6 +115,7 @@ pub async fn start_transcription(
                 &output_path,
                 &format,
                 &language,
+                enable_diarization,
             )
             .await
         } else {
@@ -122,6 +126,7 @@ pub async fn start_transcription(
                 &output_path,
                 &format,
                 &language,
+                enable_diarization,
             )
             .await
         };
@@ -159,6 +164,7 @@ async fn run_sidecar(
     output_path: &str,
     format: &str,
     language: &str,
+    enable_diarization: bool,
 ) -> Result<(), String> {
     tracing::info!(task_id = %task_id, "Starting sidecar process");
     let shell = app.shell();
@@ -180,15 +186,24 @@ async fn run_sidecar(
         format!("Failed to create sidecar command: {}", e)
     })?;
 
+    // 构建命令参数
+    let mut args = vec![
+        video_path.to_string(),
+        output_path.to_string(),
+        "--format".to_string(),
+        format.to_string(),
+        "--language".to_string(),
+        language.to_string(),
+    ];
+
+    // 如果启用了说话人分离，添加参数
+    if enable_diarization {
+        args.push("--diarization".to_string());
+        tracing::info!(task_id = %task_id, "Speaker diarization enabled");
+    }
+
     let (mut rx, _child) = sidecar_command
-        .args(&[
-            video_path,
-            output_path,
-            "--format",
-            format,
-            "--language",
-            language,
-        ])
+        .args(&args)
         .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
         .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
         .spawn()
@@ -256,6 +271,7 @@ async fn run_dev_mode(
     output_path: &str,
     format: &str,
     language: &str,
+    enable_diarization: bool,
 ) -> Result<(), String> {
     use tokio::io::{AsyncBufReadExt, BufReader};
     use tokio::process::Command;
@@ -317,14 +333,24 @@ async fn run_dev_mode(
         "Setting ffmpeg paths for Python subprocess"
     );
 
-    let mut child = Command::new(&venv_python)
+    // 构建命令
+    let mut command = Command::new(&venv_python);
+    command
         .arg(&main_py)
         .arg(video_path)
         .arg(output_path)
         .arg("--format")
         .arg(format)
         .arg("--language")
-        .arg(language)
+        .arg(language);
+
+    // 如果启用了说话人分离，添加参数
+    if enable_diarization {
+        command.arg("--diarization");
+        tracing::info!(task_id = %task_id, "Speaker diarization enabled (dev mode)");
+    }
+
+    let mut child = command
         .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
         .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
         .stdout(std::process::Stdio::piped())

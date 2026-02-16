@@ -34,6 +34,7 @@ export const startTranscriptionTask = async (taskId: string) => {
         output_path: outputPath,
         format: state.settings.outputFormat,
         language: state.settings.outputLanguage,
+        enable_diarization: state.enableSpeakerDiarization,
       },
     });
     return true;

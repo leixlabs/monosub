@@ -43,6 +43,7 @@
     "auto": "Auto",
     "chinese": "Chinese",
     "english": "English",
+    "multiSpeaker": "Multi-speaker",
     "stop": "Stop"
   },
   "settings": {
