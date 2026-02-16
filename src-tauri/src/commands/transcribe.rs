@@ -6,10 +6,23 @@ use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StepInfo {
+    pub current_step: u32,
+    pub total_steps: u32,
+    pub step_name: String,
+    pub step_elapsed: f64,
+    pub total_elapsed: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TranscribeProgress {
     pub task_id: String,
     pub progress: f64,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<StepInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_time: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -99,6 +112,8 @@ pub async fn start_transcription(
                 task_id: task_id.clone(),
                 progress: 0.0,
                 status: "Starting...".to_string(),
+                step: None,
+                total_time: None,
             },
         );
 
@@ -140,6 +155,8 @@ pub async fn start_transcription(
                     task_id: task_id.clone(),
                     progress: 0.0,
                     status: format!("Error: {}", e),
+                    step: None,
+                    total_time: None,
                 },
             );
         } else {
@@ -233,6 +250,8 @@ async fn run_sidecar(
                             task_id: task_id.to_string(),
                             progress: 0.0,
                             status: format!("Python Error: {}", line_str.trim()),
+                            step: None,
+                            total_time: None,
                         },
                     );
                 }
@@ -251,6 +270,8 @@ async fn run_sidecar(
                             task_id: task_id.to_string(),
                             progress: 0.0,
                             status: error_msg.clone(),
+                            step: None,
+                            total_time: None,
                         },
                     );
                     return Err(error_msg);
@@ -319,6 +340,8 @@ async fn run_dev_mode(
             task_id: task_id.to_string(),
             progress: 0.0,
             status: format!("CMD: {}", cmd_str),
+            step: None,
+            total_time: None,
         },
     );
 
@@ -384,6 +407,8 @@ async fn run_dev_mode(
                         task_id: task_id_clone.clone(),
                         progress: 0.0,
                         status: format!("Python Error: {}", line.trim()),
+                        step: None,
+                        total_time: None,
                     },
                 );
             }
@@ -413,6 +438,8 @@ async fn run_dev_mode(
                 task_id: task_id.to_string(),
                 progress: 0.0,
                 status: error_msg.clone(),
+                step: None,
+                total_time: None,
             },
         );
         return Err(error_msg);
@@ -421,42 +448,133 @@ async fn run_dev_mode(
     Ok(())
 }
 
+// Thread-local storage for current step info
+thread_local! {
+    static CURRENT_STEP: std::cell::RefCell<Option<StepInfo>> = std::cell::RefCell::new(None);
+    static TOTAL_TIME: std::cell::RefCell<Option<f64>> = std::cell::RefCell::new(None);
+}
+
 /// Process output line from Python script
 fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
-    if line.starts_with("PROGRESS:") {
-        if let Ok(progress) = line[9..].trim().parse::<f64>() {
-            tracing::debug!(task_id = %task_id, progress = progress, "Transcription progress");
-            let _ = app.emit(
-                "transcribe_progress",
-                TranscribeProgress {
-                    task_id: task_id.to_string(),
-                    progress,
-                    status: "Processing...".to_string(),
-                },
-            );
+    if line.starts_with("STEP:") {
+        // Format: STEP:1/4:step_name
+        let parts: Vec<&str> = line[5..].splitn(3, ':').collect();
+        if parts.len() >= 2 {
+            let step_parts: Vec<&str> = parts[0].split('/').collect();
+            if step_parts.len() == 2 {
+                if let (Ok(current), Ok(total)) = (
+                    step_parts[0].parse::<u32>(),
+                    step_parts[1].parse::<u32>(),
+                ) {
+                    let step_name = if parts.len() >= 2 {
+                        parts[1].to_string()
+                    } else {
+                        "Processing".to_string()
+                    };
+                    
+                    let step_info = StepInfo {
+                        current_step: current,
+                        total_steps: total,
+                        step_name: step_name.clone(),
+                        step_elapsed: 0.0,
+                        total_elapsed: 0.0,
+                    };
+                    
+                    CURRENT_STEP.with(|s| {
+                        *s.borrow_mut() = Some(step_info.clone());
+                    });
+                    
+                    tracing::info!(task_id = %task_id, step = current, total = total, name = %step_name, "Step started");
+                    
+                    let _ = app.emit(
+                        "transcribe_progress",
+                        TranscribeProgress {
+                            task_id: task_id.to_string(),
+                            progress: 0.0,
+                            status: step_name,
+                            step: Some(step_info),
+                            total_time: None,
+                        },
+                    );
+                }
+            }
         }
+    } else if line.starts_with("ELAPSED:") {
+        // Format: ELAPSED:12.5 (total elapsed seconds)
+        if let Ok(elapsed) = line[8..].trim().parse::<f64>() {
+            CURRENT_STEP.with(|s| {
+                if let Some(ref mut step) = *s.borrow_mut() {
+                    step.total_elapsed = elapsed;
+                    
+                    let _ = app.emit(
+                        "transcribe_progress",
+                        TranscribeProgress {
+                            task_id: task_id.to_string(),
+                            progress: 0.0,
+                            status: step.step_name.clone(),
+                            step: Some(step.clone()),
+                            total_time: None,
+                        },
+                    );
+                }
+            });
+        }
+    } else if line.starts_with("STEP_ELAPSED:") {
+        // Format: STEP_ELAPSED:3.2 (step elapsed seconds)
+        if let Ok(step_elapsed) = line[13..].trim().parse::<f64>() {
+            CURRENT_STEP.with(|s| {
+                if let Some(ref mut step) = *s.borrow_mut() {
+                    step.step_elapsed = step_elapsed;
+                }
+            });
+        }
+    } else if line.starts_with("TOTAL_TIME:") {
+        // Format: TOTAL_TIME:45.3
+        if let Ok(total) = line[11..].trim().parse::<f64>() {
+            TOTAL_TIME.with(|t| {
+                *t.borrow_mut() = Some(total);
+            });
+            tracing::info!(task_id = %task_id, total_time = total, "Total processing time");
+        }
+    } else if line.starts_with("PROGRESS:") {
+        // Legacy support - ignore PROGRESS messages now
+        tracing::debug!(task_id = %task_id, line = %line, "Ignoring legacy PROGRESS message");
     } else if line.starts_with("MSG:") {
         let message = &line[4..];
         tracing::info!(task_id = %task_id, message = %message, "Transcription message");
+        
+        let current_step = CURRENT_STEP.with(|s| s.borrow().clone());
+        
         let _ = app.emit(
             "transcribe_progress",
             TranscribeProgress {
                 task_id: task_id.to_string(),
                 progress: 0.0,
                 status: message.to_string(),
+                step: current_step,
+                total_time: None,
             },
         );
     } else if line.starts_with("SUCCESS:") {
         let output_file = &line[8..];
         tracing::info!(task_id = %task_id, output_file = %output_file, "Transcription completed");
+        
+        let total_time = TOTAL_TIME.with(|t| *t.borrow());
+        
         let _ = app.emit(
             "transcribe_complete",
             TranscribeProgress {
                 task_id: task_id.to_string(),
                 progress: 100.0,
                 status: format!("Completed: {}", output_file),
+                step: None,
+                total_time,
             },
         );
+        
+        // Clear thread-local state
+        CURRENT_STEP.with(|s| *s.borrow_mut() = None);
+        TOTAL_TIME.with(|t| *t.borrow_mut() = None);
     } else if line.starts_with("ERROR:") {
         let error_msg = &line[6..];
         tracing::error!(task_id = %task_id, error = %error_msg, "Transcription error");
@@ -467,8 +585,14 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
                 task_id: task_id.to_string(),
                 progress: 0.0,
                 status: format!("Error: {}", error_msg),
+                step: None,
+                total_time: None,
             },
         );
+        
+        // Clear thread-local state
+        CURRENT_STEP.with(|s| *s.borrow_mut() = None);
+        TOTAL_TIME.with(|t| *t.borrow_mut() = None);
     }
 }
 
@@ -555,6 +679,8 @@ pub async fn install_dependencies(app: AppHandle) -> Result<(), String> {
             task_id: "install".to_string(),
             progress: 0.0,
             status: "Starting installation...".to_string(),
+            step: None,
+            total_time: None,
         },
     );
 
@@ -613,6 +739,8 @@ fn process_install_output_line(app: &AppHandle, line: &str) {
                 task_id: "install".to_string(),
                 progress: 0.0,
                 status: msg.to_string(),
+                step: None,
+                total_time: None,
             },
         );
     } else if line.contains("PROGRESS:") {
@@ -629,6 +757,8 @@ fn process_install_output_line(app: &AppHandle, line: &str) {
                     task_id: "install".to_string(),
                     progress: p,
                     status: "Installing...".to_string(),
+                    step: None,
+                    total_time: None,
                 },
             );
         }

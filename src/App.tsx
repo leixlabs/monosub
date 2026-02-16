@@ -12,10 +12,20 @@ import { useStore } from './store/useStore';
 import { startTranscriptionTask } from './lib/transcription';
 import { addPathsToQueue } from './lib/fileImport';
 
+interface StepInfoPayload {
+  current_step: number;
+  total_steps: number;
+  step_name: string;
+  step_elapsed: number;
+  total_elapsed: number;
+}
+
 interface TranscribeProgressPayload {
   task_id: string;
   progress: number;
   status: string;
+  step?: StepInfoPayload;
+  total_time?: number;
 }
 
 function App() {
@@ -42,21 +52,35 @@ function App() {
   useEffect(() => {
     // Listen to transcription progress events
     const progressUnlisten = listen<TranscribeProgressPayload>('transcribe_progress', (event) => {
-      const { task_id, progress, status } = event.payload;
-      console.log('[transcribe_progress]', { task_id, progress, status });
-      updateFile(task_id, {
+      const { task_id, step } = event.payload;
+      console.log('[transcribe_progress]', { task_id, step });
+      
+      const updates: Partial<import('./store/useStore').VideoFile> = {
         status: 'processing',
-        progress: Math.round(progress),
-      });
+      };
+      
+      if (step) {
+        updates.stepProgress = {
+          currentStep: step.current_step,
+          totalSteps: step.total_steps,
+          stepName: step.step_name,
+          stepElapsed: step.step_elapsed,
+          totalElapsed: step.total_elapsed,
+        };
+      }
+      
+      updateFile(task_id, updates);
     });
 
     // Listen to transcription completion events
     const completeUnlisten = listen<TranscribeProgressPayload>('transcribe_complete', (event) => {
-      const { task_id } = event.payload;
-      console.log('[transcribe_complete]', { task_id });
+      const { task_id, total_time } = event.payload;
+      console.log('[transcribe_complete]', { task_id, total_time });
       updateFile(task_id, {
         status: 'completed',
         progress: 100,
+        stepProgress: undefined,
+        totalTime: total_time,
       });
       setIsProcessing(false);
       setCurrentTaskId(null);

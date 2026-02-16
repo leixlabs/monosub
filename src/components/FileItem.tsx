@@ -1,10 +1,11 @@
-import { Trash2, Play, Pause, CheckCircle2, AlertCircle, FolderOpen, Loader2 } from 'lucide-react';
+import { Trash2, Play, Pause, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
 import { invoke } from '@tauri-apps/api/core';
 import { startTranscriptionTask } from '@/lib/transcription';
+import { useEffect, useState, useRef } from 'react';
 
 interface FileItemProps {
   file: VideoFile;
@@ -15,6 +16,39 @@ export function FileItem({ file }: FileItemProps) {
   const removeFile = useStore((state) => state.removeFile);
   const isProcessing = useStore((state) => state.isProcessing);
   const settings = useStore((state) => state.settings);
+  
+  // Live elapsed time counter
+  const [liveElapsed, setLiveElapsed] = useState(0);
+  const lastElapsedRef = useRef(0);
+  const lastUpdateTimeRef = useRef(Date.now());
+  
+  useEffect(() => {
+    if (file.status !== 'processing' || !file.stepProgress) {
+      return;
+    }
+    
+    // Update base time when we get new elapsed from backend
+    lastElapsedRef.current = file.stepProgress.totalElapsed;
+    lastUpdateTimeRef.current = Date.now();
+    setLiveElapsed(file.stepProgress.totalElapsed);
+    
+    // Start interval to update live counter
+    const interval = setInterval(() => {
+      const timeSinceUpdate = (Date.now() - lastUpdateTimeRef.current) / 1000;
+      setLiveElapsed(lastElapsedRef.current + timeSinceUpdate);
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, [file.status, file.stepProgress?.totalElapsed]);
+  
+  const formatElapsedTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
 
   const handleStart = async () => {
     await startTranscriptionTask(file.id);
@@ -73,24 +107,46 @@ export function FileItem({ file }: FileItemProps) {
       case 'processing':
         return (
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
-              <span className="text-xs font-medium text-primary dark:text-primary">{file.progress}%</span>
-            </div>
-            <div className="w-32 h-2 bg-bg-secondary dark:bg-zinc-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-primary to-accent dark:from-primary dark:to-accent transition-all duration-300 ease-out"
-                style={{ width: `${file.progress}%` }}
-              />
-            </div>
+            {file.stepProgress ? (
+              <>
+                {/* Step indicator */}
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+                  <span className="text-xs font-medium text-text-secondary dark:text-gray-400">
+                    {file.stepProgress.currentStep}/{file.stepProgress.totalSteps}
+                  </span>
+                </div>
+                {/* Step name */}
+                <span className="text-xs font-medium text-primary dark:text-primary">
+                  {t(`steps.${file.stepProgress.stepName.toLowerCase().replace(/\s+/g, '_')}`, file.stepProgress.stepName)}
+                </span>
+                {/* Elapsed time */}
+                <div className="flex items-center gap-1 text-xs text-text-tertiary dark:text-gray-500">
+                  <Clock className="w-3 h-3" />
+                  <span>{formatElapsedTime(liveElapsed)}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+                <span className="text-xs font-medium text-primary dark:text-primary">{t('fileItem.starting')}</span>
+              </div>
+            )}
           </div>
         );
       case 'completed':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 dark:bg-success/20 text-success">
-            <CheckCircle2 className="w-3.5 h-3.5" />
-            {t('fileItem.completed')}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 dark:bg-success/20 text-success">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {t('fileItem.completed')}
+            </span>
+            {file.totalTime && (
+              <span className="text-xs text-text-tertiary dark:text-gray-500">
+                {formatElapsedTime(file.totalTime)}
+              </span>
+            )}
+          </div>
         );
       case 'error':
         return (

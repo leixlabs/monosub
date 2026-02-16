@@ -32,7 +32,14 @@
     "start": "Start",
     "pause": "Pause",
     "open": "Open",
-    "delete": "Delete"
+    "delete": "Delete",
+    "starting": "Starting..."
+  },
+  "steps": {
+    "extracting_audio": "Extracting audio",
+    "loading_model": "Loading model",
+    "transcribing": "Transcribing",
+    "writing_subtitle": "Writing subtitle"
   },
   "bottomBar": {
     "saveLocation": "Save to",

@@ -52,6 +52,45 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from monosub_core.audio_extractor import AudioExtractor
 from monosub_core.transcriber import FunASRTranscriber, ProgressCallback
 from monosub_core.subtitle_writer import SubtitleWriter
+import time
+
+
+class StepTracker:
+    """Track processing steps and elapsed time"""
+    
+    STEPS = [
+        "Extracting audio",
+        "Loading model",
+        "Transcribing",
+        "Writing subtitle"
+    ]
+    
+    def __init__(self):
+        self.start_time = time.time()
+        self.step_start_time = self.start_time
+        self.current_step = 0
+        self.total_steps = len(self.STEPS)
+    
+    def emit_step(self, step_num: int, step_name: str = None):
+        """Emit current step info"""
+        self.current_step = step_num
+        if step_name is None:
+            step_name = self.STEPS[step_num - 1] if step_num <= len(self.STEPS) else "Processing"
+        self.step_start_time = time.time()
+        total_elapsed = time.time() - self.start_time
+        print(f"STEP:{step_num}/{self.total_steps}:{step_name}", flush=True)
+        print(f"ELAPSED:{total_elapsed:.1f}", flush=True)
+    
+    def emit_elapsed(self):
+        """Emit current elapsed time"""
+        step_elapsed = time.time() - self.step_start_time
+        total_elapsed = time.time() - self.start_time
+        print(f"STEP_ELAPSED:{step_elapsed:.1f}", flush=True)
+        print(f"ELAPSED:{total_elapsed:.1f}", flush=True)
+    
+    def get_total_time(self) -> float:
+        """Get total processing time"""
+        return time.time() - self.start_time
 
 
 def main():
@@ -88,6 +127,8 @@ def main():
 
     args = parser.parse_args()
 
+    tracker = StepTracker()
+    
     try:
         # 验证输入文件
         if not os.path.exists(args.video_path):
@@ -95,29 +136,28 @@ def main():
             sys.exit(1)
 
         print(f"MSG:Starting processing: {Path(args.video_path).name}", flush=True)
-        print("PROGRESS:0", flush=True)
 
-        # 1. 提取音频 (0-10%)
-        print("MSG:Extracting audio...", flush=True)
-        print("PROGRESS:2", flush=True)
+        # Step 1: 提取音频
+        tracker.emit_step(1, "Extracting audio")
 
         extractor = AudioExtractor()
         audio_path = extractor.extract_audio(args.video_path)
+        tracker.emit_elapsed()
 
-        print(f"MSG:Audio extracted: {audio_path}", flush=True)
-        print("PROGRESS:10", flush=True)
-
-        # 2. 转录音频 (10-95%)
-        print("MSG:Loading model...", flush=True)
+        # Step 2: 加载模型
+        tracker.emit_step(2, "Loading model")
 
         transcriber = FunASRTranscriber(
             model_name="sensevoice",  # 使用 SenseVoice 模型
             device="auto",  # 自动检测最优设备 (MPS/CUDA/CPU)
         )
 
-        progress_callback = ProgressCallback()
+        # 创建一个不发送 PROGRESS 的回调
+        progress_callback = ProgressCallback(callback=lambda p, m: None)
+        tracker.emit_elapsed()
 
-        print("MSG:Transcribing audio...", flush=True)
+        # Step 3: 转录音频
+        tracker.emit_step(3, "Transcribing")
         
         # 根据是否启用说话人分离选择不同的转录方式
         if args.diarization:
@@ -126,12 +166,11 @@ def main():
         else:
             segments = transcriber.transcribe(audio_path, progress_callback, args.language)
 
-        print(f"MSG:Transcription complete, {len(segments)} segments", flush=True)
-        print("PROGRESS:95", flush=True)
+        print(f"MSG:{len(segments)} segments found", flush=True)
+        tracker.emit_elapsed()
 
-        # 3. 写入字幕文件 (95-100%)
-        print("MSG:Writing subtitle file...", flush=True)
-        print("PROGRESS:97", flush=True)
+        # Step 4: 写入字幕文件
+        tracker.emit_step(4, "Writing subtitle")
 
         # 确保输出目录存在
         output_dir = os.path.dirname(args.output_path)
@@ -139,8 +178,11 @@ def main():
             os.makedirs(output_dir, exist_ok=True)
 
         SubtitleWriter.write(segments, args.output_path, args.format)
+        tracker.emit_elapsed()
 
-        print("PROGRESS:100", flush=True)
+        # 完成
+        total_time = tracker.get_total_time()
+        print(f"TOTAL_TIME:{total_time:.1f}", flush=True)
         print(f"SUCCESS:{args.output_path}", flush=True)
 
         # 清理临时音频文件

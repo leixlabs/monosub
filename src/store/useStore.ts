@@ -6,6 +6,14 @@ export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt'
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
 
+export interface StepProgress {
+  currentStep: number
+  totalSteps: number
+  stepName: string
+  stepElapsed: number  // seconds elapsed for current step
+  totalElapsed: number // total seconds elapsed since start
+}
+
 export interface VideoFile {
   id: string
   name: string
@@ -15,6 +23,8 @@ export interface VideoFile {
   thumbnail?: string
   status: VideoStatus
   progress: number
+  stepProgress?: StepProgress
+  totalTime?: number  // total processing time in seconds (set on completion)
   error?: string
   subtitlePath?: string
 }

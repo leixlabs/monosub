@@ -32,7 +32,14 @@
     "start": "开始",
     "pause": "暂停",
     "open": "打开",
-    "delete": "删除"
+    "delete": "删除",
+    "starting": "启动中..."
+  },
+  "steps": {
+    "extracting_audio": "提取音频",
+    "loading_model": "加载模型",
+    "transcribing": "转录中",
+    "writing_subtitle": "生成字幕"
   },
   "bottomBar": {
     "saveLocation": "保存位置",
