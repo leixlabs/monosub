@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Header } from './components/Header';
@@ -9,6 +10,7 @@ import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
 import { startTranscriptionTask } from './lib/transcription';
+import { addPathsToQueue } from './lib/fileImport';
 
 interface TranscribeProgressPayload {
   task_id: string;
@@ -127,6 +129,48 @@ function App() {
       errorUnlisten.then((f) => f());
     };
   }, [updateFile, setIsProcessing, setCurrentTaskId, incrementProcessedCount, t]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    let destroyed = false;
+
+    const setupDropListener = async () => {
+      const remove = await getCurrentWebviewWindow().onDragDropEvent((event) => {
+        if (event.payload.type !== 'drop') return;
+        const droppedPaths = event.payload.paths;
+        if (!droppedPaths || droppedPaths.length === 0) return;
+
+        void addPathsToQueue({
+          paths: droppedPaths,
+          existingFiles: filesRef.current,
+          addFiles: useStore.getState().addFiles,
+          source: 'WindowDrop',
+        }).then((result) => {
+          if (result.skippedDuplicates > 0) {
+            console.warn(`[WindowDrop] Skipped ${result.skippedDuplicates} duplicate file(s)`);
+          }
+          if (result.skippedUnsupported > 0) {
+            console.warn(`[WindowDrop] Skipped ${result.skippedUnsupported} unsupported file(s)`);
+          }
+        });
+      });
+
+      if (destroyed) {
+        remove();
+      } else {
+        unlisten = remove;
+      }
+    };
+
+    void setupDropListener();
+
+    return () => {
+      destroyed = true;
+      if (unlisten) {
+        unlisten();
+      }
+    };
+  }, []);
 
   return (
     <ThemeProvider>

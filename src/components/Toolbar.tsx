@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
-import { invoke } from '@tauri-apps/api/core';
+import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
 
 export function Toolbar() {
   const { t } = useTranslation();
@@ -22,54 +22,25 @@ export function Toolbar() {
         multiple: true,
         filters: [{
           name: 'Media',
-          extensions: ['mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'm4v', 'mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'wma']
+          extensions: MEDIA_EXTENSIONS
         }]
       });
 
       if (!selected) return;
 
       const paths = Array.isArray(selected) ? selected : [selected];
+      const result = await addPathsToQueue({
+        paths,
+        existingFiles: files,
+        addFiles,
+        source: 'Toolbar',
+      });
 
-      const newFiles = await Promise.all(
-        paths.map(async (path) => {
-          try {
-            console.log('[Toolbar] Processing file:', path);
-            const metadata: any = await invoke('get_video_metadata', { path });
-            console.log('[Toolbar] Metadata:', metadata);
-            const thumbnail: any = await invoke('generate_thumbnail', { path });
-            console.log('[Toolbar] Thumbnail generated');
-
-            return {
-              id: crypto.randomUUID(),
-              name: path.split('/').pop() || 'Unknown',
-              path,
-              size: metadata.size,
-              duration: metadata.duration,
-              thumbnail: thumbnail.thumbnail_base64,
-              status: 'pending' as const,
-              progress: 0,
-            };
-          } catch (error) {
-            console.error('[Toolbar] Failed to process file:', path, error);
-            alert(`Failed to add file: ${path.split('/').pop()}\n\nError: ${error}\n\nPlease make sure ffmpeg and ffprobe are installed on your system.`);
-            return null;
-          }
-        })
-      );
-
-      const validFiles = newFiles.filter(f => f !== null);
-      // Filter out files that already exist (by path)
-      const existingPaths = new Set(files.map(f => f.path));
-      const uniqueFiles = validFiles.filter(f => !existingPaths.has(f.path));
-
-      if (uniqueFiles.length > 0) {
-        addFiles(uniqueFiles);
+      if (result.skippedDuplicates > 0) {
+        console.warn(`[Toolbar] Skipped ${result.skippedDuplicates} duplicate file(s)`);
       }
-
-      // Notify user if some files were skipped
-      const skippedCount = validFiles.length - uniqueFiles.length;
-      if (skippedCount > 0) {
-        console.warn(`Skipped ${skippedCount} duplicate file(s)`);
+      if (result.skippedUnsupported > 0) {
+        console.warn(`[Toolbar] Skipped ${result.skippedUnsupported} unsupported file(s)`);
       }
     } catch (error) {
       console.error('Failed to select files:', error);
