@@ -149,7 +149,10 @@ export function FileItem({ file }: FileItemProps) {
         );
       case 'error':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-danger/10 dark:bg-danger/20 text-danger">
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-danger/10 dark:bg-danger/20 text-danger cursor-default"
+            title={file.error || t('fileItem.error')}
+          >
             <AlertCircle className="w-3.5 h-3.5" />
             {t('fileItem.error')}
           </span>
