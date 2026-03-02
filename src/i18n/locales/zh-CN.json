@@ -30,7 +30,7 @@
     "completed": "已完成",
     "error": "错误",
     "start": "开始",
-    "pause": "暂停",
+    "cancel": "取消",
     "open": "打开",
     "delete": "删除",
     "starting": "启动中..."

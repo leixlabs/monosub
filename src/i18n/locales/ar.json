@@ -30,7 +30,7 @@
     "completed": "مكتمل",
     "error": "خطأ",
     "start": "ابدأ",
-    "pause": "إيقاف مؤقت",
+    "cancel": "إلغاء",
     "open": "فتح",
     "delete": "حذف",
     "starting": "Starting..."

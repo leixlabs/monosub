@@ -1,7 +1,7 @@
 {
   "name": "monosub",
   "private": true,
-  "version": "1.1.4",
+  "version": "1.1.9",
   "type": "module",
   "scripts": {
     "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx @tauri-apps/cli dev",

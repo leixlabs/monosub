@@ -30,7 +30,7 @@
     "completed": "Завершено",
     "error": "Ошибка",
     "start": "Старт",
-    "pause": "Пауза",
+    "cancel": "Отмена",
     "open": "Открыть",
     "delete": "Удалить",
     "starting": "Starting..."

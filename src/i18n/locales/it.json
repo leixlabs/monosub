@@ -30,7 +30,7 @@
     "completed": "Completato",
     "error": "Errore",
     "start": "Avvia",
-    "pause": "Pausa",
+    "cancel": "Annulla",
     "open": "Apri",
     "delete": "Elimina",
     "starting": "Starting..."

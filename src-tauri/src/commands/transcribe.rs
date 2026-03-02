@@ -596,12 +596,6 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
     }
 }
 
-/// Pause transcription task
-#[tauri::command]
-pub async fn pause_transcription(_task_id: String) -> Result<(), String> {
-    Err("Pause not implemented yet".to_string())
-}
-
 /// Cancel transcription task
 #[tauri::command]
 pub async fn cancel_transcription(task_id: String) -> Result<(), String> {

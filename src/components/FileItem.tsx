@@ -1,4 +1,4 @@
-import { Trash2, Play, Pause, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock } from 'lucide-react';
+import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { VideoFile } from '@/store/useStore';
@@ -58,15 +58,14 @@ export function FileItem({ file }: FileItemProps) {
     removeFile(file.id);
   };
 
-  const handlePause = async () => {
+  const handleCancel = async () => {
     if (file.status !== 'processing') return;
 
     try {
-      await invoke('pause_transcription', { taskId: file.id });
-      useStore.getState().updateFile(file.id, { status: 'paused' });
+      await invoke('cancel_transcription', { taskId: file.id });
+      useStore.getState().updateFile(file.id, { status: 'pending', progress: 0 });
     } catch (error) {
-      console.error('[pause_transcription] Failed:', error);
-      // Pause is not fully implemented yet in the backend
+      console.error('[cancel_transcription] Failed:', error);
     }
   };
 
@@ -221,11 +220,11 @@ export function FileItem({ file }: FileItemProps) {
         {file.status === 'processing' && (
           <motion.button
             whileTap={{ scale: 0.97 }}
-            onClick={handlePause}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 border border-border dark:border-zinc-700 text-text-secondary dark:text-gray-400 text-sm font-medium rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors"
+            onClick={handleCancel}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 border border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 text-sm font-medium rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
           >
-            <Pause className="w-4 h-4" />
-            {t('fileItem.pause')}
+            <Square className="w-4 h-4" />
+            {t('fileItem.cancel')}
           </motion.button>
         )}
         {file.status === 'completed' && (

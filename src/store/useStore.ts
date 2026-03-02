@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type VideoStatus = 'pending' | 'processing' | 'completed' | 'error' | 'paused'
+export type VideoStatus = 'pending' | 'processing' | 'completed' | 'error'
 export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt'
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'

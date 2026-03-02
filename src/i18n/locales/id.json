@@ -30,7 +30,7 @@
     "completed": "Selesai",
     "error": "Error",
     "start": "Mulai",
-    "pause": "Jeda",
+    "cancel": "Batalkan",
     "open": "Buka",
     "delete": "Hapus",
     "starting": "Starting..."

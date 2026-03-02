@@ -41,7 +41,6 @@ fn main() {
             get_video_metadata,
             generate_thumbnail,
             start_transcription,
-            pause_transcription,
             cancel_transcription,
             open_in_finder,
             activate_license,

@@ -30,7 +30,7 @@
     "completed": "완료",
     "error": "오류",
     "start": "시작",
-    "pause": "일시정지",
+    "cancel": "취소",
     "open": "열기",
     "delete": "삭제",
     "starting": "Starting..."

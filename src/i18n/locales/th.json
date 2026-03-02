@@ -30,7 +30,7 @@
     "completed": "เสร็จสิ้น",
     "error": "ข้อผิดพลาด",
     "start": "เริ่ม",
-    "pause": "หยุดชั่วคราว",
+    "cancel": "ยกเลิก",
     "open": "เปิด",
     "delete": "ลบ",
     "starting": "Starting..."

@@ -30,7 +30,7 @@
     "completed": "Abgeschlossen",
     "error": "Fehler",
     "start": "Start",
-    "pause": "Pause",
+    "cancel": "Abbrechen",
     "open": "Öffnen",
     "delete": "Löschen",
     "starting": "Starting..."

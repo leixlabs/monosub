@@ -30,7 +30,7 @@
     "completed": "完了",
     "error": "エラー",
     "start": "開始",
-    "pause": "一時停止",
+    "cancel": "キャンセル",
     "open": "開く",
     "delete": "削除",
     "starting": "Starting..."

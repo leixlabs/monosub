@@ -30,7 +30,7 @@
     "completed": "Tamamlandı",
     "error": "Hata",
     "start": "Başlat",
-    "pause": "Duraklat",
+    "cancel": "İptal",
     "open": "Aç",
     "delete": "Sil",
     "starting": "Starting..."

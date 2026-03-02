@@ -204,6 +204,10 @@ copy_python_scripts() {
     fi
 
     log_success "Python 脚本复制完成"
+
+    # 混淆 Python 代码
+    log_info "混淆 Python 代码..."
+    bash "$SCRIPT_DIR/obfuscate.sh" "$scripts_target" "$RESOURCES_DIR/python/bin/python3"
 }
 
 copy_python_scripts

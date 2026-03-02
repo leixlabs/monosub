@@ -30,7 +30,7 @@
     "completed": "Dokončeno",
     "error": "Chyba",
     "start": "Start",
-    "pause": "Pauza",
+    "cancel": "Zrušit",
     "open": "Otevřít",
     "delete": "Smazat",
     "starting": "Starting..."
