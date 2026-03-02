@@ -44,6 +44,10 @@ fn main() {
             pause_transcription,
             cancel_transcription,
             open_in_finder,
+            activate_license,
+            validate_license,
+            deactivate_license,
+            open_external_url,
             check_dependencies,
             install_dependencies,
         ])

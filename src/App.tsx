@@ -11,6 +11,7 @@ import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
 import { startTranscriptionTask } from './lib/transcription';
 import { addPathsToQueue } from './lib/fileImport';
+import { validateLicenseOnStartup } from './lib/license';
 
 interface StepInfoPayload {
   current_step: number;
@@ -47,6 +48,10 @@ function App() {
       settingsRef.current = state.settings;
     });
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    void validateLicenseOnStartup();
   }, []);
 
   useEffect(() => {

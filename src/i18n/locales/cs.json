@@ -32,7 +32,8 @@
     "start": "Start",
     "pause": "Pauza",
     "open": "Otevřít",
-    "delete": "Smazat"
+    "delete": "Smazat",
+    "starting": "Starting..."
   },
   "bottomBar": {
     "saveLocation": "Uložit do",
@@ -44,7 +45,9 @@
     "chinese": "Čínština",
     "english": "Angličtina",
     "multiSpeaker": "Multi-speaker",
-    "stop": "Stop"
+    "stop": "Stop",
+    "multiSpeakerHint": "Requires a valid Polar license",
+    "proRequired": "PRO license required"
   },
   "settings": {
     "title": "Nastavení",
@@ -71,7 +74,49 @@
       "showCompletedDesc": "Zobrazit oznámení po dokončení"
     },
     "resetDefaults": "Resetovat",
-    "done": "Hotovo"
+    "done": "Hotovo",
+    "license": {
+      "title": "License",
+      "serviceUrl": "Polar Service URL",
+      "organizationId": "Organization ID",
+      "benefitId": "Benefit ID (Optional)",
+      "licenseKey": "License Key",
+      "checkoutUrl": "Checkout URL",
+      "checkoutUrlDesc": "Used when multi-speaker is enabled without a valid license.",
+      "validate": "Validate License",
+      "validating": "Validating...",
+      "openCheckout": "Open Checkout",
+      "clearKey": "Clear Key",
+      "statusLabel": "Status:",
+      "lastChecked": "Last checked",
+      "expiresAt": "Expires at",
+      "hint": "Only users with a valid Polar license can use multi-speaker recognition.",
+      "status": {
+        "unknown": "Not validated",
+        "checking": "Checking...",
+        "valid": "Valid",
+        "invalid": "Invalid",
+        "error": "Validation error"
+      },
+      "deactivate": "Deactivate This Device",
+      "deviceId": "Device ID",
+      "activationId": "Activation ID"
+    },
+    "environment": {
+      "title": "AI Environment",
+      "check": "Check Status",
+      "repair": "Repair Dependencies",
+      "repairDesc": "Re-install AI dependencies if transcription fails",
+      "status": {
+        "checking": "Checking...",
+        "healthy": "Environment Ready",
+        "broken": "Dependencies Missing or Broken",
+        "error": "Check Failed"
+      },
+      "repairing": "Repairing AI dependencies... (3-5 mins)",
+      "repairSuccess": "Repair successful",
+      "repairFailed": "Repair failed"
+    }
   },
   "notification": {
     "completed": "Vytváření titulků dokončeno"
@@ -80,5 +125,11 @@
     "auto": "Auto Detekce",
     "zh": "Čínština",
     "en": "Angličtina"
+  },
+  "steps": {
+    "extracting_audio": "Extracting audio",
+    "loading_model": "Loading model",
+    "transcribing": "Transcribing",
+    "writing_subtitle": "Writing subtitle"
   }
 }

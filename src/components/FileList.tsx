@@ -1,10 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { FileItem } from './FileItem';
-import { Film, Plus, Subtitles } from 'lucide-react';
-import { open } from '@tauri-apps/plugin-dialog';
-import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
+import { Film, Subtitles } from 'lucide-react';
+import { addPathsToQueue } from '@/lib/fileImport';
 
 export function FileList() {
   const { t } = useTranslation();
@@ -38,37 +36,6 @@ export function FileList() {
     }
     if (result.skippedUnsupported > 0) {
       console.warn(`[FileListDrop] Skipped ${result.skippedUnsupported} unsupported file(s)`);
-    }
-  };
-
-  const handleAddFiles = async () => {
-    try {
-      const selected = await open({
-        multiple: true,
-        filters: [{
-          name: 'Media',
-          extensions: MEDIA_EXTENSIONS
-        }]
-      });
-
-      if (!selected) return;
-
-      const paths = Array.isArray(selected) ? selected : [selected];
-      const result = await addPathsToQueue({
-        paths,
-        existingFiles: files,
-        addFiles,
-        source: 'FileList',
-      });
-
-      if (result.skippedDuplicates > 0) {
-        console.warn(`[FileList] Skipped ${result.skippedDuplicates} duplicate file(s)`);
-      }
-      if (result.skippedUnsupported > 0) {
-        console.warn(`[FileList] Skipped ${result.skippedUnsupported} unsupported file(s)`);
-      }
-    } catch (error) {
-      console.error('Failed to select files:', error);
     }
   };
 
@@ -126,15 +93,9 @@ export function FileList() {
             </div>
           </div>
 
-          {/* Action button */}
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleAddFiles}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-all shadow-glass-md hover:shadow-glass-lg"
-          >
-            <Plus className="w-5 h-5" />
+          <p className="text-sm text-text-tertiary dark:text-gray-500">
             {t('fileList.addVideos')}
-          </motion.button>
+          </p>
 
           {/* Features */}
           <div className="mt-8 flex items-center justify-center gap-6 text-xs text-text-tertiary dark:text-gray-500">

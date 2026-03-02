@@ -1,31 +1,94 @@
-import { useState, useEffect } from 'react';
-import { X, RotateCcw, Globe, ChevronDown, Check, ShieldCheck, ShieldAlert, RefreshCw, Loader2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  X,
+  RotateCcw,
+  Globe,
+  ShieldCheck,
+  ShieldAlert,
+  RefreshCw,
+  Loader2,
+  SlidersHorizontal,
+  Cpu,
+  Bell,
+  KeyRound,
+  ExternalLink,
+  BadgeCheck,
+  AlertTriangle,
+  Unplug,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
 import { supportedLanguages } from '@/i18n';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import {
+  validatePolarLicense,
+  activatePolarLicense,
+  deactivatePolarLicense,
+  openLicenseCheckout,
+  SETTINGS_OPEN_CATEGORY_STORAGE_KEY,
+} from '@/lib/license';
+
+type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'environment' | 'notifications';
+
+const safeTrim = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+
+const isSettingsCategory = (value: string | null): value is SettingsCategory => {
+  return value === 'general'
+    || value === 'output'
+    || value === 'processing'
+    || value === 'license'
+    || value === 'environment'
+    || value === 'notifications';
+};
+
+interface InstallProgressPayload {
+  progress: number;
+  status: string;
+}
 
 export function Settings() {
   const { t, i18n } = useTranslation();
-  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('general');
   const isOpen = useStore((state) => state.isSettingsOpen);
   const setIsOpen = useStore((state) => state.setIsSettingsOpen);
   const settings = useStore((state) => state.settings);
   const updateSettings = useStore((state) => state.updateSettings);
   const resetSettings = useStore((state) => state.resetSettings);
+  const licenseConfig = useStore((state) => state.licenseConfig);
+  const setLicenseKey = useStore((state) => state.setLicenseKey);
+  const setLicenseActivationId = useStore((state) => state.setLicenseActivationId);
+  const licenseStatus = useStore((state) => state.licenseStatus);
+  const licenseMessage = useStore((state) => state.licenseMessage);
+  const clearLicenseValidation = useStore((state) => state.clearLicenseValidation);
 
   const [envStatus, setEnvStatus] = useState<'idle' | 'checking' | 'healthy' | 'broken' | 'error'>('idle');
   const [isRepairing, setIsRepairing] = useState(false);
   const [repairProgress, setRepairProgress] = useState(0);
   const [repairMsg, setRepairMsg] = useState('');
+  const [isValidatingLicense, setIsValidatingLicense] = useState(false);
+  const [isDeactivatingLicense, setIsDeactivatingLicense] = useState(false);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return;
+    }
+
+    let initialCategory: SettingsCategory = 'general';
+    try {
+      const storedCategory = localStorage.getItem(SETTINGS_OPEN_CATEGORY_STORAGE_KEY);
+      if (isSettingsCategory(storedCategory)) {
+        initialCategory = storedCategory;
+      }
+      localStorage.removeItem(SETTINGS_OPEN_CATEGORY_STORAGE_KEY);
+    } catch (error) {
+      console.warn('[Settings] Failed to resolve initial category:', error);
+    }
+    setActiveCategory(initialCategory);
 
     const setupListeners = async () => {
-      const unlistenProgress = await listen('install_progress', (event: any) => {
+      const unlistenProgress = await listen<InstallProgressPayload>('install_progress', (event) => {
         const { progress, status } = event.payload;
         if (progress > 0) setRepairProgress(progress);
         setRepairMsg(status);
@@ -47,9 +110,9 @@ export function Settings() {
     checkEnv();
 
     return () => {
-      cleanup.then(fn => fn && fn());
+      cleanup.then((fn) => fn && fn());
     };
-  }, [isOpen]);
+  }, [isOpen, t]);
 
   const checkEnv = async () => {
     setEnvStatus('checking');
@@ -75,7 +138,33 @@ export function Settings() {
     }
   };
 
-  if (!isOpen) return null;
+  const handleValidateLicense = async () => {
+    setIsValidatingLicense(true);
+    try {
+      if (!safeTrim(licenseConfig?.licenseActivationId)) {
+        const activation = await activatePolarLicense();
+        if (!activation.activated) {
+          return;
+        }
+      }
+      await validatePolarLicense();
+    } finally {
+      setIsValidatingLicense(false);
+    }
+  };
+
+  const handleDeactivateLicense = async () => {
+    setIsDeactivatingLicense(true);
+    try {
+      await deactivatePolarLicense();
+    } finally {
+      setIsDeactivatingLicense(false);
+    }
+  };
+
+  const handleOpenCheckout = async () => {
+    await openLicenseCheckout();
+  };
 
   const formatOptions: { value: SubtitleFormat; label: string }[] = [
     { value: 'srt', label: 'SRT' },
@@ -99,41 +188,45 @@ export function Settings() {
   const handleUILanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem('monosub-language', lang);
-    setIsLangMenuOpen(false);
   };
 
-  const getCurrentLanguage = () => {
-    const currentLang = i18n.language;
-    return supportedLanguages.find(l =>
-      currentLang === l.code || currentLang?.startsWith(l.code.split('-')[0])
-    ) || supportedLanguages[1]; // Default to English
-  };
+  const currentLang = useMemo(() => {
+    const currentLanguage = i18n.language;
+    return (
+      supportedLanguages.find(
+        (lang) => currentLanguage === lang.code || currentLanguage?.startsWith(lang.code.split('-')[0])
+      ) || supportedLanguages[1]
+    );
+  }, [i18n.language]);
+  const uiLanguageLabel = t('bottomBar.language').replace(/[:：]\s*$/, '');
+  const hasActivationId = safeTrim(licenseConfig?.licenseActivationId).length > 0;
+  const isLicenseChecking = isValidatingLicense || licenseStatus === 'checking';
+  const licenseSummary = licenseStatus === 'valid'
+    ? t('settings.license.summary.valid')
+    : isLicenseChecking
+      ? t('settings.license.summary.checking')
+      : t('settings.license.summary.notActivated');
+  const licenseDetail = licenseMessage || t('settings.license.summary.hint');
 
-  const currentLang = getCurrentLanguage();
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-xl"
-        onClick={() => {
-          setIsOpen(false);
-          setIsLangMenuOpen(false);
-        }}
+        onClick={() => setIsOpen(false)}
       />
 
-      {/* Panel */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="relative glass-medium dark:glass-dark-strong rounded-3xl shadow-glass-lg w-[480px] max-h-[80vh] overflow-hidden"
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+        className="relative glass-medium dark:glass-dark-strong rounded-3xl shadow-glass-lg w-[860px] max-w-[94vw] h-[82vh] max-h-[700px] min-h-[540px] overflow-hidden flex flex-col"
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-glass-border-light dark:border-glass-border-dark">
           <h2 className="text-lg font-bold text-text-primary dark:text-white">{t('settings.title')}</h2>
           <motion.button
@@ -145,276 +238,405 @@ export function Settings() {
           </motion.button>
         </div>
 
-        {/* Content */}
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[calc(80vh-120px)]">
-          {/* UI Language */}
-          <section>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-text-primary dark:text-gray-300" />
-                <label className="text-sm font-semibold text-text-primary dark:text-gray-200">Language</label>
-              </div>
-              <div className="relative">
-                <motion.button
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
-                  className="flex items-center gap-2 px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white hover:bg-bg-tertiary dark:hover:bg-zinc-700 transition-colors min-w-[180px] justify-between shadow-sm"
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="text-base">{currentLang.flag}</span>
-                    <span className="font-medium">{currentLang.name}</span>
-                  </span>
-                  <ChevronDown className={`w-4 h-4 text-text-secondary dark:text-gray-400 transition-transform ${isLangMenuOpen ? 'rotate-180' : ''}`} />
-                </motion.button>
+        <div className="flex flex-1 min-h-0">
+          <aside className="w-56 border-r border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/70 dark:bg-zinc-900/40 p-3">
+            <div className="space-y-1">
+              {[
+                { id: 'general' as const, label: uiLanguageLabel, icon: Globe },
+                { id: 'output' as const, label: t('settings.output.title'), icon: SlidersHorizontal },
+                { id: 'processing' as const, label: t('settings.processing.title'), icon: Cpu },
+                { id: 'license' as const, label: t('settings.license.title'), icon: KeyRound },
+                { id: 'environment' as const, label: t('settings.environment.title'), icon: RefreshCw },
+                { id: 'notifications' as const, label: t('settings.notifications.title'), icon: Bell },
+              ].map((item) => {
+                const Icon = item.icon;
+                const isActive = activeCategory === item.id;
+                return (
+                  <motion.button
+                    key={item.id}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setActiveCategory(item.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors ${
+                      isActive
+                        ? 'bg-white/90 dark:bg-zinc-800 text-text-primary dark:text-white shadow-glass-sm'
+                        : 'text-text-secondary dark:text-gray-400 hover:bg-white/60 dark:hover:bg-zinc-800/70 hover:text-text-primary dark:hover:text-white'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="font-medium truncate">{item.label}</span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </aside>
 
-                {/* Language Dropdown */}
-                {isLangMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1 w-[240px] max-h-[320px] overflow-y-auto glass-medium dark:glass-dark-strong rounded-xl shadow-glass-lg z-10">
-                    {supportedLanguages.map((lang) => (
-                      <motion.button
-                        key={lang.code}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleUILanguageChange(lang.code)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors ${currentLang.code === lang.code ? 'bg-primary/5 dark:bg-primary/10' : ''
-                          }`}
+          <div className="flex-1 min-h-0 flex flex-col">
+            <div className="px-8 py-5 border-b border-glass-border-light dark:border-glass-border-dark">
+              <h3 className="text-base font-bold text-text-primary dark:text-white">
+                {
+                  {
+                    general: uiLanguageLabel,
+                    output: t('settings.output.title'),
+                    processing: t('settings.processing.title'),
+                    license: t('settings.license.title'),
+                    environment: t('settings.environment.title'),
+                    notifications: t('settings.notifications.title'),
+                  }[activeCategory]
+                }
+              </h3>
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
+              {activeCategory === 'general' && (
+                <section className="space-y-6">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-text-primary dark:text-gray-300" />
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{uiLanguageLabel}</label>
+                      </div>
+                      <select
+                        value={currentLang.code}
+                        onChange={(e) => handleUILanguageChange(e.target.value)}
+                        className="w-[260px] px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
                       >
-                        <span className="text-base">{lang.flag}</span>
-                        <span className="flex-1 text-left text-text-primary dark:text-white">{lang.name}</span>
-                        {currentLang.code === lang.code && (
-                          <Check className="w-4 h-4 text-primary" />
-                        )}
-                      </motion.button>
-                    ))}
+                        {supportedLanguages.map((lang) => (
+                          <option key={lang.code} value={lang.code}>
+                            {lang.flag} {lang.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          </section>
+                </section>
+              )}
 
-          <div className="h-px bg-divider dark:bg-zinc-700" />
+              {activeCategory === 'output' && (
+                <section className="space-y-4">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                        {t('settings.output.format')}
+                      </label>
+                      <div className="flex gap-1 bg-bg-secondary dark:bg-zinc-800 rounded-lg p-1">
+                        {formatOptions.map((opt) => (
+                          <motion.button
+                            key={opt.value}
+                            whileTap={{ scale: 0.97 }}
+                            onClick={() => updateSettings({ outputFormat: opt.value })}
+                            className={`px-4 py-1.5 text-sm rounded-md transition-all ${
+                              settings.outputFormat === opt.value
+                                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-glass-sm'
+                                : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
+                            }`}
+                          >
+                            {opt.label}
+                          </motion.button>
+                        ))}
+                      </div>
+                    </div>
 
-          {/* Output Settings */}
-          <section>
-            <h3 className="text-sm font-bold text-text-primary dark:text-white mb-4">{t('settings.output.title')}</h3>
-            <div className="space-y-4">
-              {/* Format */}
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.output.format')}</label>
-                <div className="flex gap-1 bg-bg-secondary dark:bg-zinc-800 rounded-lg p-1">
-                  {formatOptions.map((opt) => (
-                    <motion.button
-                      key={opt.value}
-                      whileTap={{ scale: 0.97 }}
-                      onClick={() => updateSettings({ outputFormat: opt.value })}
-                      className={`px-4 py-1.5 text-sm rounded-md transition-all ${settings.outputFormat === opt.value
-                          ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-glass-sm'
-                          : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
-                        }`}
-                    >
-                      {opt.label}
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                        {t('settings.output.language')}
+                      </label>
+                      <select
+                        value={settings.outputLanguage}
+                        onChange={(e) => updateSettings({ outputLanguage: e.target.value as OutputLanguage })}
+                        className="w-[220px] px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
+                      >
+                        {languageOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
-              {/* Language */}
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.output.language')}</label>
-                <select
-                  value={settings.outputLanguage}
-                  onChange={(e) => updateSettings({ outputLanguage: e.target.value as OutputLanguage })}
-                  className="px-3 py-1.5 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
-                >
-                  {languageOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Bilingual */}
-              <div className="flex items-center justify-between opacity-60">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.output.bilingual')}</label>
-                    <span className="px-2 py-0.5 text-[10px] font-bold text-accent bg-accent/10 dark:bg-accent/20 rounded-full border border-accent/20">
-                      Coming Soon
-                    </span>
+                    <div className="flex items-center justify-between opacity-60">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                            {t('settings.output.bilingual')}
+                          </label>
+                          <span className="px-2 py-0.5 text-[10px] font-bold text-accent bg-accent/10 dark:bg-accent/20 rounded-full border border-accent/20">
+                            Coming Soon
+                          </span>
+                        </div>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
+                          {t('settings.output.bilingualDesc')}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-not-allowed">
+                        <input type="checkbox" checked={false} disabled={true} className="sr-only peer" />
+                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
+                      </label>
+                    </div>
                   </div>
-                  <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">{t('settings.output.bilingualDesc')}</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-not-allowed">
-                  <input
-                    type="checkbox"
-                    checked={false}
-                    disabled={true}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                </label>
-              </div>
+                </section>
+              )}
 
-            </div>
-          </section>
+              {activeCategory === 'processing' && (
+                <section className="space-y-4">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                          {t('settings.processing.noiseReduction')}
+                        </label>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
+                          {t('settings.processing.noiseReductionDesc')}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.enableNoiseReduction}
+                          onChange={(e) => updateSettings({ enableNoiseReduction: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
+                      </label>
+                    </div>
 
-          {/* Processing Settings */}
-          <section>
-            <h3 className="text-sm font-bold text-text-primary dark:text-white mb-4">{t('settings.processing.title')}</h3>
-            <div className="space-y-4">
-              {/* Noise Reduction */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.processing.noiseReduction')}</label>
-                  <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">{t('settings.processing.noiseReductionDesc')}</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.enableNoiseReduction}
-                    onChange={(e) => updateSettings({ enableNoiseReduction: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                </label>
-              </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                          {t('settings.processing.volumeNormalization')}
+                        </label>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
+                          {t('settings.processing.volumeNormalizationDesc')}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.enableVolumeNormalization}
+                          onChange={(e) => updateSettings({ enableVolumeNormalization: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
+                      </label>
+                    </div>
 
-              {/* Volume Normalization */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.processing.volumeNormalization')}</label>
-                  <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">{t('settings.processing.volumeNormalizationDesc')}</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.enableVolumeNormalization}
-                    onChange={(e) => updateSettings({ enableVolumeNormalization: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                </label>
-              </div>
-
-              {/* Auto Process Queue */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.processing.autoQueue')}</label>
-                  <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">{t('settings.processing.autoQueueDesc')}</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.autoProcessQueue}
-                    onChange={(e) => updateSettings({ autoProcessQueue: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                </label>
-              </div>
-            </div>
-          </section>
-
-          <div className="h-px bg-divider dark:bg-zinc-700" />
-
-          {/* AI Environment Settings */}
-          <section>
-            <h3 className="text-sm font-bold text-text-primary dark:text-white mb-4">{t('settings.environment.title')}</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 bg-bg-secondary dark:bg-zinc-800/50 rounded-2xl border border-divider dark:border-zinc-700">
-                <div className="flex items-center gap-3">
-                  {envStatus === 'checking' && <Loader2 className="w-5 h-5 text-primary animate-spin" />}
-                  {envStatus === 'healthy' && <ShieldCheck className="w-5 h-5 text-success" />}
-                  {envStatus === 'broken' && <ShieldAlert className="w-5 h-5 text-danger" />}
-                  {envStatus === 'error' && <ShieldAlert className="w-5 h-5 text-warning" />}
-                  {envStatus === 'idle' && <RefreshCw className="w-5 h-5 text-text-tertiary" />}
-
-                  <div>
-                    <p className="text-sm font-bold text-text-primary dark:text-white leading-none">
-                      {t(`settings.environment.status.${envStatus}`)}
-                    </p>
-                    {repairMsg && (
-                      <p className="text-xxs text-text-secondary dark:text-gray-400 mt-1.5 flex items-center gap-1.5">
-                        <span className="w-1 h-1 rounded-full bg-primary/40" />
-                        {repairMsg}
-                      </p>
-                    )}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                          {t('settings.processing.autoQueue')}
+                        </label>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
+                          {t('settings.processing.autoQueueDesc')}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.autoProcessQueue}
+                          onChange={(e) => updateSettings({ autoProcessQueue: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
+                      </label>
+                    </div>
                   </div>
-                </div>
+                </section>
+              )}
 
-                <div className="flex gap-2">
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={checkEnv}
-                    disabled={envStatus === 'checking' || isRepairing}
-                    className="p-2 rounded-xl bg-white dark:bg-zinc-700 text-text-primary dark:text-white border border-border dark:border-zinc-600 hover:bg-bg-secondary dark:hover:bg-zinc-600 disabled:opacity-50 transition-colors shadow-sm"
-                    title={t('settings.environment.check')}
-                  >
-                    <RefreshCw className={`w-4 h-4 ${envStatus === 'checking' ? 'animate-spin' : ''}`} />
-                  </motion.button>
-                  <motion.button
-                    whileTap={{ scale: 0.95 }}
-                    onClick={repairEnv}
-                    disabled={isRepairing}
-                    className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
-                  >
-                    {isRepairing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                    {t('settings.environment.repair')}
-                  </motion.button>
-                </div>
-              </div>
-
-              <AnimatePresence>
-                {isRepairing && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="w-full bg-divider dark:bg-zinc-700 rounded-full h-1.5 mt-2">
-                      <motion.div
-                        initial={{ width: 0 }}
-                        animate={{ width: `${repairProgress}%` }}
-                        className="bg-primary h-full rounded-full"
+              {activeCategory === 'license' && (
+                <section className="space-y-4">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
+                    <div className="grid grid-cols-1 gap-3">
+                      <label className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
+                        {t('settings.license.licenseKey')}
+                      </label>
+                      <input
+                        type="password"
+                        value={licenseConfig.licenseKey}
+                        onChange={(e) => setLicenseKey(e.target.value)}
+                        className="px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
+                        placeholder="pol_xxx..."
                       />
                     </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
 
-              <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed px-1">
-                {t('settings.environment.repairDesc')}
-              </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={handleValidateLicense}
+                        disabled={isValidatingLicense}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
+                      >
+                        {isValidatingLicense ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="w-4 h-4" />
+                        )}
+                        {isValidatingLicense ? t('settings.license.validating') : t('settings.license.validate')}
+                      </motion.button>
+
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={handleOpenCheckout}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-text-primary dark:text-white border border-border dark:border-zinc-700 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        {t('settings.license.openCheckout')}
+                      </motion.button>
+
+                      {hasActivationId && (
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={handleDeactivateLicense}
+                          disabled={isDeactivatingLicense}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-text-primary dark:text-white border border-border dark:border-zinc-700 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                        >
+                          {isDeactivatingLicense ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Unplug className="w-4 h-4" />
+                          )}
+                          {t('settings.license.deactivate')}
+                        </motion.button>
+                      )}
+
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => {
+                          setLicenseKey('');
+                          setLicenseActivationId('');
+                          clearLicenseValidation();
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-text-secondary dark:text-gray-400 hover:text-danger hover:bg-danger/10 rounded-xl transition-colors"
+                      >
+                        {t('settings.license.clearKey')}
+                      </motion.button>
+                    </div>
+
+                    <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-text-primary dark:text-white">
+                        {licenseStatus === 'valid' ? (
+                          <BadgeCheck className="w-4 h-4 text-success" />
+                        ) : isLicenseChecking ? (
+                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-warning" />
+                        )}
+                        {licenseSummary}
+                      </div>
+                      <p className="text-xs text-text-secondary dark:text-gray-400 mt-2">{licenseDetail}</p>
+                    </div>
+
+                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                      {t('settings.license.hint')}
+                    </p>
+                  </div>
+                </section>
+              )}
+
+              {activeCategory === 'environment' && (
+                <section className="space-y-4">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
+                    <div className="flex items-center justify-between p-3 bg-bg-secondary dark:bg-zinc-800/50 rounded-2xl border border-divider dark:border-zinc-700">
+                      <div className="flex items-center gap-3">
+                        {envStatus === 'checking' && <Loader2 className="w-5 h-5 text-primary animate-spin" />}
+                        {envStatus === 'healthy' && <ShieldCheck className="w-5 h-5 text-success" />}
+                        {envStatus === 'broken' && <ShieldAlert className="w-5 h-5 text-danger" />}
+                        {envStatus === 'error' && <ShieldAlert className="w-5 h-5 text-warning" />}
+                        {envStatus === 'idle' && <RefreshCw className="w-5 h-5 text-text-tertiary" />}
+
+                        <div>
+                          <p className="text-sm font-bold text-text-primary dark:text-white leading-none">
+                            {t(`settings.environment.status.${envStatus}`)}
+                          </p>
+                          {repairMsg && (
+                            <p className="text-xxs text-text-secondary dark:text-gray-400 mt-1.5 flex items-center gap-1.5">
+                              <span className="w-1 h-1 rounded-full bg-primary/40" />
+                              {repairMsg}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={checkEnv}
+                          disabled={envStatus === 'checking' || isRepairing}
+                          className="p-2 rounded-xl bg-white dark:bg-zinc-700 text-text-primary dark:text-white border border-border dark:border-zinc-600 hover:bg-bg-secondary dark:hover:bg-zinc-600 disabled:opacity-50 transition-colors shadow-sm"
+                          title={t('settings.environment.check')}
+                        >
+                          <RefreshCw className={`w-4 h-4 ${envStatus === 'checking' ? 'animate-spin' : ''}`} />
+                        </motion.button>
+                        <motion.button
+                          whileTap={{ scale: 0.95 }}
+                          onClick={repairEnv}
+                          disabled={isRepairing}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
+                        >
+                          {isRepairing ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          )}
+                          {t('settings.environment.repair')}
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    <AnimatePresence>
+                      {isRepairing && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="w-full bg-divider dark:bg-zinc-700 rounded-full h-1.5">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${repairProgress}%` }}
+                              className="bg-primary h-full rounded-full"
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                      {t('settings.environment.repairDesc')}
+                    </p>
+                  </div>
+                </section>
+              )}
+
+              {activeCategory === 'notifications' && (
+                <section className="space-y-4">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                          {t('settings.notifications.showCompleted')}
+                        </label>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
+                          {t('settings.notifications.showCompletedDesc')}
+                        </p>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={settings.showCompletedNotification}
+                          onChange={(e) => updateSettings({ showCompletedNotification: e.target.checked })}
+                          className="sr-only peer"
+                        />
+                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
+                      </label>
+                    </div>
+                  </div>
+                </section>
+              )}
             </div>
-          </section>
-
-          <div className="h-px bg-divider dark:bg-zinc-700" />
-
-          {/* Notification Settings */}
-          <section>
-            <h3 className="text-sm font-bold text-text-primary dark:text-white mb-4">{t('settings.notifications.title')}</h3>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('settings.notifications.showCompleted')}</label>
-                  <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">{t('settings.notifications.showCompletedDesc')}</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings.showCompletedNotification}
-                    onChange={(e) => updateSettings({ showCompletedNotification: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                </label>
-              </div>
-            </div>
-          </section>
+          </div>
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary dark:bg-zinc-900/50">
           <motion.button
             whileTap={{ scale: 0.97 }}

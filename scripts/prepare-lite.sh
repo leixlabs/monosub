@@ -161,8 +161,16 @@ download_uv() {
     local arch=$(uname -m)
     local uv_bin="$RESOURCES_DIR/bin/uv"
 
+    ensure_uv_permissions() {
+        # Tauri build copies resources into target and overwrites on next build.
+        # If uv is readonly (e.g. 555), subsequent copy fails with EACCES.
+        chmod u+w "$uv_bin" 2>/dev/null || true
+        chmod 755 "$uv_bin" 2>/dev/null || chmod +x "$uv_bin"
+    }
+
     # 检查是否已下载
     if [ -f "$uv_bin" ]; then
+        ensure_uv_permissions
         log_success "uv 已存在，跳过下载"
         return 0
     fi
@@ -171,7 +179,7 @@ download_uv() {
     if command -v uv &> /dev/null; then
         log_info "从系统路径复制 uv..."
         cp "$(which uv)" "$uv_bin"
-        chmod +x "$uv_bin"
+        ensure_uv_permissions
         log_success "uv 复制完成"
         return 0
     fi
@@ -196,7 +204,7 @@ download_uv() {
 
     tar -xzf "$tmp_dir/uv.tar.gz" -C "$tmp_dir"
     cp "$tmp_dir/uv-"*"/uv" "$uv_bin" 2>/dev/null || cp "$tmp_dir/uv" "$uv_bin"
-    chmod +x "$uv_bin"
+    ensure_uv_permissions
     rm -rf "$tmp_dir"
 
     log_success "uv 下载完成"

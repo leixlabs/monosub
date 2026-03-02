@@ -32,7 +32,6 @@ log_error() {
 # 配置
 APP_NAME="MonoSub"
 BUNDLE_ID="com.monosub.client"
-VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
@@ -41,7 +40,23 @@ OUTPUT_DIR="$PROJECT_ROOT/dist"
 # 保存原始环境变量，用于区分是特定清理还是全局清理
 RAW_BUILD_TYPE="$BUILD_TYPE"
 BUILD_TYPE="${BUILD_TYPE:-lite}"
-DMG_NAME="${APP_NAME}-${VERSION}-${BUILD_TYPE}-universal.dmg"
+VERSION=""
+DMG_NAME=""
+
+load_version_metadata() {
+    VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+    DMG_NAME="${APP_NAME}-${VERSION}-${BUILD_TYPE}-universal.dmg"
+}
+
+auto_bump_version() {
+    log_info "自动递增打包版本号..."
+    local bump_result
+    bump_result=$(bash "$SCRIPT_DIR/bump-version.sh")
+    load_version_metadata
+    log_success "版本号已更新: $bump_result"
+}
+
+load_version_metadata
 
 # 检查依赖
 check_dependencies() {
@@ -112,6 +127,15 @@ build_frontend() {
 build_tauri() {
     log_info "构建 Tauri 应用 (Release 模式)..."
     cd "$PROJECT_ROOT"
+
+    # Workaround: tauri-build copies resources to target and overwrites them on subsequent builds.
+    # If target resources/bin/uv is readonly (mode 555), overwrite fails with "Permission denied (os error 13)".
+    # Clean stale copied uv binaries before invoking cargo tauri build.
+    find "$BUILD_DIR" -path "*/release/resources/bin/uv" -type f 2>/dev/null | while read -r stale_uv; do
+        chmod u+w "$stale_uv" 2>/dev/null || true
+        rm -f "$stale_uv"
+        log_info "已清理旧的只读 uv: $stale_uv"
+    done
 
     # 检测 CPU 架构
     ARCH=$(uname -m)
@@ -417,15 +441,16 @@ prepare_resources() {
 
 # 完整构建流程
 full_build() {
-    log_info "开始完整构建流程..."
-    log_info "应用名称: $APP_NAME"
-    log_info "版本: $VERSION"
-    log_info "构建类型: $BUILD_TYPE"
-
     # 先执行特定类型的清理，确保环境纯净
     clean "$BUILD_TYPE"
 
     check_dependencies
+    auto_bump_version
+
+    log_info "开始完整构建流程..."
+    log_info "应用名称: $APP_NAME"
+    log_info "版本: $VERSION"
+    log_info "构建类型: $BUILD_TYPE"
     prepare_resources
     install_frontend_deps
     build_frontend

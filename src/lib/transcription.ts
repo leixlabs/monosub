@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
+import { ensureMultiSpeakerLicense } from '@/lib/license';
 
 const getOutputPath = (inputPath: string, fileName: string) => {
   const state = useStore.getState();
@@ -18,6 +19,24 @@ export const startTranscriptionTask = async (taskId: string) => {
 
   if (!file || state.isProcessing || file.status === 'processing') {
     return false;
+  }
+
+  if (state.enableSpeakerDiarization) {
+    const licensed = await ensureMultiSpeakerLicense({
+      openCheckoutOnFailure: false,
+    });
+
+    if (!licensed) {
+      const message =
+        useStore.getState().licenseMessage ||
+        'Multi-speaker recognition requires a valid Polar license.';
+      state.updateFile(file.id, {
+        status: 'error',
+        progress: 0,
+        error: message,
+      });
+      return false;
+    }
   }
 
   const outputPath = getOutputPath(file.path, file.name);
@@ -45,4 +64,3 @@ export const startTranscriptionTask = async (taskId: string) => {
     return false;
   }
 };
-

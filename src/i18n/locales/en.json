@@ -20,7 +20,7 @@
     "emptyTitle": "Generate Subtitles",
     "emptyDescription": "Add video files and AI will automatically recognize speech and generate subtitles",
     "formatSupport": "Supports MP4, MOV, AVI, MKV and more",
-    "addVideos": "Add Video Files",
+    "addVideos": "Drag files here to add",
     "featureAsr": "Speech Recognition",
     "featureSegment": "Smart Segmentation",
     "featureExport": "Multi-format Export"
@@ -51,6 +51,14 @@
     "chinese": "Chinese",
     "english": "English",
     "multiSpeaker": "Multi-speaker",
+    "multiSpeakerHint": "Requires a valid Polar license",
+    "proRequired": "PRO license required",
+    "licensePromptTitle": "Unlock Multi-speaker (Pro)",
+    "licensePromptMessage": "Multi-speaker requires a valid license. You can activate it in Settings first, or open the purchase page in your browser.",
+    "licensePromptWithKeyMessage": "A license key is already saved. You can activate it in Settings first, then enable multi-speaker.",
+    "openInBrowser": "Open in browser",
+    "openSettings": "Open Settings",
+    "later": "Maybe later",
     "stop": "Stop"
   },
   "settings": {
@@ -71,6 +79,39 @@
       "volumeNormalizationDesc": "Standardize audio levels",
       "autoQueue": "Auto Process Queue",
       "autoQueueDesc": "Automatically process next file"
+    },
+    "license": {
+      "title": "License",
+      "serviceUrl": "Polar Service URL",
+      "organizationId": "Organization ID",
+      "benefitId": "Benefit ID",
+      "licenseKey": "License Key",
+      "checkoutUrl": "Checkout URL",
+      "checkoutUrlDesc": "Used when multi-speaker is enabled without a valid license.",
+      "validate": "Validate License",
+      "validating": "Validating...",
+      "openCheckout": "Open Checkout",
+      "deactivate": "Deactivate This Device",
+      "clearKey": "Clear Key",
+      "statusLabel": "Status:",
+      "lastChecked": "Last checked",
+      "expiresAt": "Expires at",
+      "deviceId": "Device ID",
+      "activationId": "Activation ID",
+      "hint": "First use activates this device. On every app launch, license validation runs automatically.",
+      "status": {
+        "unknown": "Not validated",
+        "checking": "Checking...",
+        "valid": "Valid",
+        "invalid": "Invalid",
+        "error": "Validation error"
+      },
+      "summary": {
+        "valid": "License is activated",
+        "checking": "Checking license...",
+        "notActivated": "License is not activated",
+        "hint": "Enter your license key and click Validate License to activate."
+      }
     },
     "environment": {
       "title": "AI Environment",

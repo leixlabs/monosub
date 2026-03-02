@@ -11,6 +11,7 @@ import sys
 import os
 import argparse
 from pathlib import Path
+import tempfile
 
 # CRITICAL FIX #1: Monkey patch subprocess.run to replace ffmpeg/ffprobe commands
 # This MUST happen BEFORE any imports that might use subprocess (especially FunASR)
@@ -53,6 +54,14 @@ from monosub_core.audio_extractor import AudioExtractor
 from monosub_core.transcriber import FunASRTranscriber, ProgressCallback
 from monosub_core.subtitle_writer import SubtitleWriter
 import time
+
+
+SUPPORTED_AUDIO_EXTENSIONS = {".mp3", ".wav", ".flac", ".aac", ".m4a", ".ogg", ".wma"}
+
+
+def is_audio_input_file(path: str) -> bool:
+    """Check if the input file extension is an audio format."""
+    return Path(path).suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS
 
 
 class StepTracker:
@@ -137,11 +146,18 @@ def main():
 
         print(f"MSG:Starting processing: {Path(args.video_path).name}", flush=True)
 
-        # Step 1: 提取音频
+        # Step 1: 准备音频（音频文件优先直通，视频文件提取音轨）
         tracker.emit_step(1, "Extracting audio")
 
         extractor = AudioExtractor()
-        audio_path = extractor.extract_audio(args.video_path)
+        input_is_audio = is_audio_input_file(args.video_path)
+        audio_path = args.video_path
+        cleanup_paths = []
+
+        if input_is_audio:
+            print("MSG:Audio input detected, trying direct transcription without conversion", flush=True)
+        else:
+            audio_path = extractor.extract_audio(args.video_path)
         tracker.emit_elapsed()
 
         # Step 2: 加载模型
@@ -158,13 +174,39 @@ def main():
 
         # Step 3: 转录音频
         tracker.emit_step(3, "Transcribing")
-        
-        # 根据是否启用说话人分离选择不同的转录方式
-        if args.diarization:
-            print("MSG:Multi-speaker mode enabled", flush=True)
-            segments = transcriber.transcribe_with_diarization(audio_path, progress_callback, args.language)
-        else:
-            segments = transcriber.transcribe(audio_path, progress_callback, args.language)
+
+        def run_transcription(target_audio_path: str):
+            if args.diarization:
+                print("MSG:Multi-speaker mode enabled", flush=True)
+                return transcriber.transcribe_with_diarization(
+                    target_audio_path,
+                    progress_callback,
+                    args.language,
+                )
+            return transcriber.transcribe(target_audio_path, progress_callback, args.language)
+
+        try:
+            segments = run_transcription(audio_path)
+        except Exception as direct_error:
+            # 音频文件直通失败时，自动回退为标准 16k mono WAV 后重试
+            if input_is_audio and audio_path == args.video_path:
+                print(f"DEBUG: Direct audio transcription failed: {direct_error}", flush=True)
+                print("MSG:Direct transcription failed, falling back to WAV conversion", flush=True)
+
+                fallback_audio_path = os.path.join(
+                    tempfile.gettempdir(),
+                    f"monosub_fallback_{Path(args.video_path).stem}_{int(time.time() * 1000)}.wav",
+                )
+                audio_path = extractor.extract_audio(
+                    args.video_path,
+                    output_audio_path=fallback_audio_path,
+                    use_cache=False,
+                )
+                cleanup_paths.append(audio_path)
+                print("MSG:Retrying transcription with converted WAV audio", flush=True)
+                segments = run_transcription(audio_path)
+            else:
+                raise
 
         print(f"MSG:{len(segments)} segments found", flush=True)
         tracker.emit_elapsed()
@@ -186,10 +228,17 @@ def main():
         print(f"SUCCESS:{args.output_path}", flush=True)
 
         # 清理临时音频文件
+        for temp_path in cleanup_paths:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
         if os.path.exists(audio_path) and audio_path.startswith("/tmp/"):
             try:
                 os.remove(audio_path)
-            except:
+            except Exception:
                 pass
 
     except Exception as e:

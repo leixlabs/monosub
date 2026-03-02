@@ -32,7 +32,8 @@
     "start": "Başlat",
     "pause": "Duraklat",
     "open": "Aç",
-    "delete": "Sil"
+    "delete": "Sil",
+    "starting": "Starting..."
   },
   "bottomBar": {
     "saveLocation": "Kaydet",
@@ -44,7 +45,9 @@
     "chinese": "Çince",
     "english": "İngilizce",
     "multiSpeaker": "Multi-speaker",
-    "stop": "Durdur"
+    "stop": "Durdur",
+    "multiSpeakerHint": "Requires a valid Polar license",
+    "proRequired": "PRO license required"
   },
   "settings": {
     "title": "Ayarlar",
@@ -71,7 +74,49 @@
       "showCompletedDesc": "Tamamlandığında bildirim göster"
     },
     "resetDefaults": "Sıfırla",
-    "done": "Tamam"
+    "done": "Tamam",
+    "license": {
+      "title": "License",
+      "serviceUrl": "Polar Service URL",
+      "organizationId": "Organization ID",
+      "benefitId": "Benefit ID (Optional)",
+      "licenseKey": "License Key",
+      "checkoutUrl": "Checkout URL",
+      "checkoutUrlDesc": "Used when multi-speaker is enabled without a valid license.",
+      "validate": "Validate License",
+      "validating": "Validating...",
+      "openCheckout": "Open Checkout",
+      "clearKey": "Clear Key",
+      "statusLabel": "Status:",
+      "lastChecked": "Last checked",
+      "expiresAt": "Expires at",
+      "hint": "Only users with a valid Polar license can use multi-speaker recognition.",
+      "status": {
+        "unknown": "Not validated",
+        "checking": "Checking...",
+        "valid": "Valid",
+        "invalid": "Invalid",
+        "error": "Validation error"
+      },
+      "deactivate": "Deactivate This Device",
+      "deviceId": "Device ID",
+      "activationId": "Activation ID"
+    },
+    "environment": {
+      "title": "AI Environment",
+      "check": "Check Status",
+      "repair": "Repair Dependencies",
+      "repairDesc": "Re-install AI dependencies if transcription fails",
+      "status": {
+        "checking": "Checking...",
+        "healthy": "Environment Ready",
+        "broken": "Dependencies Missing or Broken",
+        "error": "Check Failed"
+      },
+      "repairing": "Repairing AI dependencies... (3-5 mins)",
+      "repairSuccess": "Repair successful",
+      "repairFailed": "Repair failed"
+    }
   },
   "notification": {
     "completed": "Altyazı oluşturma tamamlandı"
@@ -80,5 +125,11 @@
     "auto": "Otomatik Algıla",
     "zh": "Çince",
     "en": "İngilizce"
+  },
+  "steps": {
+    "extracting_audio": "Extracting audio",
+    "loading_model": "Loading model",
+    "transcribing": "Transcribing",
+    "writing_subtitle": "Writing subtitle"
   }
 }

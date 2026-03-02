@@ -30,6 +30,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
+VERSION=""
+
+load_version_metadata() {
+    VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+}
+
+auto_bump_version() {
+    log_info "自动递增打包版本号..."
+    local bump_result
+    bump_result=$(bash "$SCRIPT_DIR/bump-version.sh")
+    load_version_metadata
+    log_success "版本号已更新: $bump_result"
+}
+
+load_version_metadata
 
 log_info "开始 Windows 交叉编译..."
 
@@ -166,6 +181,8 @@ show_results() {
 # 完整构建流程
 full_build() {
     check_dependencies
+    auto_bump_version
+    log_info "当前打包版本: $VERSION"
     prepare_resources
     build_frontend
     build_windows

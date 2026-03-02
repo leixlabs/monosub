@@ -32,7 +32,8 @@
     "start": "Bắt đầu",
     "pause": "Tạm dừng",
     "open": "Mở",
-    "delete": "Xóa"
+    "delete": "Xóa",
+    "starting": "Starting..."
   },
   "bottomBar": {
     "saveLocation": "Lưu vào",
@@ -44,7 +45,9 @@
     "chinese": "Tiếng Trung",
     "english": "Tiếng Anh",
     "multiSpeaker": "Multi-speaker",
-    "stop": "Dừng"
+    "stop": "Dừng",
+    "multiSpeakerHint": "Requires a valid Polar license",
+    "proRequired": "PRO license required"
   },
   "settings": {
     "title": "Cài đặt",
@@ -71,7 +74,49 @@
       "showCompletedDesc": "Hiển thị thông báo khi hoàn thành"
     },
     "resetDefaults": "Đặt lại",
-    "done": "Xong"
+    "done": "Xong",
+    "license": {
+      "title": "License",
+      "serviceUrl": "Polar Service URL",
+      "organizationId": "Organization ID",
+      "benefitId": "Benefit ID (Optional)",
+      "licenseKey": "License Key",
+      "checkoutUrl": "Checkout URL",
+      "checkoutUrlDesc": "Used when multi-speaker is enabled without a valid license.",
+      "validate": "Validate License",
+      "validating": "Validating...",
+      "openCheckout": "Open Checkout",
+      "clearKey": "Clear Key",
+      "statusLabel": "Status:",
+      "lastChecked": "Last checked",
+      "expiresAt": "Expires at",
+      "hint": "Only users with a valid Polar license can use multi-speaker recognition.",
+      "status": {
+        "unknown": "Not validated",
+        "checking": "Checking...",
+        "valid": "Valid",
+        "invalid": "Invalid",
+        "error": "Validation error"
+      },
+      "deactivate": "Deactivate This Device",
+      "deviceId": "Device ID",
+      "activationId": "Activation ID"
+    },
+    "environment": {
+      "title": "AI Environment",
+      "check": "Check Status",
+      "repair": "Repair Dependencies",
+      "repairDesc": "Re-install AI dependencies if transcription fails",
+      "status": {
+        "checking": "Checking...",
+        "healthy": "Environment Ready",
+        "broken": "Dependencies Missing or Broken",
+        "error": "Check Failed"
+      },
+      "repairing": "Repairing AI dependencies... (3-5 mins)",
+      "repairSuccess": "Repair successful",
+      "repairFailed": "Repair failed"
+    }
   },
   "notification": {
     "completed": "Tạo phụ đề hoàn thành"
@@ -80,5 +125,11 @@
     "auto": "Tự Động Phát Hiện",
     "zh": "Tiếng Trung",
     "en": "Tiếng Anh"
+  },
+  "steps": {
+    "extracting_audio": "Extracting audio",
+    "loading_model": "Loading model",
+    "transcribing": "Transcribing",
+    "writing_subtitle": "Writing subtitle"
   }
 }

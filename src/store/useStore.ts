@@ -5,6 +5,7 @@ export type VideoStatus = 'pending' | 'processing' | 'completed' | 'error' | 'pa
 export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt'
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
+export type LicenseStatus = 'unknown' | 'checking' | 'valid' | 'invalid' | 'error'
 
 export interface StepProgress {
   currentStep: number
@@ -45,6 +46,12 @@ export interface AppSettings {
   showCompletedNotification: boolean
 }
 
+export interface LicenseConfig {
+  licenseKey: string
+  licenseActivationId: string
+  licenseDeviceId: string
+}
+
 // Detect system language
 const detectSystemLanguage = (): OutputLanguage => {
   const lang = navigator.language || (navigator as any).userLanguage || 'auto'
@@ -71,6 +78,12 @@ const defaultSettings: AppSettings = {
   showCompletedNotification: true,
 }
 
+const defaultLicenseConfig: LicenseConfig = {
+  licenseKey: '',
+  licenseActivationId: '',
+  licenseDeviceId: '',
+}
+
 interface AppState {
   // File queue management
   files: VideoFile[]
@@ -88,6 +101,25 @@ interface AppState {
   // Speaker diarization (multi-speaker recognition)
   enableSpeakerDiarization: boolean
   setEnableSpeakerDiarization: (enabled: boolean) => void
+
+  // License / Polar
+  licenseConfig: LicenseConfig
+  updateLicenseConfig: (updates: Partial<LicenseConfig>) => void
+  setLicenseKey: (licenseKey: string) => void
+  setLicenseActivationId: (activationId: string) => void
+  setLicenseDeviceId: (deviceId: string) => void
+  licenseStatus: LicenseStatus
+  licenseMessage: string
+  licenseExpiresAt: string | null
+  licenseLastCheckedAt: string | null
+  setLicenseStatus: (status: LicenseStatus) => void
+  setLicenseValidation: (updates: {
+    status: LicenseStatus
+    message: string
+    expiresAt?: string | null
+    checkedAt?: string
+  }) => void
+  clearLicenseValidation: () => void
 
   // Global state
   isProcessing: boolean
@@ -134,6 +166,53 @@ export const useStore = create<AppState>()(
       enableSpeakerDiarization: false,
       setEnableSpeakerDiarization: (enabled) => set({ enableSpeakerDiarization: enabled }),
 
+      // License / Polar
+      licenseConfig: defaultLicenseConfig,
+      updateLicenseConfig: (updates) => set((state) => ({
+        licenseConfig: { ...state.licenseConfig, ...updates }
+      })),
+      setLicenseKey: (licenseKey) => set((state) => {
+        const normalizedCurrent = typeof state.licenseConfig.licenseKey === 'string'
+          ? state.licenseConfig.licenseKey.trim()
+          : '';
+        const normalizedNext = typeof licenseKey === 'string' ? licenseKey.trim() : '';
+        const shouldResetActivation = normalizedCurrent !== normalizedNext;
+        return {
+          licenseConfig: {
+            ...state.licenseConfig,
+            licenseKey,
+            licenseActivationId: shouldResetActivation ? '' : state.licenseConfig.licenseActivationId,
+          },
+          licenseStatus: shouldResetActivation ? 'unknown' : state.licenseStatus,
+          licenseMessage: shouldResetActivation ? '' : state.licenseMessage,
+          licenseExpiresAt: shouldResetActivation ? null : state.licenseExpiresAt,
+          licenseLastCheckedAt: shouldResetActivation ? null : state.licenseLastCheckedAt,
+        };
+      }),
+      setLicenseActivationId: (licenseActivationId) => set((state) => ({
+        licenseConfig: { ...state.licenseConfig, licenseActivationId }
+      })),
+      setLicenseDeviceId: (licenseDeviceId) => set((state) => ({
+        licenseConfig: { ...state.licenseConfig, licenseDeviceId }
+      })),
+      licenseStatus: 'unknown',
+      licenseMessage: '',
+      licenseExpiresAt: null,
+      licenseLastCheckedAt: null,
+      setLicenseStatus: (status) => set({ licenseStatus: status }),
+      setLicenseValidation: ({ status, message, expiresAt = null, checkedAt }) => set({
+        licenseStatus: status,
+        licenseMessage: message,
+        licenseExpiresAt: expiresAt,
+        licenseLastCheckedAt: checkedAt ?? new Date().toISOString(),
+      }),
+      clearLicenseValidation: () => set({
+        licenseStatus: 'unknown',
+        licenseMessage: '',
+        licenseExpiresAt: null,
+        licenseLastCheckedAt: null,
+      }),
+
       // Global state
       isProcessing: false,
       setIsProcessing: (isProcessing) => set({ isProcessing }),
@@ -162,6 +241,7 @@ export const useStore = create<AppState>()(
         storageMode: state.storageMode,
         customStoragePath: state.customStoragePath,
         settings: state.settings,
+        licenseConfig: state.licenseConfig,
       }),
     }
   )

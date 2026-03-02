@@ -1,9 +1,16 @@
-import { Folder, FolderOpen, StopCircle, HardDrive, Users } from 'lucide-react';
+import { Folder, FolderOpen, StopCircle, HardDrive, Users, Loader2, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { useState } from 'react';
+import {
+  ensureMultiSpeakerLicense,
+  openLicenseCheckout,
+  openLicenseSettings,
+  promptLicenseFailureAction,
+} from '@/lib/license';
 
 export function BottomBar() {
   const { t } = useTranslation();
@@ -19,6 +26,8 @@ export function BottomBar() {
   const settings = useStore((state) => state.settings);
   const enableSpeakerDiarization = useStore((state) => state.enableSpeakerDiarization);
   const setEnableSpeakerDiarization = useStore((state) => state.setEnableSpeakerDiarization);
+  const licenseStatus = useStore((state) => state.licenseStatus);
+  const [isCheckingLicense, setIsCheckingLicense] = useState(false);
 
   const handleSelectCustomPath = async () => {
     try {
@@ -75,6 +84,48 @@ export function BottomBar() {
     }
   };
 
+  const handleToggleSpeakerDiarization = async () => {
+    if (isProcessing || isCheckingLicense) return;
+
+    if (enableSpeakerDiarization) {
+      setEnableSpeakerDiarization(false);
+      return;
+    }
+
+    setIsCheckingLicense(true);
+    try {
+      const licensed = await ensureMultiSpeakerLicense({
+        openCheckoutOnFailure: false,
+      });
+      if (licensed) {
+        setEnableSpeakerDiarization(true);
+        return;
+      }
+
+      const latestLicenseConfig = useStore.getState().licenseConfig;
+      const hasLicenseKey = typeof latestLicenseConfig?.licenseKey === 'string'
+        && latestLicenseConfig.licenseKey.trim().length > 0;
+
+      const action = await promptLicenseFailureAction({
+        title: t('bottomBar.licensePromptTitle'),
+        message: hasLicenseKey
+          ? t('bottomBar.licensePromptWithKeyMessage')
+          : t('bottomBar.licensePromptMessage'),
+        openCheckoutLabel: t('bottomBar.openInBrowser'),
+        openSettingsLabel: t('bottomBar.openSettings'),
+        cancelLabel: t('bottomBar.later'),
+      });
+
+      if (action === 'settings') {
+        openLicenseSettings();
+      } else if (action === 'checkout') {
+        await openLicenseCheckout();
+      }
+    } finally {
+      setIsCheckingLicense(false);
+    }
+  };
+
   return (
     <div className="bg-bg-secondary dark:bg-zinc-950 h-14 px-6 flex items-center justify-between border-t border-divider/40 dark:border-zinc-800/40 transition-colors">
       <div className="flex items-center gap-2">
@@ -127,20 +178,34 @@ export function BottomBar() {
             {t('bottomBar.multiSpeaker')}
           </span>
           <button
-            onClick={() => setEnableSpeakerDiarization(!enableSpeakerDiarization)}
-            disabled={isProcessing}
+            onClick={() => void handleToggleSpeakerDiarization()}
+            disabled={isProcessing || isCheckingLicense}
             className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
               enableSpeakerDiarization
                 ? 'bg-primary'
                 : 'bg-bg-tertiary dark:bg-zinc-700'
             }`}
+            title={t('bottomBar.multiSpeakerHint')}
           >
+            {isCheckingLicense && (
+              <Loader2 className="absolute inset-0 m-auto w-3 h-3 text-white animate-spin" />
+            )}
             <span
               className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
                 enableSpeakerDiarization ? 'translate-x-5' : ''
               }`}
             />
           </button>
+          {licenseStatus !== 'valid' && (
+            <button
+              onClick={() => void openLicenseCheckout()}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning/15 text-warning hover:bg-warning/20 transition-colors"
+              title={t('bottomBar.proRequired')}
+            >
+              PRO
+              <ExternalLink className="w-2.5 h-2.5" />
+            </button>
+          )}
         </div>
 
         <span className="w-px h-4 bg-divider dark:bg-zinc-700" />
