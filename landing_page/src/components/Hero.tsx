@@ -2,7 +2,7 @@ import { useLanguage } from '../hooks/useLanguage';
 import { HeroCarousel } from './HeroCarousel';
 
 export const Hero = () => {
-  const { t, config } = useLanguage();
+  const { t } = useLanguage();
 
   return (
     <section className="min-h-screen flex items-center justify-center px-6 py-20">

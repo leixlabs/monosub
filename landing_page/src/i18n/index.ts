@@ -76,6 +76,20 @@ export interface Translation {
   pricing_monosub_price: string;
   pricing_cta: string;
   pricing_save: string;
+  pricing_x: string;
+  pricing_check: string;
+  pricing_feature_transcription: string;
+  pricing_feature_export: string;
+  pricing_feature_batch: string;
+  pricing_feature_speaker: string;
+  pricing_feature_support: string;
+  pricing_feature: string;
+  pricing_free: string;
+  pricing_pro: string;
+  pricing_pro_price: string;
+  pricing_pro_description: string;
+  pricing_pro_discount: string;
+  pricing_pro_cta: string;
   
   // Tech
   tech_title: string;
