@@ -15,12 +15,14 @@ import {
   BadgeCheck,
   AlertTriangle,
   Unplug,
+  Info,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
 import { supportedLanguages } from '@/i18n';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
+import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -31,7 +33,9 @@ import {
   SETTINGS_OPEN_CATEGORY_STORAGE_KEY,
 } from '@/lib/license';
 
-type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'environment' | 'notifications';
+type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'environment' | 'notifications' | 'about';
+
+const RELEASES_URL = 'https://github.com/0xkamalei/monosub/releases';
 
 const safeTrim = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
@@ -41,12 +45,23 @@ const isSettingsCategory = (value: string | null): value is SettingsCategory => 
     || value === 'processing'
     || value === 'license'
     || value === 'environment'
-    || value === 'notifications';
+    || value === 'notifications'
+    || value === 'about';
 };
 
 interface InstallProgressPayload {
   progress: number;
   status: string;
+}
+
+interface GithubReleaseUpdateResult {
+  currentVersion: string;
+  latestVersion: string;
+  latestTag: string;
+  releaseName?: string | null;
+  releaseUrl: string;
+  publishedAt?: string | null;
+  hasUpdate: boolean;
 }
 
 export function Settings() {
@@ -72,6 +87,10 @@ export function Settings() {
   const [repairMsg, setRepairMsg] = useState('');
   const [isValidatingLicense, setIsValidatingLicense] = useState(false);
   const [isDeactivatingLicense, setIsDeactivatingLicense] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<GithubReleaseUpdateResult | null>(null);
+  const [updateError, setUpdateError] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
@@ -111,6 +130,13 @@ export function Settings() {
 
     const cleanup = setupListeners();
     checkEnv();
+    void getVersion()
+      .then((version) => {
+        setAppVersion(version);
+      })
+      .catch((error) => {
+        console.error('[getVersion] Failed:', error);
+      });
 
     return () => {
       cleanup.then((fn) => fn && fn());
@@ -167,6 +193,36 @@ export function Settings() {
 
   const handleOpenCheckout = async () => {
     await openLicenseCheckout();
+  };
+
+  const handleCheckUpdate = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateError('');
+
+    try {
+      const result = await invoke<GithubReleaseUpdateResult>('check_github_release_update');
+      setUpdateResult(result);
+    } catch (error) {
+      const message = String(error);
+      setUpdateError(message);
+      console.error('[check_github_release_update] Failed:', error);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleOpenReleasePage = async () => {
+    const target = updateResult?.releaseUrl || RELEASES_URL;
+    try {
+      await invoke('open_external_url', { url: target });
+    } catch (error) {
+      console.error('[open_external_url] Failed:', error);
+      try {
+        window.open(target, '_blank');
+      } catch (fallbackError) {
+        console.error('[window.open] Failed:', fallbackError);
+      }
+    }
   };
 
   const formatOptions: { value: SubtitleFormat; label: string }[] = [
@@ -240,6 +296,25 @@ export function Settings() {
   const licenseDetail = licenseStatus === 'valid'
     ? ''
     : (licenseMessage || t('settings.license.summary.hint'));
+  const updatePublishedDisplay = useMemo(() => {
+    const publishedAt = updateResult?.publishedAt;
+    if (!publishedAt) {
+      return '';
+    }
+
+    const publishedMs = Date.parse(publishedAt);
+    if (Number.isNaN(publishedMs)) {
+      return publishedAt;
+    }
+
+    return new Intl.DateTimeFormat(i18n.language || undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(publishedMs));
+  }, [i18n.language, updateResult?.publishedAt]);
 
   if (!isOpen) return null;
 
@@ -281,6 +356,7 @@ export function Settings() {
                 { id: 'license' as const, label: t('settings.license.title'), icon: KeyRound },
                 { id: 'environment' as const, label: t('settings.environment.title'), icon: RefreshCw },
                 { id: 'notifications' as const, label: t('settings.notifications.title'), icon: Bell },
+                { id: 'about' as const, label: t('settings.about.title'), icon: Info },
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeCategory === item.id;
@@ -314,6 +390,7 @@ export function Settings() {
                     license: t('settings.license.title'),
                     environment: t('settings.environment.title'),
                     notifications: t('settings.notifications.title'),
+                    about: t('settings.about.title'),
                   }[activeCategory]
                 }
               </h3>
@@ -656,6 +733,79 @@ export function Settings() {
                         <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
                       </label>
                     </div>
+                  </div>
+                </section>
+              )}
+
+              {activeCategory === 'about' && (
+                <section className="space-y-4">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                          {t('settings.about.appVersion')}
+                        </p>
+                        <p className="mt-1 text-xs text-text-secondary dark:text-gray-400">
+                          v{appVersion || t('settings.about.unknownVersion')}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={handleCheckUpdate}
+                          disabled={isCheckingUpdate}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
+                        >
+                          {isCheckingUpdate ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-4 h-4" />
+                          )}
+                          {isCheckingUpdate ? t('settings.about.checkingUpdate') : t('settings.about.checkUpdate')}
+                        </motion.button>
+
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={handleOpenReleasePage}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-text-primary dark:text-white border border-border dark:border-zinc-700 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors"
+                        >
+                          <ExternalLink className="w-4 h-4" />
+                          {t('settings.about.openReleasePage')}
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    {updateError && (
+                      <p className="text-xs text-danger">
+                        {t('settings.about.checkFailed')}: {updateError}
+                      </p>
+                    )}
+
+                    {updateResult && (
+                      <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-2">
+                        <p className="text-sm font-semibold text-text-primary dark:text-white">
+                          {updateResult.hasUpdate
+                            ? t('settings.about.newVersionAvailable', { version: updateResult.latestTag || updateResult.latestVersion })
+                            : t('settings.about.upToDate')}
+                        </p>
+                        <p className="text-xs text-text-secondary dark:text-gray-400">
+                          {t('settings.about.latestVersion')}: v{updateResult.latestVersion}
+                        </p>
+                        {updatePublishedDisplay && (
+                          <p className="text-xs text-text-secondary dark:text-gray-400">
+                            {t('settings.about.publishedAt')}: {updatePublishedDisplay}
+                          </p>
+                        )}
+
+                      </div>
+                    )}
+
+                    {!updateResult && !updateError && (
+                      <p className="text-xs text-text-secondary dark:text-gray-400">
+                        {t('settings.about.hint')}
+                      </p>
+                    )}
                   </div>
                 </section>
               )}

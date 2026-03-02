@@ -47,6 +47,7 @@ fn main() {
             validate_license,
             deactivate_license,
             open_external_url,
+            check_github_release_update,
             check_dependencies,
             install_dependencies,
         ])

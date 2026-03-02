@@ -134,6 +134,20 @@
       "showCompleted": "Completion Alert",
       "showCompletedDesc": "Show notification when done"
     },
+    "about": {
+      "title": "About",
+      "appVersion": "App Version",
+      "unknownVersion": "Unknown",
+      "checkUpdate": "Check for Updates",
+      "checkingUpdate": "Checking...",
+      "checkFailed": "Update check failed",
+      "newVersionAvailable": "New version available: {{version}}",
+      "upToDate": "You are up to date",
+      "latestVersion": "Latest Version",
+      "publishedAt": "Published At",
+      "openReleasePage": "Open Download Page",
+      "hint": "Click \"Check for Updates\" to fetch the latest release from GitHub."
+    },
     "resetDefaults": "Reset Defaults",
     "done": "Done"
   },
