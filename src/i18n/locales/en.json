@@ -111,7 +111,8 @@
         "checking": "Checking license...",
         "notActivated": "License is not activated",
         "hint": "Enter your license key and click Validate License to activate."
-      }
+      },
+      "unlimited": "No expiration"
     },
     "environment": {
       "title": "AI Environment",

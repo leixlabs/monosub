@@ -100,7 +100,8 @@
       },
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
-      "activationId": "Activation ID"
+      "activationId": "Activation ID",
+      "unlimited": "No expiration"
     },
     "environment": {
       "title": "AI Environment",

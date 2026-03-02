@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
 import { supportedLanguages } from '@/i18n';
+import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -61,6 +62,8 @@ export function Settings() {
   const setLicenseActivationId = useStore((state) => state.setLicenseActivationId);
   const licenseStatus = useStore((state) => state.licenseStatus);
   const licenseMessage = useStore((state) => state.licenseMessage);
+  const licenseExpiresAt = useStore((state) => state.licenseExpiresAt);
+  const licenseLastCheckedAt = useStore((state) => state.licenseLastCheckedAt);
   const clearLicenseValidation = useStore((state) => state.clearLicenseValidation);
 
   const [envStatus, setEnvStatus] = useState<'idle' | 'checking' | 'healthy' | 'broken' | 'error'>('idle');
@@ -172,7 +175,7 @@ export function Settings() {
     { value: 'txt', label: 'TXT' },
   ];
 
-  const languageOptions: { value: OutputLanguage; label: string }[] = [
+  const languageOptions: SelectOption<OutputLanguage>[] = [
     { value: 'auto', label: t('language.auto') },
     { value: 'en', label: 'English' },
     { value: 'zh', label: '简体中文' },
@@ -184,6 +187,13 @@ export function Settings() {
     { value: 'zh-tw', label: '繁體中文' },
     { value: 'ko', label: '한국어' },
   ];
+
+  const uiLanguageOptions = useMemo<SelectOption<string>[]>(() => (
+    supportedLanguages.map((lang) => ({
+      value: lang.code,
+      label: `${lang.flag} ${lang.name}`,
+    }))
+  ), []);
 
   const handleUILanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
@@ -201,12 +211,35 @@ export function Settings() {
   const uiLanguageLabel = t('bottomBar.language').replace(/[:：]\s*$/, '');
   const hasActivationId = safeTrim(licenseConfig?.licenseActivationId).length > 0;
   const isLicenseChecking = isValidatingLicense || licenseStatus === 'checking';
+  const hasLicenseChecked = Boolean(licenseLastCheckedAt);
+  const normalizedLicenseExpiresAt = safeTrim(licenseExpiresAt);
+  const licenseExpiryDisplay = useMemo(() => {
+    if (!normalizedLicenseExpiresAt) {
+      return '';
+    }
+
+    const expiresAtMs = Date.parse(normalizedLicenseExpiresAt);
+    if (Number.isNaN(expiresAtMs)) {
+      return normalizedLicenseExpiresAt;
+    }
+
+    return new Intl.DateTimeFormat(i18n.language || undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(new Date(expiresAtMs));
+  }, [i18n.language, normalizedLicenseExpiresAt]);
   const licenseSummary = licenseStatus === 'valid'
     ? t('settings.license.summary.valid')
     : isLicenseChecking
       ? t('settings.license.summary.checking')
       : t('settings.license.summary.notActivated');
-  const licenseDetail = licenseMessage || t('settings.license.summary.hint');
+  const licenseDetail = licenseStatus === 'valid'
+    ? ''
+    : (licenseMessage || t('settings.license.summary.hint'));
 
   if (!isOpen) return null;
 
@@ -295,17 +328,12 @@ export function Settings() {
                         <Globe className="w-4 h-4 text-text-primary dark:text-gray-300" />
                         <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{uiLanguageLabel}</label>
                       </div>
-                      <select
+                      <CustomSelect
                         value={currentLang.code}
-                        onChange={(e) => handleUILanguageChange(e.target.value)}
-                        className="w-[260px] px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
-                      >
-                        {supportedLanguages.map((lang) => (
-                          <option key={lang.code} value={lang.code}>
-                            {lang.flag} {lang.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={handleUILanguageChange}
+                        options={uiLanguageOptions}
+                        className="w-[260px]"
+                      />
                     </div>
                   </div>
                 </section>
@@ -340,17 +368,12 @@ export function Settings() {
                       <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
                         {t('settings.output.language')}
                       </label>
-                      <select
+                      <CustomSelect
                         value={settings.outputLanguage}
-                        onChange={(e) => updateSettings({ outputLanguage: e.target.value as OutputLanguage })}
-                        className="w-[220px] px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
-                      >
-                        {languageOptions.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(value) => updateSettings({ outputLanguage: value })}
+                        options={languageOptions}
+                        className="w-[220px]"
+                      />
                     </div>
 
                     <div className="flex items-center justify-between opacity-60">
@@ -522,12 +545,15 @@ export function Settings() {
                         )}
                         {licenseSummary}
                       </div>
-                      <p className="text-xs text-text-secondary dark:text-gray-400 mt-2">{licenseDetail}</p>
+                      {licenseDetail && (
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-2">{licenseDetail}</p>
+                      )}
+                      {hasLicenseChecked && (
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-2">
+                          {t('settings.license.expiresAt')}: {normalizedLicenseExpiresAt ? licenseExpiryDisplay : t('settings.license.unlimited')}
+                        </p>
+                      )}
                     </div>
-
-                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
-                      {t('settings.license.hint')}
-                    </p>
                   </div>
                 </section>
               )}

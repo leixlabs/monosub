@@ -111,7 +111,8 @@
         "checking": "正在校验 License...",
         "notActivated": "License 未激活",
         "hint": "填写 License Key 后点击“校验 License”即可完成激活。"
-      }
+      },
+      "unlimited": "无过期"
     },
     "environment": {
       "title": "AI 运行环境",
