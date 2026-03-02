@@ -3,12 +3,12 @@ import { useLanguage } from '../hooks/useLanguage';
 export const Pricing = () => {
   const { t } = useLanguage();
 
-  const rows = [
-    { period: t.pricing_1month, cloud: t.pricing_cloud_1month, monosub: '' },
-    { period: t.pricing_6months, cloud: t.pricing_cloud_6months, monosub: '' },
-    { period: t.pricing_1year, cloud: t.pricing_cloud_1year, monosub: '' },
-    { period: t.pricing_2years, cloud: t.pricing_cloud_2years, monosub: '' },
-    { period: t.pricing_5years, cloud: t.pricing_cloud_5years, monosub: '' }
+  const features = [
+    { feature: t.pricing_feature_transcription, free: t.pricing_check, pro: t.pricing_check },
+    { feature: t.pricing_feature_export, free: t.pricing_check, pro: t.pricing_check },
+    { feature: t.pricing_feature_batch, free: t.pricing_check, pro: t.pricing_check },
+    { feature: t.pricing_feature_speaker, free: t.pricing_x, pro: t.pricing_check },
+    { feature: t.pricing_feature_support, free: t.pricing_x, pro: t.pricing_check }
   ];
 
   return (
@@ -23,31 +23,36 @@ export const Pricing = () => {
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-dark-border">
-                <th className="pb-4 pr-4 font-bold">{t.pricing_period}</th>
-                <th className="pb-4 px-4 font-bold text-red-400">{t.pricing_cloud}</th>
-                <th className="pb-4 pl-4 font-bold text-green-400">{t.pricing_monosub}</th>
+                <th className="pb-4 pr-4 font-bold">{t.pricing_feature}</th>
+                <th className="pb-4 px-4 font-bold text-gray-400">{t.pricing_free}</th>
+                <th className="pb-4 pl-4 font-bold text-green-400">{t.pricing_pro}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, idx) => (
+              {features.map((item, idx) => (
                 <tr key={idx} className="border-b border-dark-border last:border-0">
-                  <td className="py-4 pr-4">{row.period}</td>
-                  <td className="py-4 px-4 text-gray-400">{row.cloud}</td>
-                  <td className="py-4 pl-4">
-                    {idx === 0 ? (
-                      <span className="text-2xl font-bold gradient-text">{t.pricing_monosub_price}</span>
-                    ) : (
-                      <span className="text-gray-600">—</span>
-                    )}
-                  </td>
+                  <td className="py-4 pr-4">{item.feature}</td>
+                  <td className="py-4 px-4">{item.free}</td>
+                  <td className="py-4 pl-4">{item.pro}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          <div className="mt-8 p-6 bg-primary/10 rounded-xl border border-primary/20">
-            <p className="text-lg mb-2">{t.pricing_cta}</p>
-            <p className="text-sm text-gray-400">{t.pricing_save}</p>
+          <div className="mt-12 text-center">
+            <div className="inline-block p-6 bg-primary/10 rounded-xl border border-primary/20">
+              <p className="text-2xl font-bold mb-2">{t.pricing_pro_price}</p>
+              <p className="text-lg mb-4">{t.pricing_pro_description}</p>
+              <p className="text-sm text-gray-400 mb-6">{t.pricing_pro_discount}</p>
+              <a
+                href="https://polar.leix.dev/v1/checkout-links/polar_cl_JgYlmsUnlbej0vpnuI197nQltlEsUxg1hZd0r3unixT/redirect"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-block cta-button text-white font-semibold px-8 py-4 rounded-lg text-lg transition-all"
+              >
+                {t.pricing_pro_cta}
+              </a>
+            </div>
           </div>
         </div>
       </div>

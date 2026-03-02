@@ -3,12 +3,15 @@ import en from './en';
 
 const vi: Translation = {
   ...en,
-  hero_title_line1: 'Ngừng Trả Phí Hàng Tháng',
-  hero_title_line2: 'Sở Hữu',
-  hero_title_line3: ' Công Cụ Phụ Đề Mãi Mãi',
-  hero_cta: 'Nhận Quyền Truy Cập Trọn Đời - ₫999,000',
-  final_cta: 'Nhận Quyền Truy Cập Trọn Đời - Chỉ ₫999,000',
-  pricing_monosub_price: '₫999,000 (Mãi Mãi)'
+  hero_title_line1: 'Chuyển đổi video và audio thành văn bản.',
+  hero_title_line2: 'Ngoài tuyến.',
+  hero_title_line3: ' Miễn phí.',
+  hero_cta: 'Tải Phiên Bản Miễn Phí',
+  final_cta: 'Tải Phiên Bản Miễn Phí',
+  pricing_pro_price: '₫499,000',
+  pricing_pro_description: 'Mua một lần, có hiệu lực mãi mãi',
+  pricing_pro_discount: '🎉 1000 khách hàng đầu tiên: Giảm 50% với mã `F1N1MSVJ`',
+  pricing_pro_cta: 'Nâng cấp lên Pro'
 };
 
 export default vi;

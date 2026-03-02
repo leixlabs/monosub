@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 
 const images = [
-  '/imgs/screenshot-1.png',
-  '/imgs/screenshot-2.png',
-  '/imgs/screenshot-3.png',
-  '/imgs/screenshot-4.png',
-  '/imgs/screenshot-5.png',
+  '/imgs/main-2.png',
+  '/imgs/main-3.png',
+  '/imgs/monosub-main2.png',
+  '/imgs/setting-1.png',
 ];
+
 
 export const HeroCarousel: React.FC = () => {
   const [current, setCurrent] = useState(0);

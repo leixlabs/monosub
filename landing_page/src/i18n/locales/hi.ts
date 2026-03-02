@@ -3,12 +3,15 @@ import en from './en';
 
 const hi: Translation = {
   ...en,
-  hero_title_line1: 'मासिक भुगतान बंद करें',
-  hero_title_line2: 'स्वामित्व',
-  hero_title_line3: ' अपने सबटाइटल टूल का हमेशा के लिए',
-  hero_cta: 'आजीवन एक्सेस प्राप्त करें - ₹3,299',
-  final_cta: 'आजीवन एक्सेस प्राप्त करें - केवल ₹3,299',
-  pricing_monosub_price: '₹3,299 (हमेशा के लिए)'
+  hero_title_line1: 'अपने वीडियो और ऑडियो को टेक्स्ट में बदलें।',
+  hero_title_line2: 'स्थानीय रूप से।',
+  hero_title_line3: ' मुफ्त में।',
+  hero_cta: 'मुफ्त संस्करण डाउनलोड करें',
+  final_cta: 'मुफ्त संस्करण डाउनलोड करें',
+  pricing_pro_price: '₹1,699',
+  pricing_pro_description: 'एक बार खरीदें, हमेशा के लिए मान्य',
+  pricing_pro_discount: '🎉 पहले 1000 ग्राहक: कोड `F1N1MSVJ` के साथ 50% छूट',
+  pricing_pro_cta: 'Pro में अपग्रेड करें'
 };
 
 export default hi;

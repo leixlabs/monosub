@@ -3,12 +3,15 @@ import en from './en';
 
 const id: Translation = {
   ...en,
-  hero_title_line1: 'Berhenti Bayar Bulanan',
-  hero_title_line2: 'Miliki',
-  hero_title_line3: ' Alat Subtitle Selamanya',
-  hero_cta: 'Dapatkan Akses Seumur Hidup - Rp 599,000',
-  final_cta: 'Dapatkan Akses Seumur Hidup - Hanya Rp 599,000',
-  pricing_monosub_price: 'Rp 599,000 (Selamanya)'
+  hero_title_line1: 'Ubah video dan audio Anda menjadi teks.',
+  hero_title_line2: 'Lokal.',
+  hero_title_line3: ' Gratis.',
+  hero_cta: 'Unduh Versi Gratis',
+  final_cta: 'Unduh Versi Gratis',
+  pricing_pro_price: 'Rp 299,000',
+  pricing_pro_description: 'Pembelian sekali, berlaku selamanya',
+  pricing_pro_discount: '🎉 1000 pelanggan pertama: Diskon 50% dengan kode `F1N1MSVJ`',
+  pricing_pro_cta: 'Upgrade ke Pro'
 };
 
 export default id;

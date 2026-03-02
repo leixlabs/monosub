@@ -9,7 +9,9 @@ export const Features = () => {
     { title: t.feature_3_title, desc: t.feature_3_desc },
     { title: t.feature_4_title, desc: t.feature_4_desc },
     { title: t.feature_5_title, desc: t.feature_5_desc },
-    { title: t.feature_6_title, desc: t.feature_6_desc }
+    { title: t.feature_6_title, desc: t.feature_6_desc },
+    { title: '💎 Pro Feature: Speaker Diarization', desc: 'Identify who spoke when in your recordings, perfect for interviews, meetings, and podcasts.' },
+    { title: '🚀 Pro Feature: Priority Support', desc: 'Get faster response times and dedicated support for any issues or questions you might have.' }
   ];
 
   return (

@@ -11,7 +11,7 @@ export const FinalCTA = () => {
           <p className="text-xl text-gray-400 mb-8">{t.final_subtitle}</p>
           
           <a
-            href="https://kamaleiz.gumroad.com/l/monosub"
+            href="https://github.com/0xkamalei/monosub/releases/latest"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block cta-button text-white font-semibold px-10 py-5 rounded-lg text-xl transition-all mb-8"

@@ -24,10 +24,12 @@ export const Hero = () => {
             
             <div className="space-y-4">
               <a
-                href="#cta"
+                href="https://github.com/0xkamalei/monosub/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
                 className="inline-block cta-button text-white font-semibold px-8 py-4 rounded-lg text-lg transition-all"
               >
-                {t.hero_cta.replace(config.price, config.price)}
+                {t.hero_cta}
               </a>
               
               <div className="flex items-center gap-3 text-gray-400">
