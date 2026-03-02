@@ -30,10 +30,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
+VERSION_UTILS="$SCRIPT_DIR/version-utils.sh"
 VERSION=""
 
+if [ ! -f "$VERSION_UTILS" ]; then
+    log_error "未找到版本工具脚本: $VERSION_UTILS"
+    exit 1
+fi
+source "$VERSION_UTILS"
+
 load_version_metadata() {
-    VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+    sync_versions_from_tauri "$PROJECT_ROOT"
+    VERSION=$(get_tauri_version "$PROJECT_ROOT")
 }
 
 auto_bump_version() {

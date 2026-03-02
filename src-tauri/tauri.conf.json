@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "MonoSub",
-  "version": "0.1.0",
+  "version": "1.1.4",
   "identifier": "com.monosub.client",
   "build": {
     "beforeDevCommand": "bun run dev:servers",
@@ -40,8 +40,6 @@
       "resources/**/*"
     ],
     "externalBin": [
-      "resources/bin/ffmpeg",
-      "resources/bin/ffprobe",
       "resources/bin/monosub-engine"
     ]
   }

@@ -36,6 +36,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
+VERSION_UTILS="$SCRIPT_DIR/version-utils.sh"
+
+if [ ! -f "$VERSION_UTILS" ]; then
+    log_error "未找到版本工具脚本: $VERSION_UTILS"
+    exit 1
+fi
+source "$VERSION_UTILS"
 
 # 保存原始环境变量，用于区分是特定清理还是全局清理
 RAW_BUILD_TYPE="$BUILD_TYPE"
@@ -44,7 +51,8 @@ VERSION=""
 DMG_NAME=""
 
 load_version_metadata() {
-    VERSION=$(grep '"version"' "$PROJECT_ROOT/src-tauri/tauri.conf.json" | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+    sync_versions_from_tauri "$PROJECT_ROOT"
+    VERSION=$(get_tauri_version "$PROJECT_ROOT")
     DMG_NAME="${APP_NAME}-${VERSION}-${BUILD_TYPE}-universal.dmg"
 }
 
@@ -210,33 +218,56 @@ create_dmg() {
     if [ "$USE_CREATE_DMG" = true ]; then
         # 使用 create-dmg 创建美观的 DMG
         log_info "使用 create-dmg 创建 DMG..."
+        local dmg_background="$PROJECT_ROOT/scripts/dmg-background.png"
+        local use_background=false
 
-        create-dmg \
-            --volname "$APP_NAME" \
-            --volicon "$PROJECT_ROOT/src-tauri/icons/icon.icns" \
-            --window-pos 200 120 \
-            --window-size 660 400 \
-            --icon-size 100 \
-            --icon "$APP_NAME.app" 180 170 \
-            --hide-extension "$APP_NAME.app" \
-            --app-drop-link 480 170 \
-            --background "$PROJECT_ROOT/scripts/dmg-background.png" \
-            "$DMG_PATH" \
-            "$APP_PATH" || {
-                # 如果带背景失败，尝试不带背景
-                log_warning "带背景创建失败，尝试不带背景..."
-                create-dmg \
-                    --volname "$APP_NAME" \
-                    --volicon "$PROJECT_ROOT/src-tauri/icons/icon.icns" \
-                    --window-pos 200 120 \
-                    --window-size 660 400 \
-                    --icon-size 100 \
-                    --icon "$APP_NAME.app" 180 170 \
-                    --hide-extension "$APP_NAME.app" \
-                    --app-drop-link 480 170 \
-                    "$DMG_PATH" \
-                    "$APP_PATH"
-            }
+        if [ -f "$dmg_background" ]; then
+            use_background=true
+            log_info "使用 DMG 背景图: $dmg_background"
+        else
+            log_warning "未找到 DMG 背景图，使用无背景模式: $dmg_background"
+        fi
+
+        if [ "$use_background" = true ]; then
+            create-dmg \
+                --volname "$APP_NAME" \
+                --volicon "$PROJECT_ROOT/src-tauri/icons/icon.icns" \
+                --window-pos 200 120 \
+                --window-size 660 400 \
+                --icon-size 100 \
+                --icon "$APP_NAME.app" 180 170 \
+                --hide-extension "$APP_NAME.app" \
+                --app-drop-link 480 170 \
+                --background "$dmg_background" \
+                "$DMG_PATH" \
+                "$APP_PATH" || {
+                    # 如果带背景失败，尝试不带背景
+                    log_warning "带背景创建失败，尝试不带背景..."
+                    create-dmg \
+                        --volname "$APP_NAME" \
+                        --volicon "$PROJECT_ROOT/src-tauri/icons/icon.icns" \
+                        --window-pos 200 120 \
+                        --window-size 660 400 \
+                        --icon-size 100 \
+                        --icon "$APP_NAME.app" 180 170 \
+                        --hide-extension "$APP_NAME.app" \
+                        --app-drop-link 480 170 \
+                        "$DMG_PATH" \
+                        "$APP_PATH"
+                }
+        else
+            create-dmg \
+                --volname "$APP_NAME" \
+                --volicon "$PROJECT_ROOT/src-tauri/icons/icon.icns" \
+                --window-pos 200 120 \
+                --window-size 660 400 \
+                --icon-size 100 \
+                --icon "$APP_NAME.app" 180 170 \
+                --hide-extension "$APP_NAME.app" \
+                --app-drop-link 480 170 \
+                "$DMG_PATH" \
+                "$APP_PATH"
+        fi
     else
         # 使用基础方式创建 DMG
         log_info "使用基础方式创建 DMG..."
@@ -307,6 +338,22 @@ create_dmg() {
         # 清理临时目录
         rm -rf "$TMP_DIR"
     fi
+
+    # 隐藏 DMG 中的 .VolumeIcon.icns 文件
+    log_info "隐藏 .VolumeIcon.icns 文件..."
+    RW_DMG_PATH="${DMG_PATH%.dmg}-rw.dmg"
+    hdiutil convert "$DMG_PATH" -format UDRW -o "$RW_DMG_PATH" -quiet && {
+        hdiutil attach "$RW_DMG_PATH" -noverify -noautoopen -quiet
+        if [ -f "/Volumes/$APP_NAME/.VolumeIcon.icns" ]; then
+            SetFile -a V "/Volumes/$APP_NAME/.VolumeIcon.icns"
+            log_success ".VolumeIcon.icns 已隐藏"
+        fi
+        hdiutil detach "/Volumes/$APP_NAME" -quiet 2>/dev/null || true
+        # 重新转换为压缩格式
+        rm -f "$DMG_PATH"
+        hdiutil convert "$RW_DMG_PATH" -format UDZO -o "$DMG_PATH" -quiet
+        rm -f "$RW_DMG_PATH"
+    } || log_warning "无法处理 .VolumeIcon.icns 隐藏"
 
     log_success "DMG 创建完成: $DMG_PATH"
 

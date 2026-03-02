@@ -27,12 +27,13 @@ check_gh() {
     fi
 }
 
-# Function to get version from Cargo.toml
-get_version_from_cargo() {
-    local VERSION=$(grep -m 1 "^version" src-tauri/Cargo.toml | sed 's/.*version = "\(.*\)".*/\1/')
+# Function to get version from tauri.conf.json
+get_version_from_tauri_conf() {
+    local VERSION
+    VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
     
     if [ -z "$VERSION" ]; then
-        echo "Error: Could not read version from src-tauri/Cargo.toml"
+        echo "Error: Could not read version from src-tauri/tauri.conf.json"
         exit 1
     fi
     
@@ -140,8 +141,8 @@ check_gh
 
 echo "Release Repository: $RELEASE_REPO"
 
-# Get version from Cargo.toml
-BASE_VERSION=$(get_version_from_cargo)
+# Get version from tauri.conf.json
+BASE_VERSION=$(get_version_from_tauri_conf)
 echo "Base Version: $BASE_VERSION"
 
 # Get current commit hash from code repo

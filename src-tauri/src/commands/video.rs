@@ -6,26 +6,6 @@ use tauri::AppHandle;
 // Audio file extensions
 const AUDIO_EXTENSIONS: &[&str] = &["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma"];
 
-/// Get ffmpeg binary path
-fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
-    // 在打包后，externalBin 文件位于 Contents/MacOS/ 目录
-    // 与主可执行文件在同一目录
-    if let Some(_app) = app {
-        // 尝试在当前可执行文件目录查找
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let ffmpeg_bin = exe_dir.join("ffmpeg");
-                if ffmpeg_bin.exists() {
-                    return ffmpeg_bin.to_string_lossy().to_string();
-                }
-            }
-        }
-    }
-
-    // 回退到系统 ffmpeg
-    "ffmpeg".to_string()
-}
-
 /// Get target architecture suffix for binary files
 fn get_target_suffix() -> String {
     #[cfg(all(target_arch = "aarch64", target_os = "macos"))]
@@ -54,140 +34,122 @@ fn get_target_suffix() -> String {
     return String::new();
 }
 
-/// Get ffmpeg binary path for Python subprocess (checks bundled and system locations)
-pub fn get_ffmpeg_path_for_python(app: Option<&AppHandle>) -> String {
-    let target_suffix = get_target_suffix();
+fn get_binary_candidates(binary_name: &str, target_suffix: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
 
-    // 1. 尝试开发环境的资源目录 (src-tauri/resources/bin/ffmpeg-{arch})
-    if let Ok(current_dir) = std::env::current_dir() {
-        let dev_ffmpeg = current_dir
-            .join("src-tauri")
-            .join("resources")
-            .join("bin")
-            .join(format!("ffmpeg-{}", target_suffix));
+    candidates.push(binary_name.to_string());
+    if !target_suffix.is_empty() {
+        candidates.push(format!("{}-{}", binary_name, target_suffix));
+    }
 
-        if dev_ffmpeg.exists() {
-            tracing::debug!("Found dev ffmpeg: {:?}", dev_ffmpeg);
-            return dev_ffmpeg.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    {
+        if !target_suffix.is_empty() {
+            candidates.push(format!("{}-{}.exe", binary_name, target_suffix));
+        }
+        candidates.push(format!("{}.exe", binary_name));
+    }
+
+    candidates
+}
+
+fn resolve_binary_path(binary_name: &str, env_var: &str, app: Option<&AppHandle>) -> String {
+    // 0. 显式环境变量覆盖
+    if let Ok(override_path) = std::env::var(env_var) {
+        if !override_path.trim().is_empty() {
+            tracing::debug!(binary = binary_name, env_var = env_var, override_path = %override_path, "Using binary path from environment override");
+            return override_path;
         }
     }
 
-    // 2. 尝试打包后的二进制文件（在可执行文件同目录）
+    let target_suffix = get_target_suffix();
+    let candidates = get_binary_candidates(binary_name, &target_suffix);
+
+    // 1. 尝试开发环境资源目录
+    if let Ok(current_dir) = std::env::current_dir() {
+        let dev_bin_dir = current_dir.join("src-tauri").join("resources").join("bin");
+
+        for candidate in &candidates {
+            let dev_binary = dev_bin_dir.join(candidate);
+            if dev_binary.exists() {
+                tracing::debug!(binary = binary_name, path = ?dev_binary, "Found dev binary");
+                return dev_binary.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    // 2. 尝试打包目录（与可执行文件同目录）
     if let Some(_app) = app {
         if let Ok(exe_path) = std::env::current_exe() {
             if let Some(exe_dir) = exe_path.parent() {
-                // Tauri externalBin 会将 ffmpeg-{arch} 复制到可执行文件目录
-                let ffmpeg_with_suffix = exe_dir.join(format!("ffmpeg-{}", target_suffix));
-                if ffmpeg_with_suffix.exists() {
-                    tracing::debug!("Found bundled ffmpeg: {:?}", ffmpeg_with_suffix);
-                    return ffmpeg_with_suffix.to_string_lossy().to_string();
+                for candidate in &candidates {
+                    let bundled_binary = exe_dir.join(candidate);
+                    if bundled_binary.exists() {
+                        tracing::debug!(binary = binary_name, path = ?bundled_binary, "Found bundled binary");
+                        return bundled_binary.to_string_lossy().to_string();
+                    }
                 }
+            }
 
-                // 也尝试没有后缀的版本（以防配置不同）
-                let ffmpeg_plain = exe_dir.join("ffmpeg");
-                if ffmpeg_plain.exists() {
-                    tracing::debug!("Found bundled ffmpeg (plain): {:?}", ffmpeg_plain);
-                    return ffmpeg_plain.to_string_lossy().to_string();
+            // 2.1 尝试 app bundle 的 Resources/resources/bin
+            if let Some(contents_dir) = exe_path.parent().and_then(|p| p.parent()) {
+                let resources_bin_dir = contents_dir.join("Resources").join("resources").join("bin");
+                for candidate in &candidates {
+                    let bundled_resource_binary = resources_bin_dir.join(candidate);
+                    if bundled_resource_binary.exists() {
+                        tracing::debug!(binary = binary_name, path = ?bundled_resource_binary, "Found bundled resource binary");
+                        return bundled_resource_binary.to_string_lossy().to_string();
+                    }
                 }
             }
         }
     }
 
-    // 3. 尝试常见的系统安装路径
-    let common_paths = [
-        "/opt/homebrew/bin/ffmpeg",  // Homebrew on Apple Silicon
-        "/usr/local/bin/ffmpeg",     // Homebrew on Intel Mac / Linux
-        "/usr/bin/ffmpeg",           // System package managers
-    ];
+    // 3. 常见系统路径
+    let common_paths = match binary_name {
+        "ffmpeg" => vec![
+            "/opt/homebrew/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/usr/bin/ffmpeg",
+        ],
+        "ffprobe" => vec![
+            "/opt/homebrew/bin/ffprobe",
+            "/usr/local/bin/ffprobe",
+            "/usr/bin/ffprobe",
+        ],
+        _ => Vec::new(),
+    };
 
-    for path in &common_paths {
+    for path in common_paths {
         if std::path::Path::new(path).exists() {
-            tracing::debug!("Found system ffmpeg: {}", path);
+            tracing::debug!(binary = binary_name, path = path, "Found system binary");
             return path.to_string();
         }
     }
 
-    // 4. 最后回退到 PATH 中的 ffmpeg
-    tracing::warn!("Falling back to 'ffmpeg' in PATH");
-    "ffmpeg".to_string()
+    // 4. 最后回退到 PATH
+    tracing::warn!(binary = binary_name, "Falling back to binary name in PATH");
+    binary_name.to_string()
 }
 
-/// Get ffprobe binary path
-fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
-    // 在打包后，externalBin 文件位于 Contents/MacOS/ 目录
-    // 与主可执行文件在同一目录
-    if let Some(_app) = app {
-        // 尝试在当前可执行文件目录查找
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                let ffprobe_bin = exe_dir.join("ffprobe");
-                if ffprobe_bin.exists() {
-                    return ffprobe_bin.to_string_lossy().to_string();
-                }
-            }
-        }
-    }
+/// Get ffmpeg binary path
+fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
+    resolve_binary_path("ffmpeg", "MONOSUB_FFMPEG_PATH", app)
+}
 
-    // 回退到系统 ffprobe
-    "ffprobe".to_string()
+/// Get ffmpeg binary path for Python subprocess (checks bundled and system locations)
+pub fn get_ffmpeg_path_for_python(app: Option<&AppHandle>) -> String {
+    resolve_binary_path("ffmpeg", "MONOSUB_FFMPEG_PATH", app)
 }
 
 /// Get ffprobe binary path for Python subprocess (checks bundled and system locations)
 pub fn get_ffprobe_path_for_python(app: Option<&AppHandle>) -> String {
-    let target_suffix = get_target_suffix();
+    resolve_binary_path("ffprobe", "MONOSUB_FFPROBE_PATH", app)
+}
 
-    // 1. 尝试开发环境的资源目录 (src-tauri/resources/bin/ffprobe-{arch})
-    if let Ok(current_dir) = std::env::current_dir() {
-        let dev_ffprobe = current_dir
-            .join("src-tauri")
-            .join("resources")
-            .join("bin")
-            .join(format!("ffprobe-{}", target_suffix));
-
-        if dev_ffprobe.exists() {
-            tracing::debug!("Found dev ffprobe: {:?}", dev_ffprobe);
-            return dev_ffprobe.to_string_lossy().to_string();
-        }
-    }
-
-    // 2. 尝试打包后的二进制文件（在可执行文件同目录）
-    if let Some(_app) = app {
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                // Tauri externalBin 会将 ffprobe-{arch} 复制到可执行文件目录
-                let ffprobe_with_suffix = exe_dir.join(format!("ffprobe-{}", target_suffix));
-                if ffprobe_with_suffix.exists() {
-                    tracing::debug!("Found bundled ffprobe: {:?}", ffprobe_with_suffix);
-                    return ffprobe_with_suffix.to_string_lossy().to_string();
-                }
-
-                // 也尝试没有后缀的版本（以防配置不同）
-                let ffprobe_plain = exe_dir.join("ffprobe");
-                if ffprobe_plain.exists() {
-                    tracing::debug!("Found bundled ffprobe (plain): {:?}", ffprobe_plain);
-                    return ffprobe_plain.to_string_lossy().to_string();
-                }
-            }
-        }
-    }
-
-    // 3. 尝试常见的系统安装路径
-    let common_paths = [
-        "/opt/homebrew/bin/ffprobe",  // Homebrew on Apple Silicon
-        "/usr/local/bin/ffprobe",     // Homebrew on Intel Mac / Linux
-        "/usr/bin/ffprobe",           // System package managers
-    ];
-
-    for path in &common_paths {
-        if std::path::Path::new(path).exists() {
-            tracing::debug!("Found system ffprobe: {}", path);
-            return path.to_string();
-        }
-    }
-
-    // 4. 最后回退到 PATH 中的 ffprobe
-    tracing::warn!("Falling back to 'ffprobe' in PATH");
-    "ffprobe".to_string()
+/// Get ffprobe binary path
+fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
+    resolve_binary_path("ffprobe", "MONOSUB_FFPROBE_PATH", app)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -314,6 +276,27 @@ fn get_audio_icon_svg() -> String {
     )
 }
 
+// Default video icon as SVG (converted to data URI)
+fn get_video_icon_svg() -> String {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="240" height="135" viewBox="0 0 240 135">
+        <rect fill="#{}" width="240" height="135"/>
+        <rect x="72" y="35" rx="6" ry="6" width="96" height="54" fill="#{}"/>
+        <polygon points="108,50 108,74 130,62" fill="white"/>
+        <text x="120" y="110" text-anchor="middle" fill="#{}" font-size="12">Video</text>
+        </svg>"##,
+        "0f172a", "334155", "94a3b8"
+    )
+}
+
+fn fallback_video_thumbnail() -> ThumbnailResult {
+    let svg_content = get_video_icon_svg();
+    let svg_base64 = base64_encode(svg_content.as_bytes());
+    ThumbnailResult {
+        thumbnail_base64: format!("data:image/svg+xml;base64,{}", svg_base64),
+    }
+}
+
 /// Generate thumbnail for media file (video: frame extract, audio: default icon)
 #[tauri::command]
 pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<ThumbnailResult, String> {
@@ -345,32 +328,62 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
     let ffmpeg_cmd = get_ffmpeg_path(Some(&app));
     tracing::debug!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, "Using ffmpeg command");
 
-    let output = Command::new(&ffmpeg_cmd)
-        .args(&[
-            "-i", &path,
-            "-ss", "00:00:03",
-            "-vframes", "1",
-            "-vf", "scale=240:-1",
-            "-y",
-            thumbnail_path.to_str().unwrap(),
-        ])
-        .output()
-        .map_err(|e| {
-            tracing::error!(path = %path, error = %e, "Failed to execute ffmpeg");
-            format!("Failed to execute ffmpeg: {}", e)
-        })?;
+    // Try with hardware acceleration first (needed for AV1 etc.), fall back to software decoding
+    let thumbnail_out = thumbnail_path.to_str().unwrap();
+    let args_hwaccel = vec![
+        "-hwaccel", "videotoolbox",
+        "-i", &path,
+        "-ss", "00:00:03",
+        "-frames:v", "1",
+        "-vf", "scale=240:-1",
+        "-update", "1",
+        "-y",
+        thumbnail_out,
+    ];
+    let args_software = vec![
+        "-i", &path,
+        "-ss", "00:00:03",
+        "-frames:v", "1",
+        "-vf", "scale=240:-1",
+        "-update", "1",
+        "-y",
+        thumbnail_out,
+    ];
+
+    let output = match Command::new(&ffmpeg_cmd).args(&args_hwaccel).output() {
+        Ok(o) if o.status.success() => o,
+        _ => {
+            // Retry without hardware acceleration
+            match Command::new(&ffmpeg_cmd).args(&args_software).output() {
+                Ok(output) => output,
+                Err(e) => {
+                    tracing::error!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, error = %e, "Failed to execute ffmpeg, using fallback thumbnail");
+                    return Ok(fallback_video_thumbnail());
+                }
+            }
+        }
+    };
 
     if !output.status.success() {
-        tracing::error!(path = %path, "ffmpeg command failed");
-        return Err("ffmpeg command failed".to_string());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::error!(
+            path = %path,
+            ffmpeg_cmd = %ffmpeg_cmd,
+            status = ?output.status.code(),
+            stderr = %stderr,
+            "ffmpeg command failed, using fallback thumbnail"
+        );
+        return Ok(fallback_video_thumbnail());
     }
 
     // Read thumbnail and encode as base64
-    let image_data = std::fs::read(&thumbnail_path)
-        .map_err(|e| {
-            tracing::error!(path = %path, thumbnail_path = ?thumbnail_path, error = %e, "Failed to read thumbnail");
-            format!("Failed to read thumbnail: {}", e)
-        })?;
+    let image_data = match std::fs::read(&thumbnail_path) {
+        Ok(data) => data,
+        Err(e) => {
+            tracing::error!(path = %path, thumbnail_path = ?thumbnail_path, error = %e, "Failed to read generated thumbnail, using fallback");
+            return Ok(fallback_video_thumbnail());
+        }
+    };
 
     let base64_image = base64_encode(&image_data);
 
