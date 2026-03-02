@@ -77,23 +77,6 @@ bun run lint
 
 ### 构建
 
-**方式一：Lite 版本（推荐）**
-```bash
-# 使用 Python + uv 动态依赖打包
-bun run build:dmg
-# 或
-BUILD_TYPE=lite ./scripts/build-dmg.sh
-```
-
-**方式二：Full 版本（稳定）**
-```bash
-# 使用完整 Python venv 打包
-BUILD_TYPE=full ./scripts/build-dmg.sh
-```
-
-构建产物：
-- macOS DMG: `dist/MonoSub-{version}-universal.dmg`
-- 开发构建: `src-tauri/target/release/bundle/macos/`
 
 **打包方案说明：**
 - **Lite 版本**（~80MB）：打包 Python 解释器 + uv 工具 + 源码，首次运行时自动安装依赖

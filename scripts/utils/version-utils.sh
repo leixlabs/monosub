@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Usage: source ./scripts/utils/version-utils.sh
 # Shared version helpers.
 # Source of truth: src-tauri/tauri.conf.json version
 

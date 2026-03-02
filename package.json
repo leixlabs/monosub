@@ -1,21 +1,18 @@
 {
   "name": "monosub",
   "private": true,
-  "version": "1.1.10",
+  "version": "1.1.16",
   "type": "module",
   "scripts": {
     "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx @tauri-apps/cli dev",
     "dev:servers": "vite dev",
     "build": "tsc -b && vite build",
-    "build:dmg": "./scripts/build-dmg.sh build",
-    "build:dmg:lite": "BUILD_TYPE=lite ./scripts/build-dmg.sh build",
-    "build:dmg:full": "BUILD_TYPE=full ./scripts/build-dmg.sh build",
-    "build:windows": "./scripts/build-windows.sh build",
-    "build:windows:lite": "BUILD_TYPE=lite ./scripts/build-windows.sh build",
-    "build:windows:full": "BUILD_TYPE=full ./scripts/build-windows.sh build",
+    "build:dmg": "./scripts/build/build-macos-app.sh build",
+    "build:dmg:lite": "BUILD_TYPE=lite ./scripts/build/build-macos-app.sh build",
+    "build:dmg:full": "BUILD_TYPE=full ./scripts/build/build-macos-app.sh build",
     "lint": "eslint .",
     "check": "tsc -b --noEmit",
-    "clean": "./scripts/build-dmg.sh clean"
+    "clean": "rm -rf dist/* target/*"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

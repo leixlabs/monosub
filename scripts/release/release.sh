@@ -1,5 +1,19 @@
 #!/bin/bash
 
+# MonoSub Release Script
+# 用于构建和发布 MonoSub 到 GitHub Releases
+
+# Usage:
+#   ./scripts/release/release.sh                    # 默认构建 Lite 版本并发布
+#   ./scripts/release/release.sh --type=full        # 构建 Full 版本并发布
+#   ./scripts/release/release.sh --skip-package     # 跳过构建，仅发布已有文件
+#
+# 环境变量:
+#   APPLE_ID              # Apple ID for notarization
+#   APPLE_PASSWORD        # App-specific password for notarization
+#   APPLE_TEAM_ID         # Apple Team ID for notarization
+#   APPLE_SIGNING_IDENTITY # Code signing identity
+
 # Configuration
 APP_NAME="monosub"
 DIST_DIR="dist"
@@ -103,12 +117,11 @@ $GIT_CHANGES
 | File | Description |
 |------|-------------|
 | *.dmg | macOS Universal Installer |
-| *.msi | Windows Installer |
 
 See attached files below for installation.
 
 ---
-*Released automatically from [code repo](https://github.com/0xkamalei/monosub)*
+
 EOF
 }
 
@@ -119,7 +132,7 @@ echo "==============================================="
 
 # Parse arguments
 SKIP_PACKAGE=false
-BUILD_TYPE="full"
+BUILD_TYPE="lite"
 for arg in "$@"; do
     case $arg in
         --skip-package)
@@ -162,22 +175,24 @@ else
     echo "No previous release found"
 fi
 
-# Run package.sh to build and create installers if not skipping
+# Run build-macos-app.sh to build and create installers if not skipping
 if [ "$SKIP_PACKAGE" = false ]; then
-    echo "Running package.sh to build and package..."
+    echo "Running build-macos-app.sh to build and package..."
     
-    if [ "$BUILD_TYPE" = "lite" ] || [ "$BUILD_TYPE" = "full" ]; then
-        ./scripts/package.sh --type=$BUILD_TYPE --all
+    if [ -n "$BUILD_TYPE" ]; then
+        echo "指定构建类型: $BUILD_TYPE"
+        ./scripts/build/build-macos-app.sh $BUILD_TYPE
     else
-        ./scripts/package.sh --all
+        echo "使用默认构建类型"
+        ./scripts/build/build-macos-app.sh
     fi
     
     if [ $? -ne 0 ]; then
-        echo "Error: package.sh failed. Aborting release."
+        echo "Error: build-macos-app.sh failed. Aborting release."
         exit 1
     fi
 else
-    echo "Skipping package.sh execution..."
+    echo "Skipping build-macos-app.sh execution..."
 fi
 
 # Check if installer files were created
@@ -188,11 +203,13 @@ fi
 
 # Collect installer files
 INSTALLER_FILES=()
-for file in "$DIST_DIR"/*.{dmg,msi} 2>/dev/null; do
+shopt -s nullglob
+for file in "$DIST_DIR"/*.dmg; do
     if [ -f "$file" ]; then
         INSTALLER_FILES+=("$file")
     fi
 done
+shopt -u nullglob
 
 if [ ${#INSTALLER_FILES[@]} -eq 0 ]; then
     echo "Error: No installer files found to upload."

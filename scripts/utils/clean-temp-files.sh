@@ -1,4 +1,5 @@
 #!/bin/bash
+# Usage: ./scripts/utils/clean-temp-files.sh
 # 清理临时构建文件，但保留源代码
 
 set -e

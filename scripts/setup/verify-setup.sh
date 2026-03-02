@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# Usage: ./scripts/setup/verify-setup.sh
 # 环境验证脚本
 # 检查所有必需的工具是否已安装
 
@@ -68,7 +68,7 @@ fi
 if [ -d "core-engine/.venv" ] || [ -d "core-engine/venv" ]; then
     echo -e "${GREEN}✅ Python virtual environment${NC} - Environment exists"
 else
-    echo -e "${YELLOW}⚠️  Python virtual environment${NC} - Run './scripts/setup-python.sh'"
+    echo -e "${YELLOW}⚠️  Python virtual environment${NC} - Run './scripts/setup/setup-dev-env.sh'"
     ((errors++))
 fi
 

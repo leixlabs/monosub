@@ -1,4 +1,5 @@
 #!/bin/bash
+# Usage: ./scripts/release/bump-version.sh
 # Auto bump patch version for packaging builds.
 # Source of truth: src-tauri/tauri.conf.json
 # Sync targets:
@@ -10,7 +11,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-source "$SCRIPT_DIR/version-utils.sh"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+source "$SCRIPT_DIR/../utils/version-utils.sh"
 
 bump_patch_version_and_sync "$PROJECT_ROOT"
