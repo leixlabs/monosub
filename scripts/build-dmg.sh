@@ -363,6 +363,30 @@ notarize_app() {
     fi
 }
 
+# 检测当前资源类型
+detect_resource_type() {
+    local has_lite=false
+    local has_full=false
+    
+    if [ -d "$PROJECT_ROOT/src-tauri/resources/python" ] || [ -f "$PROJECT_ROOT/src-tauri/resources/bin/uv" ]; then
+        has_lite=true
+    fi
+    
+    if [ -d "$PROJECT_ROOT/src-tauri/resources/python-venv" ]; then
+        has_full=true
+    fi
+    
+    if [ "$has_lite" = true ] && [ "$has_full" = true ]; then
+        echo "mixed"
+    elif [ "$has_lite" = true ]; then
+        echo "lite"
+    elif [ "$has_full" = true ]; then
+        echo "full"
+    else
+        echo "none"
+    fi
+}
+
 # 清理
 clean() {
     # 优先使用传入的参数，其次使用原始环境变量设置，最后为空（表示清理所有）
@@ -404,6 +428,40 @@ clean() {
     log_success "清理完成"
 }
 
+# 智能清理：只在资源类型不匹配时清理
+# 注意：Lite 资源（python + uv）是 Full 的子集，Lite->Full 不需要清理
+smart_clean() {
+    local target_type="${1:-$BUILD_TYPE}"
+    target_type="${target_type:-lite}"
+    
+    local current_type=$(detect_resource_type)
+    
+    log_info "当前资源类型: $current_type, 目标类型: $target_type"
+    
+    # 如果资源类型混合，执行完整清理
+    if [ "$current_type" = "mixed" ]; then
+        log_warning "检测到混合资源，执行完整清理..."
+        clean ""
+    elif [ "$current_type" = "full" ] && [ "$target_type" = "lite" ]; then
+        # Full -> Lite: 清理 Full 特有的 venv，保留 Lite 资源
+        log_warning "Full -> Lite 切换，清理 venv（保留 python + uv）..."
+        rm -rf src-tauri/resources/python-venv
+    elif [ "$current_type" = "none" ]; then
+        log_info "没有现有资源，准备全新下载..."
+    else
+        # 包括：
+        # - none -> lite/full: 全新下载
+        # - lite -> lite: 保持不变
+        # - lite -> full: 保留 lite，添加 venv
+        # - full -> full: 保持不变
+        log_info "资源兼容，跳过资源清理（保留 cache）"
+    fi
+    
+    # 始终清理构建产物（DMG 等）
+    rm -f dist/*-${target_type}-*.dmg 2>/dev/null || true
+    rm -f "$BUILD_DIR"/*/release/bundle/dmg/*.dmg 2>/dev/null || true
+}
+
 # 准备资源文件
 prepare_resources() {
     log_info "准备资源文件..."
@@ -441,8 +499,8 @@ prepare_resources() {
 
 # 完整构建流程
 full_build() {
-    # 先执行特定类型的清理，确保环境纯净
-    clean "$BUILD_TYPE"
+    # 智能清理：只在资源类型不匹配时清理，保留同类型的 cache
+    smart_clean "$BUILD_TYPE"
 
     check_dependencies
     auto_bump_version
