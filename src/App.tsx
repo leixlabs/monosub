@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { useTranslation } from 'react-i18next';
+import i18n from './i18n';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Header } from './components/Header';
 import { Toolbar } from './components/Toolbar';
@@ -53,6 +55,22 @@ function App() {
   useEffect(() => {
     void validateLicenseOnStartup();
   }, []);
+
+  // Sync tray menu labels with current language
+  useEffect(() => {
+    const syncTray = () => {
+      void invoke('update_tray_menu', {
+        show: t('tray.show'),
+        hide: t('tray.hide'),
+        quit: t('tray.quit'),
+      });
+    };
+    syncTray();
+    i18n.on('languageChanged', syncTray);
+    return () => {
+      i18n.off('languageChanged', syncTray);
+    };
+  }, [t]);
 
   useEffect(() => {
     // Listen to transcription progress events

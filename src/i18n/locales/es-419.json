@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Generación de subtítulos completada"
   },
+  "tray": {
+    "show": "Mostrar ventana",
+    "hide": "Ocultar ventana",
+    "quit": "Salir"
+  },
   "language": {
     "auto": "Detección Automática",
     "zh": "Chino",

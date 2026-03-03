@@ -122,6 +122,11 @@
   "notification": {
     "completed": "字幕生成完成"
   },
+  "tray": {
+    "show": "顯示主視窗",
+    "hide": "隱藏視窗",
+    "quit": "退出"
+  },
   "language": {
     "auto": "自動偵測",
     "zh": "中文",

@@ -1,0 +1,78 @@
+#!/bin/bash
+
+# MonoSub CLI Wrapper (Enhanced)
+# 封装自 /Users/lei/dev/personal/monosub
+
+PROJECT_DIR="/Users/lei/dev/projects/monosub"
+CORE_ENGINE_DIR="$PROJECT_DIR/core-engine"
+
+# 检查 uv
+if ! command -v uv &> /dev/null; then
+    echo "错误: 未找到 uv，请先安装: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
+fi
+
+# 帮助信息
+show_help() {
+    echo "用法: monosub <视频文件> [输出路径] [其他参数...]"
+    echo ""
+    echo "选项:"
+    echo "  --language     语言识别: auto (默认), zh, en, ja, ko, de, fr, es, pt, zh-tw"
+    echo "  --format       强制指定格式: srt, vtt, txt (默认根据后缀名自动识别)"
+    echo "  --diarization  启用说话人分离 (多人语音识别)"
+    echo ""
+    echo "示例:"
+    echo "  monosub test.mp4                  # 自动生成 test.srt"
+    echo "  monosub test.mp4 out.vtt          # 识别 .vtt 后缀，自动传 --format vtt"
+    echo "  monosub test.mp4 out.srt --language en"
+    echo "  monosub test.mp4 --diarization    # 启用说话人分离"
+    echo ""
+    echo "底层引擎支持的所有参数都可透传。"
+    exit 0
+}
+
+if [ "$#" -lt 1 ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+    show_help
+fi
+
+INPUT_VIDEO=$(realpath "$1")
+shift
+
+# 检查输入
+if [ ! -f "$INPUT_VIDEO" ]; then
+    echo "错误: 找不到视频文件 $INPUT_VIDEO"
+    exit 1
+fi
+
+# 处理输出路径和格式识别
+FORMAT=""
+if [ -z "$1" ] || [[ "$1" == --* ]]; then
+    # 用户没给输出路径，默认为视频同名 .srt
+    OUTPUT_SUB="${INPUT_VIDEO%.*}.srt"
+    FORMAT="srt"
+else
+    # 用户给了输出路径
+    # 使用 Python 获取绝对路径，避免 realpath 在文件不存在时报错
+    OUTPUT_SUB=$(python3 -c "import os, sys; print(os.path.abspath(sys.argv[1]))" "$1")
+    shift
+    
+    # 根据后缀自动识别格式
+    case "$OUTPUT_SUB" in
+        *.vtt) FORMAT="vtt" ;;
+        *.txt) FORMAT="txt" ;;
+        *.srt) FORMAT="srt" ;;
+        *)     FORMAT="srt" ;;
+    esac
+fi
+
+# 进入目录并运行
+cd "$CORE_ENGINE_DIR" || exit
+
+# 如果用户手动传了 --format，则以用户的为准
+# 否则，添加自动识别出的 --format
+ARGS=("$@")
+if [[ ! "$*" == *"--format"* ]]; then
+    ARGS=("--format" "$FORMAT" "${ARGS[@]}")
+fi
+
+uv run python main.py "$INPUT_VIDEO" "$OUTPUT_SUB" "${ARGS[@]}"

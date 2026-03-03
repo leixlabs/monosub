@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Generowanie napisów zakończone"
   },
+  "tray": {
+    "show": "Pokaż okno",
+    "hide": "Ukryj okno",
+    "quit": "Zakończ"
+  },
   "language": {
     "auto": "Auto Wykrywanie",
     "zh": "Chiński",

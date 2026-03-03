@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Altyazı oluşturma tamamlandı"
   },
+  "tray": {
+    "show": "Pencereyi göster",
+    "hide": "Pencereyi gizle",
+    "quit": "Çık"
+  },
   "language": {
     "auto": "Otomatik Algıla",
     "zh": "Çince",

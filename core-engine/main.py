@@ -122,13 +122,6 @@ def main():
         help="Language (default: auto)",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        default="cpu",
-        choices=["cpu", "cuda"],
-        help="Device to use (default: cpu)",
-    )
-    parser.add_argument(
         "--diarization",
         action="store_true",
         help="Enable speaker diarization (multi-speaker recognition)",

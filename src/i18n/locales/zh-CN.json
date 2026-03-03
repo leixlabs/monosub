@@ -154,6 +154,11 @@
   "notification": {
     "completed": "字幕生成完成"
   },
+  "tray": {
+    "show": "显示主窗口",
+    "hide": "隐藏窗口",
+    "quit": "退出"
+  },
   "language": {
     "auto": "自动检测",
     "zh": "中文",

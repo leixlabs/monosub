@@ -154,6 +154,11 @@
   "notification": {
     "completed": "Subtitle generation completed"
   },
+  "tray": {
+    "show": "Show Window",
+    "hide": "Hide Window",
+    "quit": "Quit"
+  },
   "language": {
     "auto": "Auto Detect",
     "zh": "Chinese",

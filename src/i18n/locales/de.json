@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Untertitelerstellung abgeschlossen"
   },
+  "tray": {
+    "show": "Fenster anzeigen",
+    "hide": "Fenster ausblenden",
+    "quit": "Beenden"
+  },
   "language": {
     "auto": "Automatisch erkennen",
     "zh": "Chinesisch",

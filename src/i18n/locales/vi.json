@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Tạo phụ đề hoàn thành"
   },
+  "tray": {
+    "show": "Hiện cửa sổ",
+    "hide": "Ẩn cửa sổ",
+    "quit": "Thoát"
+  },
   "language": {
     "auto": "Tự Động Phát Hiện",
     "zh": "Tiếng Trung",

@@ -122,6 +122,11 @@
   "notification": {
     "completed": "字幕の生成が完了しました"
   },
+  "tray": {
+    "show": "ウィンドウを表示",
+    "hide": "ウィンドウを隠す",
+    "quit": "終了"
+  },
   "language": {
     "auto": "自動検出",
     "zh": "中国語",

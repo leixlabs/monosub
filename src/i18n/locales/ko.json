@@ -122,6 +122,11 @@
   "notification": {
     "completed": "자막 생성이 완료되었습니다"
   },
+  "tray": {
+    "show": "창 표시",
+    "hide": "창 숨기기",
+    "quit": "종료"
+  },
   "language": {
     "auto": "자동 감지",
     "zh": "중국어",

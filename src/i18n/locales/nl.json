@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Ondertitels genereren voltooid"
   },
+  "tray": {
+    "show": "Venster tonen",
+    "hide": "Venster verbergen",
+    "quit": "Afsluiten"
+  },
   "language": {
     "auto": "Auto Detectie",
     "zh": "Chinees",

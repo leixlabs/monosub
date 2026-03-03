@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Pembuatan subtitle selesai"
   },
+  "tray": {
+    "show": "Tampilkan jendela",
+    "hide": "Sembunyikan jendela",
+    "quit": "Keluar"
+  },
   "language": {
     "auto": "Deteksi Otomatis",
     "zh": "Mandarin",

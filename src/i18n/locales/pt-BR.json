@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Geração de legendas concluída"
   },
+  "tray": {
+    "show": "Mostrar janela",
+    "hide": "Ocultar janela",
+    "quit": "Sair"
+  },
   "language": {
     "auto": "Detecção Automática",
     "zh": "Chinês",

@@ -6,15 +6,15 @@ use tauri::{
 
 pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // 创建托盘菜单项
-    let show_item = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
-    let hide_item = MenuItem::with_id(app, "hide", "隐藏窗口", true, None::<&str>)?;
-    let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "Show Window", true, None::<&str>)?;
+    let hide_item = MenuItem::with_id(app, "hide", "Hide Window", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
     // 创建菜单
     let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
 
     // 创建托盘图标
-    let _tray = TrayIconBuilder::new()
+    let _tray = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .icon(app.default_window_icon().unwrap().clone())
         .on_menu_event(|app, event| match event.id.as_ref() {

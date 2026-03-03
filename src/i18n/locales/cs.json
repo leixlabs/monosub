@@ -122,6 +122,11 @@
   "notification": {
     "completed": "Vytváření titulků dokončeno"
   },
+  "tray": {
+    "show": "Zobrazit okno",
+    "hide": "Skrýt okno",
+    "quit": "Ukončit"
+  },
   "language": {
     "auto": "Auto Detekce",
     "zh": "Čínština",
