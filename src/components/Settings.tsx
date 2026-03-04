@@ -365,11 +365,10 @@ export function Settings() {
                     key={item.id}
                     whileTap={{ scale: 0.98 }}
                     onClick={() => setActiveCategory(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors ${
-                      isActive
-                        ? 'bg-white/90 dark:bg-zinc-800 text-text-primary dark:text-white shadow-glass-sm'
-                        : 'text-text-secondary dark:text-gray-400 hover:bg-white/60 dark:hover:bg-zinc-800/70 hover:text-text-primary dark:hover:text-white'
-                    }`}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors ${isActive
+                      ? 'bg-white/90 dark:bg-zinc-800 text-text-primary dark:text-white shadow-glass-sm'
+                      : 'text-text-secondary dark:text-gray-400 hover:bg-white/60 dark:hover:bg-zinc-800/70 hover:text-text-primary dark:hover:text-white'
+                      }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="font-medium truncate">{item.label}</span>
@@ -429,11 +428,10 @@ export function Settings() {
                             key={opt.value}
                             whileTap={{ scale: 0.97 }}
                             onClick={() => updateSettings({ outputFormat: opt.value })}
-                            className={`px-4 py-1.5 text-sm rounded-md transition-all ${
-                              settings.outputFormat === opt.value
-                                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-glass-sm'
-                                : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
-                            }`}
+                            className={`px-4 py-1.5 text-sm rounded-md transition-all ${settings.outputFormat === opt.value
+                              ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-glass-sm'
+                              : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
+                              }`}
                           >
                             {opt.label}
                           </motion.button>
@@ -522,22 +520,24 @@ export function Settings() {
                     <div className="flex items-center justify-between">
                       <div>
                         <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
-                          {t('settings.processing.autoQueue')}
+                          {t('settings.processing.skipExisting')}
                         </label>
                         <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
-                          {t('settings.processing.autoQueueDesc')}
+                          {t('settings.processing.skipExistingDesc')}
                         </p>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={settings.autoProcessQueue}
-                          onChange={(e) => updateSettings({ autoProcessQueue: e.target.checked })}
+                          checked={settings.skipExistingSubtitle}
+                          onChange={(e) => updateSettings({ skipExistingSubtitle: e.target.checked })}
                           className="sr-only peer"
                         />
                         <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
                       </label>
                     </div>
+
+
                   </div>
                 </section>
               )}

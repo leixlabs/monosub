@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::ShellExt;
@@ -32,6 +33,7 @@ pub struct TranscribeRequest {
     pub output_path: String,
     pub format: Option<String>,
     pub language: Option<String>,
+    pub device: Option<String>,
     pub enable_diarization: Option<bool>,
 }
 
@@ -40,6 +42,8 @@ type TaskMap = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
 
 lazy_static::lazy_static! {
     static ref TASKS: TaskMap = Arc::new(Mutex::new(HashMap::new()));
+    static ref AUDIO_SEMAPHORE: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(2));
+    static ref TRANSCRIBE_SEMAPHORE: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(1));
 }
 
 /// Check if running in development mode
@@ -67,6 +71,44 @@ fn get_core_engine_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     }
 }
 
+fn is_audio_input(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            ["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma"]
+                .contains(&ext.to_lowercase().as_str())
+        })
+        .unwrap_or(false)
+}
+
+fn get_audio_cache_path(video_path: &Path) -> Option<PathBuf> {
+    let parent = video_path.parent()?;
+    let stem = video_path.file_stem()?.to_str()?;
+    Some(parent.join(format!(".{}_audio.wav", stem)))
+}
+
+fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
+    let cache_meta = match std::fs::metadata(cache_path) {
+        Ok(meta) => meta,
+        Err(_) => return false,
+    };
+    let source_meta = match std::fs::metadata(source_path) {
+        Ok(meta) => meta,
+        Err(_) => return false,
+    };
+
+    let cache_mtime = match cache_meta.modified() {
+        Ok(time) => time,
+        Err(_) => return false,
+    };
+    let source_mtime = match source_meta.modified() {
+        Ok(time) => time,
+        Err(_) => return false,
+    };
+
+    cache_mtime >= source_mtime
+}
+
 /// Start transcription task using Tauri sidecar
 #[tauri::command]
 pub async fn start_transcription(
@@ -78,6 +120,12 @@ pub async fn start_transcription(
     let output_path = request.output_path.clone();
     let format = request.format.unwrap_or_else(|| "srt".to_string());
     let language = request.language.unwrap_or_else(|| "zh".to_string());
+    let requested_device = request.device.unwrap_or_else(|| "auto".to_string());
+    let requested_device = requested_device.trim().to_lowercase();
+    let device = match requested_device.as_str() {
+        "cpu" | "cuda" | "mps" | "auto" => requested_device,
+        _ => "auto".to_string(),
+    };
     let enable_diarization = request.enable_diarization.unwrap_or(false);
 
     tracing::info!(
@@ -86,6 +134,7 @@ pub async fn start_transcription(
         output_path = %output_path,
         format = %format,
         language = %language,
+        device = %device,
         enable_diarization = %enable_diarization,
         "Starting transcription task"
     );
@@ -111,8 +160,108 @@ pub async fn start_transcription(
             TranscribeProgress {
                 task_id: task_id.clone(),
                 progress: 0.0,
-                status: "Starting...".to_string(),
+                status: "Pending in queue...".to_string(),
                 step: None,
+                total_time: None,
+            },
+        );
+
+        let input_path = Path::new(&video_path);
+        let is_audio = is_audio_input(input_path);
+
+        let (final_audio_path, keep_audio_cache) = if !is_audio {
+            // Wait for audio extraction permit
+            let _permit = AUDIO_SEMAPHORE.acquire().await;
+
+            let _ = app.emit(
+                "transcribe_progress",
+                TranscribeProgress {
+                    task_id: task_id.clone(),
+                    progress: 0.0,
+                    status: "Extracting audio...".to_string(),
+                    step: Some(StepInfo {
+                        current_step: 1,
+                        total_steps: 4,
+                        step_name: "Extracting audio".to_string(),
+                        step_elapsed: 0.0,
+                        total_elapsed: 0.0,
+                    }),
+                    total_time: None,
+                },
+            );
+
+            let cache_path = get_audio_cache_path(input_path).unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("extracted_{}.wav", uuid::Uuid::new_v4()))
+            });
+            let keep_cache = cache_path
+                .parent()
+                .map(|parent| parent != std::env::temp_dir())
+                .unwrap_or(false);
+
+            if is_cache_fresh(&cache_path, input_path) {
+                let cache_path_str = cache_path.to_string_lossy().to_string();
+                tracing::info!(
+                    task_id = %task_id,
+                    cached_audio = %cache_path_str,
+                    "Using cached extracted audio"
+                );
+                (cache_path_str, keep_cache)
+            } else {
+                let audio_path_str = cache_path.to_string_lossy().to_string();
+                let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(&app));
+                let output = tokio::process::Command::new(&ffmpeg_path)
+                    .args(&[
+                        "-i",
+                        &video_path,
+                        "-vn",
+                        "-acodec",
+                        "pcm_s16le",
+                        "-ar",
+                        "16000",
+                        "-ac",
+                        "1",
+                        "-y",
+                        &audio_path_str,
+                    ])
+                    .output()
+                    .await;
+
+                match output {
+                    Ok(out) if out.status.success() => {
+                        tracing::info!(
+                            task_id = %task_id,
+                            cached_audio = %audio_path_str,
+                            "Audio extracted successfully"
+                        );
+                        (audio_path_str, keep_cache)
+                    }
+                    _ => {
+                        let _ = std::fs::remove_file(&cache_path);
+                        tracing::error!(task_id = %task_id, "Failed to extract audio natively, falling back to python extraction");
+                        (video_path.clone(), false)
+                    }
+                }
+            }
+        } else {
+            (video_path.clone(), false)
+        };
+
+        // Wait for transcription permit
+        let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
+
+        let _ = app.emit(
+            "transcribe_progress",
+            TranscribeProgress {
+                task_id: task_id.clone(),
+                progress: 0.0,
+                status: "Starting transcription...".to_string(),
+                step: Some(StepInfo {
+                    current_step: 2,
+                    total_steps: 4,
+                    step_name: "Loading model".to_string(),
+                    step_elapsed: 0.0,
+                    total_elapsed: 0.0,
+                }),
                 total_time: None,
             },
         );
@@ -126,10 +275,11 @@ pub async fn start_transcription(
             run_dev_mode(
                 &app,
                 &task_id,
-                &video_path,
+                &final_audio_path,
                 &output_path,
                 &format,
                 &language,
+                &device,
                 enable_diarization,
             )
             .await
@@ -137,14 +287,20 @@ pub async fn start_transcription(
             run_sidecar(
                 &app,
                 &task_id,
-                &video_path,
+                &final_audio_path,
                 &output_path,
                 &format,
                 &language,
+                &device,
                 enable_diarization,
             )
             .await
         };
+
+        // Cleanup temporary audio file if we created one (keep media-directory cache)
+        if final_audio_path != video_path && !keep_audio_cache {
+            let _ = std::fs::remove_file(&final_audio_path);
+        }
 
         if let Err(e) = result {
             tracing::error!(task_id = %task_id, error = %e, "Transcription failed");
@@ -181,6 +337,7 @@ async fn run_sidecar(
     output_path: &str,
     format: &str,
     language: &str,
+    device: &str,
     enable_diarization: bool,
 ) -> Result<(), String> {
     tracing::info!(task_id = %task_id, "Starting sidecar process");
@@ -211,6 +368,8 @@ async fn run_sidecar(
         format.to_string(),
         "--language".to_string(),
         language.to_string(),
+        "--device".to_string(),
+        device.to_string(),
     ];
 
     // 如果启用了说话人分离，添加参数
@@ -223,6 +382,7 @@ async fn run_sidecar(
         .args(&args)
         .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
         .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
+        .env("MONOSUB_ASR_DEVICE", device)
         .spawn()
         .map_err(|e| {
             tracing::error!(task_id = %task_id, error = %e, "Failed to spawn sidecar");
@@ -292,6 +452,7 @@ async fn run_dev_mode(
     output_path: &str,
     format: &str,
     language: &str,
+    device: &str,
     enable_diarization: bool,
 ) -> Result<(), String> {
     use tokio::io::{AsyncBufReadExt, BufReader};
@@ -323,13 +484,14 @@ async fn run_dev_mode(
     );
 
     let cmd_str = format!(
-        "{} {} {} {} --format {} --language {}",
+        "{} {} {} {} --format {} --language {} --device {}",
         venv_python.display(),
         main_py.display(),
         video_path,
         output_path,
         format,
-        language
+        language,
+        device
     );
 
     tracing::info!(task_id = %task_id, command = %cmd_str, "Executing Python command");
@@ -365,7 +527,9 @@ async fn run_dev_mode(
         .arg("--format")
         .arg(format)
         .arg("--language")
-        .arg(language);
+        .arg(language)
+        .arg("--device")
+        .arg(device);
 
     // 如果启用了说话人分离，添加参数
     if enable_diarization {
@@ -376,6 +540,7 @@ async fn run_dev_mode(
     let mut child = command
         .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
         .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
+        .env("MONOSUB_ASR_DEVICE", device)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -462,16 +627,15 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
         if parts.len() >= 2 {
             let step_parts: Vec<&str> = parts[0].split('/').collect();
             if step_parts.len() == 2 {
-                if let (Ok(current), Ok(total)) = (
-                    step_parts[0].parse::<u32>(),
-                    step_parts[1].parse::<u32>(),
-                ) {
+                if let (Ok(current), Ok(total)) =
+                    (step_parts[0].parse::<u32>(), step_parts[1].parse::<u32>())
+                {
                     let step_name = if parts.len() >= 2 {
                         parts[1].to_string()
                     } else {
                         "Processing".to_string()
                     };
-                    
+
                     let step_info = StepInfo {
                         current_step: current,
                         total_steps: total,
@@ -479,13 +643,13 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
                         step_elapsed: 0.0,
                         total_elapsed: 0.0,
                     };
-                    
+
                     CURRENT_STEP.with(|s| {
                         *s.borrow_mut() = Some(step_info.clone());
                     });
-                    
+
                     tracing::info!(task_id = %task_id, step = current, total = total, name = %step_name, "Step started");
-                    
+
                     let _ = app.emit(
                         "transcribe_progress",
                         TranscribeProgress {
@@ -505,7 +669,7 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
             CURRENT_STEP.with(|s| {
                 if let Some(ref mut step) = *s.borrow_mut() {
                     step.total_elapsed = elapsed;
-                    
+
                     let _ = app.emit(
                         "transcribe_progress",
                         TranscribeProgress {
@@ -542,9 +706,9 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
     } else if line.starts_with("MSG:") {
         let message = &line[4..];
         tracing::info!(task_id = %task_id, message = %message, "Transcription message");
-        
+
         let current_step = CURRENT_STEP.with(|s| s.borrow().clone());
-        
+
         let _ = app.emit(
             "transcribe_progress",
             TranscribeProgress {
@@ -558,9 +722,9 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
     } else if line.starts_with("SUCCESS:") {
         let output_file = &line[8..];
         tracing::info!(task_id = %task_id, output_file = %output_file, "Transcription completed");
-        
+
         let total_time = TOTAL_TIME.with(|t| *t.borrow());
-        
+
         let _ = app.emit(
             "transcribe_complete",
             TranscribeProgress {
@@ -571,7 +735,7 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
                 total_time,
             },
         );
-        
+
         // Clear thread-local state
         CURRENT_STEP.with(|s| *s.borrow_mut() = None);
         TOTAL_TIME.with(|t| *t.borrow_mut() = None);
@@ -589,7 +753,7 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
                 total_time: None,
             },
         );
-        
+
         // Clear thread-local state
         CURRENT_STEP.with(|s| *s.borrow_mut() = None);
         TOTAL_TIME.with(|t| *t.borrow_mut() = None);

@@ -104,6 +104,11 @@ class StepTracker:
 
 def main():
     """主函数"""
+    supported_devices = {"auto", "cpu", "cuda", "mps"}
+    default_device = os.environ.get("MONOSUB_ASR_DEVICE", "auto").strip().lower()
+    if default_device not in supported_devices:
+        default_device = "auto"
+
     parser = argparse.ArgumentParser(description="FunASR Voice to Subtitle")
     parser.add_argument("video_path", type=str, help="Input video file path")
     parser.add_argument("output_path", type=str, help="Output subtitle file path")
@@ -125,6 +130,13 @@ def main():
         "--diarization",
         action="store_true",
         help="Enable speaker diarization (multi-speaker recognition)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=default_device,
+        choices=["auto", "cpu", "cuda", "mps"],
+        help="Inference device (default: auto, can be overridden by MONOSUB_ASR_DEVICE)",
     )
 
     args = parser.parse_args()
@@ -158,7 +170,15 @@ def main():
 
         transcriber = FunASRTranscriber(
             model_name="sensevoice",  # 使用 SenseVoice 模型
-            device="auto",  # 自动检测最优设备 (MPS/CUDA/CPU)
+            device=args.device,
+        )
+        print(f"MSG:Using device: {transcriber.device}", flush=True)
+        print(
+            "MSG:Inference profile "
+            f"(batch_size_s={transcriber.batch_size_s}, "
+            f"max_single_segment_time_ms={transcriber.max_single_segment_time_ms}, "
+            f"merge_length_s={transcriber.merge_length_s})",
+            flush=True,
         )
 
         # 创建一个不发送 PROGRESS 的回调
@@ -184,6 +204,26 @@ def main():
             # 音频文件直通失败时，自动回退为标准 16k mono WAV 后重试
             if input_is_audio and audio_path == args.video_path:
                 print(f"DEBUG: Direct audio transcription failed: {direct_error}", flush=True)
+                input_path = Path(args.video_path)
+                temp_dir = Path(tempfile.gettempdir())
+                is_hidden_audio_cache_wav = (
+                    input_path.suffix.lower() == ".wav"
+                    and input_path.name.startswith(".")
+                    and input_path.name.endswith("_audio.wav")
+                )
+                is_rust_preextracted_wav = (
+                    input_path.suffix.lower() == ".wav"
+                    and input_path.parent == temp_dir
+                    and input_path.name.startswith("extracted_")
+                )
+                if is_rust_preextracted_wav or is_hidden_audio_cache_wav:
+                    # Rust 端已预提取为 16k mono WAV 时，避免再次昂贵转换
+                    print(
+                        "MSG:Pre-extracted WAV transcription failed, skipping reconversion",
+                        flush=True,
+                    )
+                    raise
+
                 print("MSG:Direct transcription failed, falling back to WAV conversion", flush=True)
 
                 fallback_audio_path = os.path.join(
@@ -193,6 +233,9 @@ def main():
                 audio_path = extractor.extract_audio(
                     args.video_path,
                     output_audio_path=fallback_audio_path,
+                    enable_preprocessing=False,
+                    normalize_volume=False,
+                    noise_reduction=False,
                     use_cache=False,
                 )
                 cleanup_paths.append(audio_path)

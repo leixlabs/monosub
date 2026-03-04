@@ -1,10 +1,13 @@
 {
   "identifier": "default",
   "description": "Default capabilities",
-  "windows": ["*"],
+  "windows": [
+    "*"
+  ],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "dialog:default"
+    "dialog:default",
+    "fs:default"
   ]
 }

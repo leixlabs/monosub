@@ -14,7 +14,8 @@
     "pending": "待處理",
     "processing": "處理中",
     "completed": "已完成",
-    "clear": "清空"
+    "clear": "清空",
+    "startAll": "全部開始"
   },
   "fileList": {
     "emptyTitle": "開始生成字幕",
@@ -33,7 +34,8 @@
     "cancel": "取消",
     "open": "開啟",
     "delete": "刪除",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "已跳過"
   },
   "bottomBar": {
     "saveLocation": "儲存位置",
@@ -65,8 +67,8 @@
       "noiseReductionDesc": "減少背景噪音干擾",
       "volumeNormalization": "音量標準化",
       "volumeNormalizationDesc": "統一音量水準",
-      "autoQueue": "自動處理佇列",
-      "autoQueueDesc": "完成後自動處理下一個"
+      "skipExisting": "跳過現有字幕",
+      "skipExistingDesc": "如果輸出檔案已存在同名字幕，則跳過處理"
     },
     "notifications": {
       "title": "通知設定",

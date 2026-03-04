@@ -11,7 +11,7 @@ import { FileList } from './components/FileList';
 import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
-import { startTranscriptionTask } from './lib/transcription';
+import { startTranscriptionTask, processQueueBatch } from './lib/transcription';
 import { addPathsToQueue } from './lib/fileImport';
 import { validateLicenseOnStartup } from './lib/license';
 
@@ -77,11 +77,11 @@ function App() {
     const progressUnlisten = listen<TranscribeProgressPayload>('transcribe_progress', (event) => {
       const { task_id, step } = event.payload;
       console.log('[transcribe_progress]', { task_id, step });
-      
+
       const updates: Partial<import('./store/useStore').VideoFile> = {
         status: 'processing',
       };
-      
+
       if (step) {
         updates.stepProgress = {
           currentStep: step.current_step,
@@ -91,7 +91,7 @@ function App() {
           totalElapsed: step.total_elapsed,
         };
       }
-      
+
       updateFile(task_id, updates);
     });
 
@@ -123,15 +123,8 @@ function App() {
         }
       }
 
-      // Auto process next file if enabled
-      if (settings.autoProcessQueue) {
-        const nextPending = files.find((f) => f.status === 'pending');
-        if (nextPending && !queueStartingRef.current) {
-          queueStartingRef.current = true;
-          void startTranscriptionTask(nextPending.id).finally(() => {
-            queueStartingRef.current = false;
-          });
-        }
+      if (useStore.getState().isBatchProcessing) {
+        processQueueBatch();
       }
     });
 
@@ -159,14 +152,8 @@ function App() {
         }
       }
 
-      if (settings.autoProcessQueue) {
-        const nextPending = files.find((f) => f.status === 'pending');
-        if (nextPending && !queueStartingRef.current) {
-          queueStartingRef.current = true;
-          void startTranscriptionTask(nextPending.id).finally(() => {
-            queueStartingRef.current = false;
-          });
-        }
+      if (useStore.getState().isBatchProcessing) {
+        processQueueBatch();
       }
     });
 
@@ -221,7 +208,7 @@ function App() {
 
   return (
     <ThemeProvider>
-      <div className="min-h-screen bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
+      <div className="h-screen overflow-hidden bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
         <Header />
         <Toolbar />
         <FileList />

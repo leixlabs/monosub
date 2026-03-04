@@ -14,7 +14,8 @@
     "pending": "Pending",
     "processing": "Processing",
     "completed": "Completed",
-    "clear": "Clear"
+    "clear": "Clear",
+    "startAll": "Start All"
   },
   "fileList": {
     "emptyTitle": "Generate Subtitles",
@@ -33,7 +34,8 @@
     "cancel": "Cancel",
     "open": "Open",
     "delete": "Delete",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Skipped"
   },
   "steps": {
     "extracting_audio": "Extracting audio",
@@ -77,8 +79,8 @@
       "noiseReductionDesc": "Reduce background noise",
       "volumeNormalization": "Volume Normalization",
       "volumeNormalizationDesc": "Standardize audio levels",
-      "autoQueue": "Auto Process Queue",
-      "autoQueueDesc": "Automatically process next file"
+      "skipExisting": "Skip Existing Subtitles",
+      "skipExistingDesc": "Skip processing if output file already exists"
     },
     "license": {
       "title": "License",

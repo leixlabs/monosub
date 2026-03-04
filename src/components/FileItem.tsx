@@ -16,31 +16,31 @@ export function FileItem({ file }: FileItemProps) {
   const removeFile = useStore((state) => state.removeFile);
   const isProcessing = useStore((state) => state.isProcessing);
   const settings = useStore((state) => state.settings);
-  
+
   // Live elapsed time counter
   const [liveElapsed, setLiveElapsed] = useState(0);
   const lastElapsedRef = useRef(0);
   const lastUpdateTimeRef = useRef(Date.now());
-  
+
   useEffect(() => {
     if (file.status !== 'processing' || !file.stepProgress) {
       return;
     }
-    
+
     // Update base time when we get new elapsed from backend
     lastElapsedRef.current = file.stepProgress.totalElapsed;
     lastUpdateTimeRef.current = Date.now();
     setLiveElapsed(file.stepProgress.totalElapsed);
-    
+
     // Start interval to update live counter
     const interval = setInterval(() => {
       const timeSinceUpdate = (Date.now() - lastUpdateTimeRef.current) / 1000;
       setLiveElapsed(lastElapsedRef.current + timeSinceUpdate);
     }, 100);
-    
+
     return () => clearInterval(interval);
   }, [file.status, file.stepProgress?.totalElapsed]);
-  
+
   const formatElapsedTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -78,6 +78,7 @@ export function FileItem({ file }: FileItemProps) {
   };
 
   const formatFileSize = (bytes: number) => {
+    if (bytes <= 0) return '--';
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
@@ -85,6 +86,7 @@ export function FileItem({ file }: FileItemProps) {
   };
 
   const formatDuration = (seconds: number) => {
+    if (seconds <= 0) return '--:--';
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
     const secs = Math.floor(seconds % 60);
@@ -140,11 +142,20 @@ export function FileItem({ file }: FileItemProps) {
               <CheckCircle2 className="w-3.5 h-3.5" />
               {t('fileItem.completed')}
             </span>
-            {file.totalTime && (
+            {file.totalTime !== undefined && (
               <span className="text-xs text-text-tertiary dark:text-gray-500">
                 {formatElapsedTime(file.totalTime)}
               </span>
             )}
+          </div>
+        );
+      case 'skipped':
+        return (
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-bg-secondary dark:bg-zinc-800 text-text-secondary dark:text-gray-400">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {t('fileItem.skipped')}
+            </span>
           </div>
         );
       case 'error':
@@ -230,7 +241,7 @@ export function FileItem({ file }: FileItemProps) {
             {t('fileItem.cancel')}
           </motion.button>
         )}
-        {file.status === 'completed' && (
+        {(file.status === 'completed' || file.status === 'skipped') && (
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={handleOpenInFinder}

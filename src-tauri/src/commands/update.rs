@@ -45,7 +45,10 @@ fn has_newer_version(current_version: &str, latest_version: &str) -> bool {
 #[tauri::command]
 pub async fn check_github_release_update() -> Result<GithubReleaseUpdateResult, String> {
     let current_version = env!("CARGO_PKG_VERSION").to_string();
-    let user_agent = format!("MonoSub/{} (+https://github.com/0xkamalei/monosub)", current_version);
+    let user_agent = format!(
+        "MonoSub/{} (+https://github.com/0xkamalei/monosub)",
+        current_version
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(12))

@@ -33,13 +33,10 @@ pub fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
         .with_line_number(true);
 
     // Create stdout layer (only for development/debug)
-    let stdout_layer = fmt::layer()
-        .with_target(false)
-        .with_thread_ids(false);
+    let stdout_layer = fmt::layer().with_target(false).with_thread_ids(false);
 
     // Configure filter: INFO level by default, can be overridden with RUST_LOG env var
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Initialize tracing subscriber
     tracing_subscriber::registry()
@@ -58,7 +55,10 @@ fn get_log_directory() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let log_dir = if cfg!(target_os = "macos") {
         // macOS: ~/Library/Logs/MonoSub
         let home = std::env::var("HOME")?;
-        PathBuf::from(home).join("Library").join("Logs").join("MonoSub")
+        PathBuf::from(home)
+            .join("Library")
+            .join("Logs")
+            .join("MonoSub")
     } else if cfg!(target_os = "windows") {
         // Windows: %APPDATA%/MonoSub/logs
         let appdata = std::env::var("APPDATA")?;
@@ -66,18 +66,27 @@ fn get_log_directory() -> Result<PathBuf, Box<dyn std::error::Error>> {
     } else {
         // Linux: ~/.local/share/MonoSub/logs
         let home = std::env::var("HOME")?;
-        PathBuf::from(home).join(".local").join("share").join("MonoSub").join("logs")
+        PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("MonoSub")
+            .join("logs")
     };
 
     Ok(log_dir)
 }
 
 /// Clean up old log files, keeping only the most recent N files
-fn cleanup_old_logs(log_dir: &PathBuf, keep_count: usize) -> Result<(), Box<dyn std::error::Error>> {
+fn cleanup_old_logs(
+    log_dir: &PathBuf,
+    keep_count: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut log_files: Vec<_> = std::fs::read_dir(log_dir)?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path().extension()
+            entry
+                .path()
+                .extension()
                 .and_then(|ext| ext.to_str())
                 .map(|ext| ext == "log")
                 .unwrap_or(false)
@@ -85,11 +94,7 @@ fn cleanup_old_logs(log_dir: &PathBuf, keep_count: usize) -> Result<(), Box<dyn 
         .collect();
 
     // Sort by modification time (newest first)
-    log_files.sort_by_key(|entry| {
-        entry.metadata()
-            .and_then(|m| m.modified())
-            .ok()
-    });
+    log_files.sort_by_key(|entry| entry.metadata().and_then(|m| m.modified()).ok());
     log_files.reverse();
 
     // Delete old files beyond keep_count
@@ -101,4 +106,3 @@ fn cleanup_old_logs(log_dir: &PathBuf, keep_count: usize) -> Result<(), Box<dyn 
 
     Ok(())
 }
-

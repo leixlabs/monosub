@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 use tauri::AppHandle;
 
 // Audio file extensions
@@ -93,7 +93,8 @@ fn resolve_binary_path(binary_name: &str, env_var: &str, app: Option<&AppHandle>
 
             // 2.1 尝试 app bundle 的 Resources/resources/bin
             if let Some(contents_dir) = exe_path.parent().and_then(|p| p.parent()) {
-                let resources_bin_dir = contents_dir.join("Resources").join("resources").join("bin");
+                let resources_bin_dir =
+                    contents_dir.join("Resources").join("resources").join("bin");
                 for candidate in &candidates {
                     let bundled_resource_binary = resources_bin_dir.join(candidate);
                     if bundled_resource_binary.exists() {
@@ -166,6 +167,37 @@ pub struct ThumbnailResult {
     pub thumbnail_base64: String,
 }
 
+fn get_thumbnail_cache_path(video_path: &Path) -> Option<std::path::PathBuf> {
+    let parent = video_path.parent()?;
+    let stem = video_path.file_stem()?.to_str()?;
+    let ext = video_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| !e.is_empty())
+        .unwrap_or("media");
+    Some(parent.join(format!(".{}_{}_thumb.jpg", stem, ext)))
+}
+
+fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
+    let cache_meta = match std::fs::metadata(cache_path) {
+        Ok(meta) => meta,
+        Err(_) => return false,
+    };
+    let source_meta = match std::fs::metadata(source_path) {
+        Ok(meta) => meta,
+        Err(_) => return false,
+    };
+    let cache_mtime = match cache_meta.modified() {
+        Ok(time) => time,
+        Err(_) => return false,
+    };
+    let source_mtime = match source_meta.modified() {
+        Ok(time) => time,
+        Err(_) => return false,
+    };
+    cache_mtime >= source_mtime
+}
+
 /// Check if file is an audio file based on extension
 fn is_audio_file(path: &Path) -> bool {
     path.extension()
@@ -189,11 +221,10 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMet
     tracing::debug!(path = %path, is_audio = is_audio, "Detected file type");
 
     // Get file size
-    let metadata = std::fs::metadata(&path)
-        .map_err(|e| {
-            tracing::error!(path = %path, error = %e, "Failed to get file metadata");
-            format!("Failed to get file metadata: {}", e)
-        })?;
+    let metadata = std::fs::metadata(&path).map_err(|e| {
+        tracing::error!(path = %path, error = %e, "Failed to get file metadata");
+        format!("Failed to get file metadata: {}", e)
+    })?;
     let size = metadata.len();
 
     // Get media duration using ffprobe
@@ -202,10 +233,14 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMet
 
     let output = Command::new(&ffprobe_cmd)
         .args(&[
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-show_entries", "stream=width,height",
-            "-of", "json",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
             &path,
         ])
         .output()
@@ -219,28 +254,25 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMet
         return Err("ffprobe command failed".to_string());
     }
 
-    let json_str = String::from_utf8(output.stdout)
-        .map_err(|e| {
-            tracing::error!(path = %path, error = %e, "Failed to parse ffprobe output");
-            format!("Failed to parse ffprobe output: {}", e)
-        })?;
+    let json_str = String::from_utf8(output.stdout).map_err(|e| {
+        tracing::error!(path = %path, error = %e, "Failed to parse ffprobe output");
+        format!("Failed to parse ffprobe output: {}", e)
+    })?;
 
     // Parse JSON manually for simplicity
-    let duration = extract_duration(&json_str)
-        .ok_or_else(|| {
-            tracing::error!(path = %path, "Failed to extract duration");
-            "Failed to extract duration".to_string()
-        })?;
+    let duration = extract_duration(&json_str).ok_or_else(|| {
+        tracing::error!(path = %path, "Failed to extract duration");
+        "Failed to extract duration".to_string()
+    })?;
 
     // For audio files, width and height will be None
     let (width, height) = if is_audio {
         (None, None)
     } else {
-        let (w, h) = extract_resolution(&json_str)
-            .ok_or_else(|| {
-                tracing::error!(path = %path, "Failed to extract resolution");
-                "Failed to extract resolution".to_string()
-            })?;
+        let (w, h) = extract_resolution(&json_str).ok_or_else(|| {
+            tracing::error!(path = %path, "Failed to extract resolution");
+            "Failed to extract resolution".to_string()
+        })?;
         (Some(w), Some(h))
     };
 
@@ -300,7 +332,7 @@ fn fallback_video_thumbnail() -> ThumbnailResult {
 /// Generate thumbnail for media file (video: frame extract, audio: default icon)
 #[tauri::command]
 pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<ThumbnailResult, String> {
-    tracing::info!(path = %path, "Generating thumbnail");
+    tracing::debug!(path = %path, "Loading thumbnail");
     let file_path = Path::new(&path);
 
     // For audio files, return a default audio icon
@@ -311,6 +343,25 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
         return Ok(ThumbnailResult {
             thumbnail_base64: format!("data:image/svg+xml;base64,{}", svg_base64),
         });
+    }
+
+    if let Some(cache_path) = get_thumbnail_cache_path(file_path) {
+        if is_cache_fresh(&cache_path, file_path) {
+            match std::fs::read(&cache_path) {
+                Ok(image_data) => {
+                    tracing::debug!(path = %path, cache_path = ?cache_path, "Using cached thumbnail");
+                    return Ok(ThumbnailResult {
+                        thumbnail_base64: format!(
+                            "data:image/jpeg;base64,{}",
+                            base64_encode(&image_data)
+                        ),
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(path = %path, cache_path = ?cache_path, error = %e, "Failed to read cached thumbnail, regenerating");
+                }
+            }
+        }
     }
 
     // For video files, generate thumbnail using ffmpeg
@@ -331,21 +382,32 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
     // Try with hardware acceleration first (needed for AV1 etc.), fall back to software decoding
     let thumbnail_out = thumbnail_path.to_str().unwrap();
     let args_hwaccel = vec![
-        "-hwaccel", "videotoolbox",
-        "-i", &path,
-        "-ss", "00:00:03",
-        "-frames:v", "1",
-        "-vf", "scale=240:-1",
-        "-update", "1",
+        "-hwaccel",
+        "videotoolbox",
+        "-i",
+        &path,
+        "-ss",
+        "00:00:03",
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=240:-1",
+        "-update",
+        "1",
         "-y",
         thumbnail_out,
     ];
     let args_software = vec![
-        "-i", &path,
-        "-ss", "00:00:03",
-        "-frames:v", "1",
-        "-vf", "scale=240:-1",
-        "-update", "1",
+        "-i",
+        &path,
+        "-ss",
+        "00:00:03",
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=240:-1",
+        "-update",
+        "1",
         "-y",
         thumbnail_out,
     ];
@@ -387,12 +449,20 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
 
     let base64_image = base64_encode(&image_data);
 
+    if let Some(cache_path) = get_thumbnail_cache_path(file_path) {
+        if let Err(e) = std::fs::write(&cache_path, &image_data) {
+            tracing::warn!(path = %path, cache_path = ?cache_path, error = %e, "Failed to persist thumbnail cache");
+        } else {
+            tracing::debug!(path = %path, cache_path = ?cache_path, "Thumbnail cache updated");
+        }
+    }
+
     // Clean up temp file
     if let Err(e) = std::fs::remove_file(&thumbnail_path) {
         tracing::warn!(thumbnail_path = ?thumbnail_path, error = %e, "Failed to remove temp thumbnail file");
     }
 
-    tracing::info!(path = %path, "Thumbnail generated successfully");
+    tracing::debug!(path = %path, "Thumbnail generated successfully");
 
     Ok(ThumbnailResult {
         thumbnail_base64: format!("data:image/jpeg;base64,{}", base64_image),
@@ -455,11 +525,88 @@ fn base64_encode(data: &[u8]) -> String {
 
         result.push(CHARSET[b1] as char);
         result.push(CHARSET[b2] as char);
-        result.push(if chunk.len() > 1 { CHARSET[b3] as char } else { '=' });
-        result.push(if chunk.len() > 2 { CHARSET[b4] as char } else { '=' });
+        result.push(if chunk.len() > 1 {
+            CHARSET[b3] as char
+        } else {
+            '='
+        });
+        result.push(if chunk.len() > 2 {
+            CHARSET[b4] as char
+        } else {
+            '='
+        });
     }
 
     result
+}
+
+/// Supported media extensions for directory scanning
+const MEDIA_EXTENSIONS: &[&str] = &[
+    "mp4", "mov", "avi", "mkv", "webm", "flv", "m4v", "mp3", "wav", "flac", "aac", "m4a", "ogg",
+    "wma",
+];
+
+/// Resolve a list of paths, recursively expanding directories into media file paths
+#[tauri::command]
+pub async fn resolve_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
+    let media_set: std::collections::HashSet<&str> = MEDIA_EXTENSIONS.iter().copied().collect();
+    let mut result = Vec::new();
+
+    for path_str in &paths {
+        let path = Path::new(path_str);
+        if path.is_dir() {
+            collect_media_files(path, &media_set, &mut result);
+        } else if is_media_file(path, &media_set) {
+            result.push(path_str.clone());
+        }
+    }
+
+    result.sort();
+    Ok(result)
+}
+
+fn is_media_file(path: &Path, media_set: &std::collections::HashSet<&str>) -> bool {
+    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+        if file_name.starts_with('.') {
+            return false;
+        }
+    }
+
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| media_set.contains(ext.to_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+fn collect_media_files(
+    dir: &Path,
+    media_set: &std::collections::HashSet<&str>,
+    result: &mut Vec<String>,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            tracing::warn!(dir = ?dir, error = %e, "Failed to read directory");
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // Skip hidden files and directories
+        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+            if file_name.starts_with('.') {
+                continue;
+            }
+        }
+
+        if path.is_dir() {
+            collect_media_files(&path, media_set, result);
+        } else if is_media_file(&path, media_set) {
+            result.push(path.to_string_lossy().to_string());
+        }
+    }
 }
 
 /// Open file in Finder (macOS) or File Explorer (Windows/Linux)
@@ -501,11 +648,10 @@ pub async fn open_in_finder(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        let parent_dir = file_path.parent()
-            .ok_or_else(|| {
-                tracing::error!(path = %path, "Failed to get parent directory");
-                "Failed to get parent directory".to_string()
-            })?;
+        let parent_dir = file_path.parent().ok_or_else(|| {
+            tracing::error!(path = %path, "Failed to get parent directory");
+            "Failed to get parent directory".to_string()
+        })?;
         Command::new("xdg-open")
             .arg(parent_dir)
             .spawn()

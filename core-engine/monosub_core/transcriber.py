@@ -6,6 +6,7 @@ FunASR 转录器
 """
 import re
 import platform
+import os
 from typing import List, Dict, Callable, Optional
 from funasr import AutoModel
 
@@ -65,6 +66,15 @@ class ProgressCallback:
 
 class FunASRTranscriber:
     """FunASR 转录器 - 支持多种模型配置和 Mac MPS 加速"""
+
+    DEFAULT_INFERENCE_PROFILES = {
+        # MPS 对超大矩阵更敏感，保守配置避免 Invalid buffer size
+        "mps": {"batch_size_s": 90, "max_single_segment_time_ms": 12000, "merge_length_s": 8},
+        # CUDA 通常可承受更高吞吐
+        "cuda": {"batch_size_s": 240, "max_single_segment_time_ms": 30000, "merge_length_s": 15},
+        # CPU 走稳态配置
+        "cpu": {"batch_size_s": 120, "max_single_segment_time_ms": 15000, "merge_length_s": 10},
+    }
 
     # 预定义模型配置
     MODEL_CONFIGS = {
@@ -126,11 +136,17 @@ class FunASRTranscriber:
         if device == "auto":
             self.device = get_optimal_device()
         else:
-            self.device = device
+            normalized_device = (device or "").strip().lower()
+            if normalized_device in {"cpu", "cuda", "mps"}:
+                self.device = normalized_device
+            else:
+                print(f"DEBUG: Unsupported device '{device}', fallback to cpu", flush=True)
+                self.device = "cpu"
 
         self.use_vad = use_vad
         self.use_punc = use_punc
         self.model = None
+        self._resolve_inference_profile()
 
         # 解析模型配置
         if model_name in self.MODEL_CONFIGS:
@@ -149,6 +165,48 @@ class FunASRTranscriber:
             self.model_type = "paraformer"
 
         print(f"DEBUG: Model config - model={self.model_name}, vad={self.vad_model_name}, punc={self.punc_model_name}, type={self.model_type}, device={self.device}", flush=True)
+        print(
+            "DEBUG: Inference profile - "
+            f"batch_size_s={self.batch_size_s}, "
+            f"max_single_segment_time_ms={self.max_single_segment_time_ms}, "
+            f"merge_length_s={self.merge_length_s}",
+            flush=True,
+        )
+
+    @staticmethod
+    def _read_positive_int_env(name: str, default: int) -> int:
+        raw_value = os.environ.get(name)
+        if not raw_value:
+            return default
+
+        try:
+            parsed = int(raw_value)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            pass
+
+        print(f"DEBUG: Invalid env {name}={raw_value}, using default={default}", flush=True)
+        return default
+
+    def _resolve_inference_profile(self):
+        base_profile = self.DEFAULT_INFERENCE_PROFILES.get(
+            self.device,
+            self.DEFAULT_INFERENCE_PROFILES["cpu"],
+        ).copy()
+
+        self.batch_size_s = self._read_positive_int_env(
+            "MONOSUB_BATCH_SIZE_S",
+            base_profile["batch_size_s"],
+        )
+        self.max_single_segment_time_ms = self._read_positive_int_env(
+            "MONOSUB_MAX_SINGLE_SEGMENT_TIME_MS",
+            base_profile["max_single_segment_time_ms"],
+        )
+        self.merge_length_s = self._read_positive_int_env(
+            "MONOSUB_MERGE_LENGTH_S",
+            base_profile["merge_length_s"],
+        )
 
     def load_model(self, progress_callback: ProgressCallback):
         """加载模型 - VAD和Punc在初始化时一起加载"""
@@ -164,7 +222,9 @@ class FunASRTranscriber:
             # 添加VAD模型 (传模型名称字符串，不是模型对象！)
             if self.vad_model_name:
                 model_kwargs["vad_model"] = self.vad_model_name
-                model_kwargs["vad_kwargs"] = {"max_single_segment_time": 30000}
+                model_kwargs["vad_kwargs"] = {
+                    "max_single_segment_time": self.max_single_segment_time_ms
+                }
 
             # 添加标点模型 (传模型名称字符串，不是模型对象！)
             if self.punc_model_name:
@@ -206,7 +266,7 @@ class FunASRTranscriber:
             # 构建generate参数
             generate_kwargs = {
                 "input": audio_path,
-                "batch_size_s": 300,
+                "batch_size_s": self.batch_size_s,
             }
 
             # SenseVoice 特有参数
@@ -214,7 +274,7 @@ class FunASRTranscriber:
                 generate_kwargs["language"] = "auto" if language == "auto" else language
                 generate_kwargs["use_itn"] = self.use_itn
                 generate_kwargs["merge_vad"] = True
-                generate_kwargs["merge_length_s"] = 15  # 合并VAD分段的最大长度
+                generate_kwargs["merge_length_s"] = self.merge_length_s
 
             print(f"DEBUG: Calling generate with kwargs: {generate_kwargs}", flush=True)
 
@@ -703,7 +763,7 @@ class FunASRTranscriber:
                 "model": "paraformer-zh",
                 "device": self.device,
                 "vad_model": "fsmn-vad",
-                "vad_kwargs": {"max_single_segment_time": 30000},
+                "vad_kwargs": {"max_single_segment_time": self.max_single_segment_time_ms},
                 "punc_model": "ct-punc",
                 "spk_model": "cam++",  # 启用说话人分离
             }
@@ -719,7 +779,7 @@ class FunASRTranscriber:
             # 执行转录
             result = spk_model.generate(
                 input=audio_path,
-                batch_size_s=300,
+                batch_size_s=self.batch_size_s,
             )
 
             print(f"DEBUG: Raw result with spk: {type(result)}", flush=True)

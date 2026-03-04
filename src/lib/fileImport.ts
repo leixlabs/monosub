@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { VideoFile } from '@/store/useStore';
+import { useStore, type VideoFile } from '@/store/useStore';
 
 export const MEDIA_EXTENSIONS = [
   'mp4',
@@ -40,27 +40,59 @@ const parseErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
-const createVideoFile = async (path: string, source: string): Promise<VideoFile | null> => {
-  try {
-    const metadata = await invoke<{ size: number; duration: number }>('get_video_metadata', { path });
-    const thumbnail = await invoke<{ thumbnail_base64?: string }>('generate_thumbnail', { path });
+const THUMBNAIL_PLACEHOLDER = `data:image/svg+xml;base64,${btoa(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#4FD1C5" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#60A5FA" stop-opacity="0.35"/>
+      </linearGradient>
+    </defs>
+    <rect width="320" height="180" rx="16" fill="#111827"/>
+    <rect x="1.5" y="1.5" width="317" height="177" rx="14.5" fill="url(#g)" stroke="#D1D5DB" stroke-opacity="0.25"/>
+    <circle cx="160" cy="90" r="30" fill="#111827" fill-opacity="0.55"/>
+    <polygon points="152,75 152,105 178,90" fill="#FFFFFF" fill-opacity="0.95"/>
+  </svg>`
+)}`;
 
-    return {
-      id: crypto.randomUUID(),
-      name: getFileName(path),
-      path,
-      size: metadata.size,
-      duration: metadata.duration,
-      thumbnail: thumbnail.thumbnail_base64,
-      status: 'pending',
-      progress: 0,
-    };
-  } catch (error) {
-    const errorMessage = parseErrorMessage(error);
-    console.error(`[${source}] Failed to process file:`, path, error);
-    alert(`Failed to add file: ${getFileName(path)}\n\nError: ${errorMessage}\n\nPlease make sure ffmpeg and ffprobe are installed on your system.`);
-    return null;
-  }
+const createQueuedFile = (path: string): VideoFile => ({
+  id: crypto.randomUUID(),
+  name: getFileName(path),
+  path,
+  size: 0,
+  duration: 0,
+  thumbnail: THUMBNAIL_PLACEHOLDER,
+  status: 'pending',
+  progress: 0,
+});
+
+const enrichQueuedFile = (file: VideoFile, source: string): void => {
+  const { id, path } = file;
+
+  // Fetch metadata after the row is already visible, so batch imports feel immediate.
+  void invoke<{ size: number; duration: number }>('get_video_metadata', { path })
+    .then((metadata) => {
+      useStore.getState().updateFile(id, {
+        size: metadata.size,
+        duration: metadata.duration,
+      });
+    })
+    .catch((error) => {
+      const errorMessage = parseErrorMessage(error);
+      console.warn(`[${source}] Failed to get metadata for ${path}: ${errorMessage}`);
+    });
+
+  // Replace placeholder with real thumbnail asynchronously.
+  void invoke<{ thumbnail_base64?: string }>('generate_thumbnail', { path })
+    .then((thumbnail) => {
+      if (thumbnail.thumbnail_base64) {
+        useStore.getState().updateFile(id, { thumbnail: thumbnail.thumbnail_base64 });
+      }
+    })
+    .catch((error) => {
+      const errorMessage = parseErrorMessage(error);
+      console.warn(`[${source}] Failed to generate thumbnail for ${path}: ${errorMessage}`);
+    });
 };
 
 export interface AddPathsToQueueParams {
@@ -83,18 +115,18 @@ export const addPathsToQueue = async ({
   source,
 }: AddPathsToQueueParams): Promise<AddPathsToQueueResult> => {
   const normalizedPaths = paths.filter((path): path is string => typeof path === 'string' && path.length > 0);
-  const supportedPaths = normalizedPaths.filter((path) => isSupportedMediaPath(path));
-  const skippedUnsupported = normalizedPaths.length - supportedPaths.length;
 
-  const processedFiles = await Promise.all(
-    supportedPaths.map((path) => createVideoFile(path, source))
-  );
-  const validFiles = processedFiles.filter((file): file is VideoFile => file !== null);
+  // Resolve directories recursively via Rust backend
+  const resolvedPaths: string[] = await invoke('resolve_paths', { paths: normalizedPaths });
+
+  const supportedPaths = resolvedPaths.filter((path) => isSupportedMediaPath(path));
+  const skippedUnsupported = resolvedPaths.length - supportedPaths.length;
+  const queuedFiles = supportedPaths.map((path) => createQueuedFile(path));
 
   const uniqueFiles: VideoFile[] = [];
   const existingPaths = new Set(existingFiles.map((file) => file.path));
 
-  for (const file of validFiles) {
+  for (const file of queuedFiles) {
     if (existingPaths.has(file.path)) {
       continue;
     }
@@ -104,11 +136,12 @@ export const addPathsToQueue = async ({
 
   if (uniqueFiles.length > 0) {
     addFiles(uniqueFiles);
+    uniqueFiles.forEach((file) => enrichQueuedFile(file, source));
   }
 
   return {
     added: uniqueFiles.length,
-    skippedDuplicates: validFiles.length - uniqueFiles.length,
+    skippedDuplicates: queuedFiles.length - uniqueFiles.length,
     skippedUnsupported,
   };
 };

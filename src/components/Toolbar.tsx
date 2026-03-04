@@ -1,9 +1,11 @@
-import { Plus, Trash2, Film } from 'lucide-react';
+import { Plus, Trash2, Film, StopCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
+import { processQueueBatch } from '@/lib/transcription';
 
 export function Toolbar() {
   const { t } = useTranslation();
@@ -11,6 +13,11 @@ export function Toolbar() {
   const addFiles = useStore((state) => state.addFiles);
   const clearFiles = useStore((state) => state.clearFiles);
   const isProcessing = useStore((state) => state.isProcessing);
+  const isBatchProcessing = useStore((state) => state.isBatchProcessing);
+  const setIsBatchProcessing = useStore((state) => state.setIsBatchProcessing);
+  const setIsProcessing = useStore((state) => state.setIsProcessing);
+  const setCurrentTaskId = useStore((state) => state.setCurrentTaskId);
+  const updateFile = useStore((state) => state.updateFile);
 
   const pendingCount = files.filter(f => f.status === 'pending').length;
   const processingCount = files.filter(f => f.status === 'processing').length;
@@ -47,8 +54,55 @@ export function Toolbar() {
     }
   };
 
+  const handleStartAll = async () => {
+    setIsBatchProcessing(true);
+    processQueueBatch();
+  };
+
+  const handleStopAll = async () => {
+    setIsBatchProcessing(false);
+
+    const processingFiles = files.filter((file) => file.status === 'processing');
+    if (processingFiles.length === 0) {
+      setIsProcessing(false);
+      setCurrentTaskId(null);
+      return;
+    }
+
+    await Promise.all(
+      processingFiles.map(async (file) => {
+        try {
+          await invoke('cancel_transcription', { taskId: file.id });
+          updateFile(file.id, {
+            status: 'pending',
+            progress: 0,
+            error: undefined,
+            stepProgress: undefined,
+            totalTime: undefined,
+          });
+        } catch (error) {
+          console.error(`[cancel_transcription] Failed for ${file.id}:`, error);
+        }
+      })
+    );
+
+    const stillProcessing = useStore.getState().files.some((file) => file.status === 'processing');
+    if (!stillProcessing) {
+      setIsProcessing(false);
+      setCurrentTaskId(null);
+    }
+  };
+
+  const handleBatchAction = async () => {
+    if (isBatchProcessing) {
+      await handleStopAll();
+      return;
+    }
+    await handleStartAll();
+  };
+
   return (
-    <div className="bg-bg-secondary dark:bg-zinc-950 h-[64px] px-6 flex items-center justify-between transition-colors">
+    <div className="bg-bg-secondary dark:bg-zinc-950 h-[64px] px-6 flex-shrink-0 sticky top-[52px] z-30 flex items-center justify-between transition-colors">
       <div className="flex items-center gap-4">
         <motion.button
           whileTap={{ scale: 0.97 }}
@@ -85,11 +139,31 @@ export function Toolbar() {
       </div>
 
       <div className="flex items-center gap-3">
-        {files.length > 0 && !isProcessing && (
+        {files.length > 0 && (pendingCount > 0 || isBatchProcessing) && (
+          <motion.button
+            whileTap={{ scale: 0.97 }}
+            onClick={() => void handleBatchAction()}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl transition-colors ${
+              isBatchProcessing
+                ? 'bg-danger/10 dark:bg-danger/20 text-danger hover:bg-danger/20 dark:hover:bg-danger/30'
+                : 'bg-primary/10 text-primary dark:bg-primary/20 hover:bg-primary hover:text-white'
+            }`}
+          >
+            {isBatchProcessing ? (
+              <StopCircle className="w-4 h-4" />
+            ) : (
+              <Film className="w-4 h-4" />
+            )}
+            {isBatchProcessing ? t('bottomBar.stop') : t('toolbar.startAll')}
+          </motion.button>
+        )}
+
+        {files.length > 0 && (
           <motion.button
             whileTap={{ scale: 0.97 }}
             onClick={clearFiles}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary dark:text-gray-400 hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/20 rounded-xl transition-colors"
+            disabled={isProcessing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary dark:text-gray-400 hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/20 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-4 h-4" />
             {t('toolbar.clear')}

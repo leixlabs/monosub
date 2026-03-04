@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-export type VideoStatus = 'pending' | 'processing' | 'completed' | 'error'
+export type VideoStatus = 'pending' | 'processing' | 'completed' | 'skipped' | 'error'
 export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt'
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
@@ -40,7 +40,7 @@ export interface AppSettings {
   // Processing settings
   enableNoiseReduction: boolean
   enableVolumeNormalization: boolean
-  autoProcessQueue: boolean
+  skipExistingSubtitle: boolean
 
   // UI settings
   showCompletedNotification: boolean
@@ -74,7 +74,7 @@ const defaultSettings: AppSettings = {
   bilingualTargetLang: 'en',
   enableNoiseReduction: true,
   enableVolumeNormalization: true,
-  autoProcessQueue: true,
+  skipExistingSubtitle: false,
   showCompletedNotification: true,
 }
 
@@ -124,6 +124,8 @@ interface AppState {
   // Global state
   isProcessing: boolean
   setIsProcessing: (isProcessing: boolean) => void
+  isBatchProcessing: boolean
+  setIsBatchProcessing: (isBatchProcessing: boolean) => void
   currentTaskId: string | null
   setCurrentTaskId: (id: string | null) => void
 
@@ -216,6 +218,8 @@ export const useStore = create<AppState>()(
       // Global state
       isProcessing: false,
       setIsProcessing: (isProcessing) => set({ isProcessing }),
+      isBatchProcessing: false,
+      setIsBatchProcessing: (isBatchProcessing) => set({ isBatchProcessing }),
       currentTaskId: null,
       setCurrentTaskId: (id) => set({ currentTaskId: id }),
 

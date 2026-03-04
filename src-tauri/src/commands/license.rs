@@ -162,7 +162,9 @@ fn validate_fixed_params(organization_id: &str, benefit_id: Option<&str>) -> Res
 }
 
 #[tauri::command]
-pub async fn activate_license(request: ActivateLicenseRequest) -> Result<ActivateLicenseResult, String> {
+pub async fn activate_license(
+    request: ActivateLicenseRequest,
+) -> Result<ActivateLicenseResult, String> {
     validate_fixed_params(&request.organization_id, Some(&request.benefit_id))?;
 
     let key = request.key.trim();
@@ -187,7 +189,8 @@ pub async fn activate_license(request: ActivateLicenseRequest) -> Result<Activat
         }
     });
 
-    let (status_code, body) = post_polar("/customer-portal/license-keys/activate", &payload).await?;
+    let (status_code, body) =
+        post_polar("/customer-portal/license-keys/activate", &payload).await?;
     if !(200..300).contains(&status_code) {
         let message = extract_error_message(
             &body,
@@ -204,7 +207,11 @@ pub async fn activate_license(request: ActivateLicenseRequest) -> Result<Activat
 
     let activation_id = extract_string(
         &body,
-        &[&["id"], &["activation_id"], &["license_key_activation", "id"]],
+        &[
+            &["id"],
+            &["activation_id"],
+            &["license_key_activation", "id"],
+        ],
     );
 
     if activation_id.is_none() {
@@ -227,7 +234,9 @@ pub async fn activate_license(request: ActivateLicenseRequest) -> Result<Activat
 }
 
 #[tauri::command]
-pub async fn validate_license(request: ValidateLicenseRequest) -> Result<ValidateLicenseResult, String> {
+pub async fn validate_license(
+    request: ValidateLicenseRequest,
+) -> Result<ValidateLicenseResult, String> {
     validate_fixed_params(&request.organization_id, Some(&request.benefit_id))?;
 
     let key = request.key.trim();
@@ -261,7 +270,8 @@ pub async fn validate_license(request: ValidateLicenseRequest) -> Result<Validat
         payload["activation_id"] = Value::String(activation_id);
     }
 
-    let (status_code, body) = post_polar("/customer-portal/license-keys/validate", &payload).await?;
+    let (status_code, body) =
+        post_polar("/customer-portal/license-keys/validate", &payload).await?;
     if !(200..300).contains(&status_code) {
         let activation_required = is_activation_required(status_code, &body);
         return Ok(ValidateLicenseResult {
@@ -299,7 +309,9 @@ pub async fn validate_license(request: ValidateLicenseRequest) -> Result<Validat
 }
 
 #[tauri::command]
-pub async fn deactivate_license(request: DeactivateLicenseRequest) -> Result<DeactivateLicenseResult, String> {
+pub async fn deactivate_license(
+    request: DeactivateLicenseRequest,
+) -> Result<DeactivateLicenseResult, String> {
     validate_fixed_params(&request.organization_id, None)?;
 
     let key = request.key.trim();
@@ -318,7 +330,8 @@ pub async fn deactivate_license(request: DeactivateLicenseRequest) -> Result<Dea
         "activation_id": activation_id,
     });
 
-    let (status_code, body) = post_polar("/customer-portal/license-keys/deactivate", &payload).await?;
+    let (status_code, body) =
+        post_polar("/customer-portal/license-keys/deactivate", &payload).await?;
     if !(200..300).contains(&status_code) {
         return Ok(DeactivateLicenseResult {
             deactivated: false,
