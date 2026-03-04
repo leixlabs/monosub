@@ -346,8 +346,8 @@ export function Settings() {
           </motion.button>
         </div>
 
-        <div className="flex flex-1 min-h-0">
-          <aside className="w-56 border-r border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/70 dark:bg-zinc-900/40 p-3">
+        <div className="flex flex-1 min-h-0 bg-bg-tertiary/85 dark:bg-zinc-900/60">
+          <aside className="w-56 border-r border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/95 dark:bg-zinc-900/80 p-3">
             <div className="space-y-1">
               {[
                 { id: 'general' as const, label: uiLanguageLabel, icon: Globe },
@@ -366,8 +366,8 @@ export function Settings() {
                     whileTap={{ scale: 0.98 }}
                     onClick={() => setActiveCategory(item.id)}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors ${isActive
-                      ? 'bg-white/90 dark:bg-zinc-800 text-text-primary dark:text-white shadow-glass-sm'
-                      : 'text-text-secondary dark:text-gray-400 hover:bg-white/60 dark:hover:bg-zinc-800/70 hover:text-text-primary dark:hover:text-white'
+                      ? 'bg-white/90 dark:bg-zinc-800/90 text-text-primary dark:text-white shadow-glass-sm'
+                      : 'text-text-secondary dark:text-gray-400 hover:bg-white/70 dark:hover:bg-zinc-800/70 hover:text-text-primary dark:hover:text-white'
                       }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -378,8 +378,8 @@ export function Settings() {
             </div>
           </aside>
 
-          <div className="flex-1 min-h-0 flex flex-col">
-            <div className="px-8 py-5 border-b border-glass-border-light dark:border-glass-border-dark">
+          <div className="flex-1 min-h-0 flex flex-col bg-bg-tertiary/90 dark:bg-zinc-900/60">
+            <div className="px-8 py-5 border-b border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/95 dark:bg-zinc-900/70">
               <h3 className="text-base font-bold text-text-primary dark:text-white">
                 {
                   {
@@ -395,7 +395,7 @@ export function Settings() {
               </h3>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6">
+            <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 bg-bg-secondary/60 dark:bg-zinc-900/50">
               {activeCategory === 'general' && (
                 <section className="space-y-6">
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
