@@ -34,7 +34,7 @@ core-engine/env/
 core-engine/.venv/
 *.egg-info/
 dist/
-build/
+!scripts/build/
 core-engine/dist/
 core-engine/build/
 core-engine/*.spec
