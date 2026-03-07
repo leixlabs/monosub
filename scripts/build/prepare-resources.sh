@@ -16,8 +16,18 @@ for arg in "$@"; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
+RESOURCES_DIR="$PROJECT_ROOT/src-tauri/resources"
 
 log_info "1. 解析并准备环境依赖... (模式: $BUILD_TYPE)"
+
+# Lite builds don't use python-venv; remove it to prevent Tauri from trying
+# to bundle it (it contains absolute symlinks that Tauri's bundler can't follow)
+if [ "$BUILD_TYPE" = "lite" ] && [ -d "$RESOURCES_DIR/python-venv" ]; then
+    log_info "Lite 模式: 清除 python-venv 目录 (避免 Tauri 打包绝对符号链接)"
+    rm -rf "$RESOURCES_DIR/python-venv"
+fi
+
 bash "$SCRIPT_DIR/prepare-python-env.sh" --type="$BUILD_TYPE"
 
 log_info "2. 检测 FFmpeg 二进制环境..."
