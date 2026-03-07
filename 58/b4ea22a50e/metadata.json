@@ -1,0 +1,40 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "58b4ea22a50e",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    ".gitignore",
+    "core-engine/pyproject.toml",
+    "package.json",
+    "scripts/build/build-macos-app.sh",
+    "scripts/build/bundle-ffmpeg.sh",
+    "scripts/build/generate-launcher.sh",
+    "scripts/build/launcher-template.sh",
+    "scripts/build/obfuscate.sh",
+    "scripts/build/prepare-engine.sh",
+    "scripts/build/prepare-ffmpeg.sh",
+    "scripts/build/prepare-python-env.sh",
+    "scripts/build/prepare-resources.sh",
+    "src-tauri/Cargo.lock",
+    "src-tauri/Cargo.toml",
+    "src-tauri/tauri.conf.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/58/b4ea22a50e/0/metadata.json",
+      "transcript": "/58/b4ea22a50e/0/full.jsonl",
+      "context": "",
+      "content_hash": "/58/b4ea22a50e/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  }
+}

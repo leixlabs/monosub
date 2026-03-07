@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "58b4ea22a50e",
+  "session_id": "611234d4-ca93-4085-b033-da082698fd2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-07T19:16:47.728821Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "scripts/build/prepare-ffmpeg.sh",
+    "src-tauri/Cargo.lock",
+    "src-tauri/tauri.conf.json",
+    "scripts/build/prepare-resources.sh",
+    "src-tauri/Cargo.toml",
+    "package.json",
+    "scripts/build/launcher-template.sh",
+    "scripts/build/prepare-engine.sh",
+    "scripts/build/prepare-python-env.sh",
+    "core-engine/pyproject.toml",
+    "scripts/build/bundle-ffmpeg.sh",
+    "scripts/build/generate-launcher.sh",
+    "scripts/build/obfuscate.sh",
+    ".gitignore",
+    "scripts/build/build-macos-app.sh"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5e3751c86b36",
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-07T19:16:47.635864Z",
+    "agent_lines": 0,
+    "human_added": 798,
+    "human_modified": 9,
+    "human_removed": 0,
+    "total_committed": 798,
+    "agent_percentage": 0
+  }
+}
