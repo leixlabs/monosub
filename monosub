@@ -1,9 +1,14 @@
 #!/bin/bash
 
 # MonoSub CLI Wrapper (Enhanced)
-# 封装自 /Users/lei/dev/personal/monosub
-
-PROJECT_DIR="/Users/lei/dev/projects/monosub"
+# 获取脚本所在目录，即便通过符号链接调用也行
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+    DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+PROJECT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
 CORE_ENGINE_DIR="$PROJECT_DIR/core-engine"
 
 # 检查 uv

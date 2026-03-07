@@ -12,7 +12,7 @@
     "build:dmg:full": "BUILD_TYPE=full ./scripts/build/build-macos-app.sh",
     "lint": "eslint .",
     "check": "tsc -b --noEmit",
-    "clean": "rm -rf dist/* target/*"
+    "clean": "rm -rf dist/* src-tauri/target/*"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
