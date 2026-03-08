@@ -1,11 +1,13 @@
 import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
 import { invoke } from '@tauri-apps/api/core';
 import { startTranscriptionTask } from '@/lib/transcription';
 import { useEffect, useState, useRef } from 'react';
+import { GlassCard } from '@/components/ui/glass-card';
+import { GlassButton } from '@/components/ui/glass-button';
+import { GlassBadge } from '@/components/ui/glass-badge';
 
 interface FileItemProps {
   file: VideoFile;
@@ -101,9 +103,9 @@ export function FileItem({ file }: FileItemProps) {
     switch (file.status) {
       case 'pending':
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-bg-secondary dark:bg-zinc-800 text-text-secondary dark:text-gray-400">
+          <GlassBadge variant="default" size="sm">
             {t('fileItem.pending')}
-          </span>
+          </GlassBadge>
         );
       case 'processing':
         return (
@@ -118,9 +120,9 @@ export function FileItem({ file }: FileItemProps) {
                   </span>
                 </div>
                 {/* Step name */}
-                <span className="text-xs font-medium text-primary dark:text-primary">
+                <GlassBadge variant="primary" size="sm">
                   {t(`steps.${file.stepProgress.stepName.toLowerCase().replace(/\s+/g, '_')}`, file.stepProgress.stepName)}
-                </span>
+                </GlassBadge>
                 {/* Elapsed time */}
                 <div className="flex items-center gap-1 text-xs text-text-tertiary dark:text-gray-500">
                   <Clock className="w-3 h-3" />
@@ -130,7 +132,7 @@ export function FileItem({ file }: FileItemProps) {
             ) : (
               <div className="flex items-center gap-2">
                 <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
-                <span className="text-xs font-medium text-primary dark:text-primary">{t('fileItem.starting')}</span>
+                <GlassBadge variant="primary" size="sm">{t('fileItem.starting')}</GlassBadge>
               </div>
             )}
           </div>
@@ -138,10 +140,10 @@ export function FileItem({ file }: FileItemProps) {
       case 'completed':
         return (
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-success/10 dark:bg-success/20 text-success">
-              <CheckCircle2 className="w-3.5 h-3.5" />
+            <GlassBadge variant="success" size="sm">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               {t('fileItem.completed')}
-            </span>
+            </GlassBadge>
             {file.totalTime !== undefined && (
               <span className="text-xs text-text-tertiary dark:text-gray-500">
                 {formatElapsedTime(file.totalTime)}
@@ -152,21 +154,23 @@ export function FileItem({ file }: FileItemProps) {
       case 'skipped':
         return (
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-bg-secondary dark:bg-zinc-800 text-text-secondary dark:text-gray-400">
-              <CheckCircle2 className="w-3.5 h-3.5" />
+            <GlassBadge variant="default" size="sm">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               {t('fileItem.skipped')}
-            </span>
+            </GlassBadge>
           </div>
         );
       case 'error':
         return (
-          <span
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-danger/10 dark:bg-danger/20 text-danger cursor-default"
+          <GlassBadge
+            variant="destructive"
+            size="sm"
             title={file.error || t('fileItem.error')}
+            className="cursor-default"
           >
-            <AlertCircle className="w-3.5 h-3.5" />
+            <AlertCircle className="w-3.5 h-3.5 mr-1" />
             {t('fileItem.error')}
-          </span>
+          </GlassBadge>
         );
       default:
         return null;
@@ -174,13 +178,10 @@ export function FileItem({ file }: FileItemProps) {
   };
 
   return (
-    <motion.div
-      whileHover={{ y: -4 }}
-      transition={{ duration: 0.2 }}
-      className={`
-        glass-medium dark:glass-dark-strong rounded-2xl p-4 flex gap-4 animate-fade-in
-        ${file.status === 'processing' ? 'shadow-float-hover' : 'shadow-float hover:shadow-float-hover'}
-      `}
+    <GlassCard
+      glowEffect={file.status === 'processing'}
+      className={`p-4 flex gap-4 animate-fade-in ${file.status === 'processing' ? '' : 'hover:-translate-y-1 transition-transform duration-200'
+        }`}
     >
       {/* Thumbnail */}
       <div className="w-[140px] h-[80px] rounded-lg bg-bg-secondary dark:bg-zinc-800 flex-shrink-0 overflow-hidden relative group">
@@ -221,45 +222,49 @@ export function FileItem({ file }: FileItemProps) {
       {/* Actions */}
       <div className="flex flex-col justify-center gap-2 w-[100px]">
         {file.status === 'pending' && (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleStart}
+          <GlassButton
+            variant="primary"
+            size="sm"
+            onClick={() => void handleStart()}
             disabled={isProcessing}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full"
           >
             <Play className="w-4 h-4" />
             {t('fileItem.start')}
-          </motion.button>
+          </GlassButton>
         )}
         {file.status === 'processing' && (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleCancel}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 border border-red-200 dark:border-red-800 text-red-500 dark:text-red-400 text-sm font-medium rounded-xl hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          <GlassButton
+            variant="destructive"
+            size="sm"
+            onClick={() => void handleCancel()}
+            className="w-full"
           >
             <Square className="w-4 h-4" />
             {t('fileItem.cancel')}
-          </motion.button>
+          </GlassButton>
         )}
         {(file.status === 'completed' || file.status === 'skipped') && (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleOpenInFinder}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-success/10 dark:bg-success/20 text-success text-sm font-medium rounded-xl hover:bg-success/20 dark:hover:bg-success/30 transition-colors"
+          <GlassButton
+            variant="default"
+            size="sm"
+            onClick={() => void handleOpenInFinder()}
+            className="w-full text-success border-success/30 hover:bg-success/20"
           >
             <FolderOpen className="w-4 h-4" />
             {t('fileItem.open')}
-          </motion.button>
+          </GlassButton>
         )}
-        <motion.button
-          whileTap={{ scale: 0.97 }}
+        <GlassButton
+          variant="ghost"
+          size="sm"
           onClick={handleDelete}
-          className="flex items-center justify-center gap-1.5 px-4 py-2 text-text-tertiary dark:text-gray-500 text-sm rounded-xl hover:bg-danger/10 dark:hover:bg-danger/20 hover:text-danger transition-colors"
+          className="w-full text-text-tertiary dark:text-gray-500 hover:text-danger"
         >
           <Trash2 className="w-4 h-4" />
           {t('fileItem.delete')}
-        </motion.button>
+        </GlassButton>
       </div>
-    </motion.div>
+    </GlassCard>
   );
 }

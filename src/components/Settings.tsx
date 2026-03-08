@@ -18,7 +18,7 @@ import {
   Info,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
 import { supportedLanguages } from '@/i18n';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
@@ -32,6 +32,10 @@ import {
   openLicenseCheckout,
   SETTINGS_OPEN_CATEGORY_STORAGE_KEY,
 } from '@/lib/license';
+import { GlassButton } from '@/components/ui/glass-button';
+import { GlassBadge } from '@/components/ui/glass-badge';
+import { GlassInput } from '@/components/ui/glass-input';
+import { GlassSwitch } from '@/components/ui/glass-switch';
 
 type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'environment' | 'notifications' | 'about';
 
@@ -337,13 +341,14 @@ export function Settings() {
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-glass-border-light dark:border-glass-border-dark">
           <h2 className="text-lg font-bold text-text-primary dark:text-white">{t('settings.title')}</h2>
-          <motion.button
-            whileTap={{ scale: 0.95 }}
+          <GlassButton
+            variant="ghost"
+            size="icon"
             onClick={() => setIsOpen(false)}
-            className="p-1.5 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors"
+            className="h-8 w-8"
           >
             <X className="w-5 h-5 text-text-primary dark:text-gray-300" />
-          </motion.button>
+          </GlassButton>
         </div>
 
         <div className="flex flex-1 min-h-0 bg-bg-tertiary/85 dark:bg-zinc-900/60">
@@ -361,18 +366,19 @@ export function Settings() {
                 const Icon = item.icon;
                 const isActive = activeCategory === item.id;
                 return (
-                  <motion.button
+                  <GlassButton
                     key={item.id}
-                    whileTap={{ scale: 0.98 }}
+                    variant={isActive ? 'default' : 'ghost'}
+                    size="sm"
                     onClick={() => setActiveCategory(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-left text-sm transition-colors ${isActive
-                      ? 'bg-white/90 dark:bg-zinc-800/90 text-text-primary dark:text-white shadow-glass-sm'
-                      : 'text-text-secondary dark:text-gray-400 hover:bg-white/70 dark:hover:bg-zinc-800/70 hover:text-text-primary dark:hover:text-white'
+                    className={`w-full justify-start gap-2.5 px-3 h-9 ${isActive
+                        ? 'text-text-primary dark:text-white'
+                        : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
                       }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="font-medium truncate">{item.label}</span>
-                  </motion.button>
+                  </GlassButton>
                 );
               })}
             </div>
@@ -424,17 +430,15 @@ export function Settings() {
                       </label>
                       <div className="flex gap-1 bg-bg-secondary dark:bg-zinc-800 rounded-lg p-1">
                         {formatOptions.map((opt) => (
-                          <motion.button
+                          <GlassButton
                             key={opt.value}
-                            whileTap={{ scale: 0.97 }}
+                            variant={settings.outputFormat === opt.value ? 'default' : 'ghost'}
+                            size="sm"
                             onClick={() => updateSettings({ outputFormat: opt.value })}
-                            className={`px-4 py-1.5 text-sm rounded-md transition-all ${settings.outputFormat === opt.value
-                              ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-glass-sm'
-                              : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
-                              }`}
+                            className="px-4 h-7 text-sm"
                           >
                             {opt.label}
-                          </motion.button>
+                          </GlassButton>
                         ))}
                       </div>
                     </div>
@@ -457,18 +461,15 @@ export function Settings() {
                           <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
                             {t('settings.output.bilingual')}
                           </label>
-                          <span className="px-2 py-0.5 text-[10px] font-bold text-accent bg-accent/10 dark:bg-accent/20 rounded-full border border-accent/20">
+                          <GlassBadge variant="primary" size="sm">
                             Coming Soon
-                          </span>
+                          </GlassBadge>
                         </div>
                         <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
                           {t('settings.output.bilingualDesc')}
                         </p>
                       </div>
-                      <label className="relative inline-flex items-center cursor-not-allowed">
-                        <input type="checkbox" checked={false} disabled={true} className="sr-only peer" />
-                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                      </label>
+                      <GlassSwitch checked={false} disabled={true} />
                     </div>
                   </div>
                 </section>
@@ -486,15 +487,10 @@ export function Settings() {
                           {t('settings.processing.noiseReductionDesc')}
                         </p>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={settings.enableNoiseReduction}
-                          onChange={(e) => updateSettings({ enableNoiseReduction: e.target.checked })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                      </label>
+                      <GlassSwitch
+                        checked={settings.enableNoiseReduction}
+                        onCheckedChange={(checked) => updateSettings({ enableNoiseReduction: checked })}
+                      />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -506,15 +502,10 @@ export function Settings() {
                           {t('settings.processing.volumeNormalizationDesc')}
                         </p>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={settings.enableVolumeNormalization}
-                          onChange={(e) => updateSettings({ enableVolumeNormalization: e.target.checked })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                      </label>
+                      <GlassSwitch
+                        checked={settings.enableVolumeNormalization}
+                        onCheckedChange={(checked) => updateSettings({ enableVolumeNormalization: checked })}
+                      />
                     </div>
 
                     <div className="flex items-center justify-between">
@@ -526,18 +517,11 @@ export function Settings() {
                           {t('settings.processing.skipExistingDesc')}
                         </p>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={settings.skipExistingSubtitle}
-                          onChange={(e) => updateSettings({ skipExistingSubtitle: e.target.checked })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                      </label>
+                      <GlassSwitch
+                        checked={settings.skipExistingSubtitle}
+                        onCheckedChange={(checked) => updateSettings({ skipExistingSubtitle: checked })}
+                      />
                     </div>
-
-
                   </div>
                 </section>
               )}
@@ -549,21 +533,21 @@ export function Settings() {
                       <label className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
                         {t('settings.license.licenseKey')}
                       </label>
-                      <input
+                      <GlassInput
                         type="password"
                         value={licenseConfig.licenseKey}
                         onChange={(e) => setLicenseKey(e.target.value)}
-                        className="px-3 py-2 text-sm bg-bg-secondary dark:bg-zinc-800 border border-border dark:border-zinc-700 rounded-xl text-text-primary dark:text-white focus:outline-none focus:ring-2 focus:ring-primary/20 shadow-sm font-medium"
                         placeholder="pol_xxx..."
+                        className="text-text-primary dark:text-white"
                       />
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <motion.button
-                        whileTap={{ scale: 0.97 }}
-                        onClick={handleValidateLicense}
+                      <GlassButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => void handleValidateLicense()}
                         disabled={isValidatingLicense}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
                       >
                         {isValidatingLicense ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
@@ -571,23 +555,23 @@ export function Settings() {
                           <RefreshCw className="w-4 h-4" />
                         )}
                         {isValidatingLicense ? t('settings.license.validating') : t('settings.license.validate')}
-                      </motion.button>
+                      </GlassButton>
 
-                      <motion.button
-                        whileTap={{ scale: 0.97 }}
-                        onClick={handleOpenCheckout}
-                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-text-primary dark:text-white border border-border dark:border-zinc-700 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors"
+                      <GlassButton
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleOpenCheckout()}
                       >
                         <ExternalLink className="w-4 h-4" />
                         {t('settings.license.openCheckout')}
-                      </motion.button>
+                      </GlassButton>
 
                       {hasActivationId && (
-                        <motion.button
-                          whileTap={{ scale: 0.97 }}
-                          onClick={handleDeactivateLicense}
+                        <GlassButton
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleDeactivateLicense()}
                           disabled={isDeactivatingLicense}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-text-primary dark:text-white border border-border dark:border-zinc-700 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
                         >
                           {isDeactivatingLicense ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -595,20 +579,21 @@ export function Settings() {
                             <Unplug className="w-4 h-4" />
                           )}
                           {t('settings.license.deactivate')}
-                        </motion.button>
+                        </GlassButton>
                       )}
 
-                      <motion.button
-                        whileTap={{ scale: 0.97 }}
+                      <GlassButton
+                        variant="ghost"
+                        size="sm"
                         onClick={() => {
                           setLicenseKey('');
                           setLicenseActivationId('');
                           clearLicenseValidation();
                         }}
-                        className="inline-flex items-center gap-2 px-3 py-2 text-xs font-semibold text-text-secondary dark:text-gray-400 hover:text-danger hover:bg-danger/10 rounded-xl transition-colors"
+                        className="text-text-secondary dark:text-gray-400 hover:text-danger"
                       >
                         {t('settings.license.clearKey')}
-                      </motion.button>
+                      </GlassButton>
                     </div>
 
                     <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50">
@@ -660,20 +645,21 @@ export function Settings() {
                       </div>
 
                       <div className="flex gap-2">
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={checkEnv}
+                        <GlassButton
+                          variant="default"
+                          size="icon"
+                          onClick={() => void checkEnv()}
                           disabled={envStatus === 'checking' || isRepairing}
-                          className="p-2 rounded-xl bg-white dark:bg-zinc-700 text-text-primary dark:text-white border border-border dark:border-zinc-600 hover:bg-bg-secondary dark:hover:bg-zinc-600 disabled:opacity-50 transition-colors shadow-sm"
                           title={t('settings.environment.check')}
+                          className="h-8 w-8"
                         >
                           <RefreshCw className={`w-4 h-4 ${envStatus === 'checking' ? 'animate-spin' : ''}`} />
-                        </motion.button>
-                        <motion.button
-                          whileTap={{ scale: 0.95 }}
-                          onClick={repairEnv}
+                        </GlassButton>
+                        <GlassButton
+                          variant="primary"
+                          size="sm"
+                          onClick={() => void repairEnv()}
                           disabled={isRepairing}
-                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
                         >
                           {isRepairing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -681,7 +667,7 @@ export function Settings() {
                             <RefreshCw className="w-3.5 h-3.5" />
                           )}
                           {t('settings.environment.repair')}
-                        </motion.button>
+                        </GlassButton>
                       </div>
                     </div>
 
@@ -723,15 +709,10 @@ export function Settings() {
                           {t('settings.notifications.showCompletedDesc')}
                         </p>
                       </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={settings.showCompletedNotification}
-                          onChange={(e) => updateSettings({ showCompletedNotification: e.target.checked })}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-bg-secondary dark:bg-zinc-800 rounded-full peer peer-checked:bg-primary transition-colors after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full after:shadow-sm" />
-                      </label>
+                      <GlassSwitch
+                        checked={settings.showCompletedNotification}
+                        onCheckedChange={(checked) => updateSettings({ showCompletedNotification: checked })}
+                      />
                     </div>
                   </div>
                 </section>
@@ -751,11 +732,11 @@ export function Settings() {
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <motion.button
-                          whileTap={{ scale: 0.97 }}
-                          onClick={handleCheckUpdate}
+                        <GlassButton
+                          variant="primary"
+                          size="sm"
+                          onClick={() => void handleCheckUpdate()}
                           disabled={isCheckingUpdate}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors shadow-glass-sm"
                         >
                           {isCheckingUpdate ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
@@ -763,16 +744,16 @@ export function Settings() {
                             <RefreshCw className="w-4 h-4" />
                           )}
                           {isCheckingUpdate ? t('settings.about.checkingUpdate') : t('settings.about.checkUpdate')}
-                        </motion.button>
+                        </GlassButton>
 
-                        <motion.button
-                          whileTap={{ scale: 0.97 }}
-                          onClick={handleOpenReleasePage}
-                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-text-primary dark:text-white border border-border dark:border-zinc-700 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors"
+                        <GlassButton
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleOpenReleasePage()}
                         >
                           <ExternalLink className="w-4 h-4" />
                           {t('settings.about.openReleasePage')}
-                        </motion.button>
+                        </GlassButton>
                       </div>
                     </div>
 
@@ -797,7 +778,16 @@ export function Settings() {
                             {t('settings.about.publishedAt')}: {updatePublishedDisplay}
                           </p>
                         )}
-
+                        {updateResult.hasUpdate && (
+                          <GlassButton
+                            variant="primary"
+                            size="sm"
+                            onClick={() => void handleOpenReleasePage()}
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            {t('settings.about.openReleasePage')}
+                          </GlassButton>
+                        )}
                       </div>
                     )}
 
@@ -814,21 +804,22 @@ export function Settings() {
         </div>
 
         <div className="flex items-center justify-between px-6 py-4 border-t border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary dark:bg-zinc-900/50">
-          <motion.button
-            whileTap={{ scale: 0.97 }}
+          <GlassButton
+            variant="ghost"
+            size="sm"
             onClick={resetSettings}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-text-primary dark:text-gray-200 hover:text-primary dark:hover:text-primary transition-colors"
+            className="text-text-primary dark:text-gray-200 hover:text-primary dark:hover:text-primary"
           >
             <RotateCcw className="w-4 h-4" />
             {t('settings.resetDefaults')}
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.97 }}
+          </GlassButton>
+          <GlassButton
+            variant="primary"
+            size="sm"
             onClick={() => setIsOpen(false)}
-            className="px-5 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover transition-colors shadow-glass-sm"
           >
             {t('settings.done')}
-          </motion.button>
+          </GlassButton>
         </div>
       </motion.div>
     </div>

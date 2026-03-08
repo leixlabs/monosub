@@ -1,8 +1,8 @@
 import { Settings as SettingsIcon, Subtitles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { ThemeToggle } from './ThemeToggle';
+import { GlassButton } from '@/components/ui/glass-button';
 
 export function Header() {
   const { t } = useTranslation();
@@ -51,14 +51,15 @@ export function Header() {
           </div>
         )}
         <ThemeToggle />
-        <motion.button
-          whileTap={{ scale: 0.97 }}
+        <GlassButton
+          variant="ghost"
+          size="icon"
           onClick={() => setIsSettingsOpen(true)}
-          className="p-2 rounded-xl hover:bg-bg-secondary dark:hover:bg-zinc-800 transition-colors group no-drag"
           title={t('header.settings')}
+          className="no-drag text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white"
         >
-          <SettingsIcon className="w-5 h-5 text-text-secondary dark:text-gray-400 group-hover:text-text-primary dark:group-hover:text-white transition-colors" />
-        </motion.button>
+          <SettingsIcon className="w-5 h-5" />
+        </GlassButton>
       </div>
     </header>
   );

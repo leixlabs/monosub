@@ -1,6 +1,5 @@
 import { Folder, FolderOpen, HardDrive, Users, Loader2, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useState } from 'react';
@@ -10,6 +9,8 @@ import {
   openLicenseSettings,
   promptLicenseFailureAction,
 } from '@/lib/license';
+import { GlassButton } from '@/components/ui/glass-button';
+import { GlassSwitch } from '@/components/ui/glass-switch';
 
 export function BottomBar() {
   const { t } = useTranslation();
@@ -113,31 +114,34 @@ export function BottomBar() {
         <HardDrive className="w-4 h-4 text-text-tertiary dark:text-gray-500" />
         <span className="text-xs text-text-tertiary dark:text-gray-500 mr-2">{t('bottomBar.saveLocation')}</span>
 
-        <div className="flex bg-bg-secondary dark:bg-zinc-800 rounded-lg p-0.5">
-          <motion.button
-            whileTap={{ scale: 0.97 }}
+        {/* 存储模式分段控件 - muted 变体支持亮暗双模式 */}
+        <div className="flex bg-bg-tertiary dark:bg-zinc-800 rounded-lg p-0.5">
+          <GlassButton
+            variant="muted"
+            size="sm"
             onClick={() => setStorageMode('same')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-all ${storageMode === 'same'
-                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple'
-                : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
+            className={`h-7 px-2.5 text-xs ${storageMode === 'same'
+                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple hover:scale-100'
+                : ''
               }`}
           >
             <Folder className="w-3.5 h-3.5" />
             {t('bottomBar.sameDirectory')}
-          </motion.button>
-          <motion.button
-            whileTap={{ scale: 0.97 }}
-            onClick={handleSelectCustomPath}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-all ${storageMode === 'custom'
-                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple'
-                : 'text-text-secondary dark:text-gray-400 hover:text-text-primary dark:hover:text-white'
+          </GlassButton>
+          <GlassButton
+            variant="muted"
+            size="sm"
+            onClick={() => void handleSelectCustomPath()}
+            className={`h-7 px-2.5 text-xs ${storageMode === 'custom'
+                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple hover:scale-100'
+                : ''
               }`}
           >
             <FolderOpen className="w-3.5 h-3.5" />
             {storageMode === 'custom' && customStoragePath
               ? truncatePath(customStoragePath)
               : t('bottomBar.selectDirectory')}
-          </motion.button>
+          </GlassButton>
         </div>
 
         <span className="mx-3 w-px h-4 bg-divider dark:bg-zinc-700" />
@@ -158,34 +162,30 @@ export function BottomBar() {
           <span className="text-xs text-text-tertiary dark:text-gray-500">
             {t('bottomBar.multiSpeaker')}
           </span>
-          <button
-            onClick={() => void handleToggleSpeakerDiarization()}
-            disabled={isProcessing || isCheckingLicense}
-            className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-              enableSpeakerDiarization
-                ? 'bg-primary'
-                : 'bg-bg-tertiary dark:bg-zinc-700'
-            }`}
-            title={t('bottomBar.multiSpeakerHint')}
-          >
+          <div className="relative flex items-center">
             {isCheckingLicense && (
-              <Loader2 className="absolute inset-0 m-auto w-3 h-3 text-white animate-spin" />
+              <Loader2 className="absolute inset-0 m-auto w-3 h-3 text-white animate-spin z-10 pointer-events-none" />
             )}
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-                enableSpeakerDiarization ? 'translate-x-5' : ''
-              }`}
+            {/* GlassSwitch 在亮色下也有足够对比 - 背景已固定 */}
+            <GlassSwitch
+              checked={enableSpeakerDiarization}
+              onCheckedChange={() => void handleToggleSpeakerDiarization()}
+              disabled={isProcessing || isCheckingLicense}
+              title={t('bottomBar.multiSpeakerHint')}
+              className="border border-divider dark:border-transparent"
             />
-          </button>
+          </div>
           {licenseStatus !== 'valid' && (
-            <button
+            <GlassButton
+              variant="ghost"
+              size="sm"
               onClick={() => void openLicenseCheckout()}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning/15 text-warning hover:bg-warning/20 transition-colors"
               title={t('bottomBar.proRequired')}
+              className="h-5 px-2 text-[10px] font-semibold text-warning hover:text-warning bg-warning/10 hover:bg-warning/20 hover:scale-100 rounded-full"
             >
               PRO
               <ExternalLink className="w-2.5 h-2.5" />
-            </button>
+            </GlassButton>
           )}
         </div>
 

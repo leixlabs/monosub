@@ -93,6 +93,7 @@ export function FileList() {
             </div>
           </div>
 
+
           <p className="text-sm text-text-tertiary dark:text-gray-500">
             {t('fileList.addVideos')}
           </p>

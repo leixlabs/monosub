@@ -1,11 +1,12 @@
 import { Plus, Trash2, Film, StopCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion } from 'framer-motion';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
 import { processQueueBatch } from '@/lib/transcription';
+import { GlassButton } from '@/components/ui/glass-button';
+import { GlassBadge } from '@/components/ui/glass-badge';
 
 export function Toolbar() {
   const { t } = useTranslation();
@@ -104,14 +105,15 @@ export function Toolbar() {
   return (
     <div className="bg-bg-secondary dark:bg-zinc-950 h-[64px] px-6 flex-shrink-0 sticky top-[52px] z-30 flex items-center justify-between transition-colors">
       <div className="flex items-center gap-4">
-        <motion.button
-          whileTap={{ scale: 0.97 }}
-          onClick={handleAddFiles}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors shadow-glass-md"
+        <GlassButton
+          variant="primary"
+          size="sm"
+          onClick={() => void handleAddFiles()}
+          className="shadow-glass-md"
         >
           <Plus className="w-4 h-4" />
           {t('toolbar.addFiles')}
-        </motion.button>
+        </GlassButton>
 
         {files.length > 0 && (
           <div className="flex items-center gap-3 pl-4 border-l border-divider dark:border-zinc-700">
@@ -120,19 +122,19 @@ export function Toolbar() {
               <span>{t('toolbar.filesCount', { count: files.length })}</span>
             </div>
             {pendingCount > 0 && (
-              <span className="px-2 py-0.5 bg-bg-secondary dark:bg-zinc-800 text-text-secondary dark:text-gray-400 text-xs rounded-full">
+              <GlassBadge variant="default" size="sm">
                 {pendingCount} {t('toolbar.pending')}
-              </span>
+              </GlassBadge>
             )}
             {processingCount > 0 && (
-              <span className="px-2 py-0.5 bg-primary/10 dark:bg-primary/20 text-primary text-xs rounded-full animate-pulse-soft">
+              <GlassBadge variant="primary" size="sm" className="animate-pulse-soft">
                 {processingCount} {t('toolbar.processing')}
-              </span>
+              </GlassBadge>
             )}
             {completedCount > 0 && (
-              <span className="px-2 py-0.5 bg-success/10 dark:bg-success/20 text-success text-xs rounded-full">
+              <GlassBadge variant="success" size="sm">
                 {completedCount} {t('toolbar.completed')}
-              </span>
+              </GlassBadge>
             )}
           </div>
         )}
@@ -140,14 +142,10 @@ export function Toolbar() {
 
       <div className="flex items-center gap-3">
         {files.length > 0 && (pendingCount > 0 || isBatchProcessing) && (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
+          <GlassButton
+            variant={isBatchProcessing ? 'destructive' : 'default'}
+            size="sm"
             onClick={() => void handleBatchAction()}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl transition-colors ${
-              isBatchProcessing
-                ? 'bg-danger/10 dark:bg-danger/20 text-danger hover:bg-danger/20 dark:hover:bg-danger/30'
-                : 'bg-primary/10 text-primary dark:bg-primary/20 hover:bg-primary hover:text-white'
-            }`}
           >
             {isBatchProcessing ? (
               <StopCircle className="w-4 h-4" />
@@ -155,19 +153,20 @@ export function Toolbar() {
               <Film className="w-4 h-4" />
             )}
             {isBatchProcessing ? t('bottomBar.stop') : t('toolbar.startAll')}
-          </motion.button>
+          </GlassButton>
         )}
 
         {files.length > 0 && (
-          <motion.button
-            whileTap={{ scale: 0.97 }}
+          <GlassButton
+            variant="ghost"
+            size="sm"
             onClick={clearFiles}
             disabled={isProcessing}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary dark:text-gray-400 hover:text-danger hover:bg-danger/10 dark:hover:bg-danger/20 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="text-text-secondary dark:text-gray-400 hover:text-danger"
           >
             <Trash2 className="w-4 h-4" />
             {t('toolbar.clear')}
-          </motion.button>
+          </GlassButton>
         )}
       </div>
     </div>
