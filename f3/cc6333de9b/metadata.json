@@ -3,7 +3,7 @@
   "checkpoint_id": "f3cc6333de9b",
   "strategy": "manual-commit",
   "branch": "main",
-  "checkpoints_count": 0,
+  "checkpoints_count": 13,
   "files_touched": [
     "bun.lock",
     "core-engine/main.py",
@@ -33,13 +33,20 @@
       "context": "",
       "content_hash": "/f3/cc6333de9b/0/content_hash.txt",
       "prompt": ""
+    },
+    {
+      "metadata": "/f3/cc6333de9b/1/metadata.json",
+      "transcript": "/f3/cc6333de9b/1/full.jsonl",
+      "context": "/f3/cc6333de9b/1/context.md",
+      "content_hash": "/f3/cc6333de9b/1/content_hash.txt",
+      "prompt": "/f3/cc6333de9b/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 0,
-    "cache_creation_tokens": 0,
-    "cache_read_tokens": 0,
-    "output_tokens": 0,
-    "api_call_count": 0
+    "input_tokens": 2748,
+    "cache_creation_tokens": 338255,
+    "cache_read_tokens": 14499000,
+    "output_tokens": 66801,
+    "api_call_count": 146
   }
 }

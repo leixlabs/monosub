@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "f3cc6333de9b",
+  "session_id": "7c6359ed-6295-4f49-8dd3-383f25ab826e",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-08T11:59:27.752561Z",
+  "branch": "main",
+  "checkpoints_count": 13,
+  "files_touched": [
+    "bun.lock",
+    "core-engine/main.py",
+    "core-engine/pyproject.toml",
+    "package.json",
+    "src-tauri/Cargo.lock",
+    "src-tauri/Cargo.toml",
+    "src-tauri/capabilities/default.json",
+    "src-tauri/gen/schemas/acl-manifests.json",
+    "src-tauri/gen/schemas/capabilities.json",
+    "src-tauri/gen/schemas/desktop-schema.json",
+    "src-tauri/gen/schemas/macOS-schema.json",
+    "src-tauri/src/commands/license.rs",
+    "src-tauri/src/main.rs",
+    "src-tauri/tauri.conf.json",
+    "src/App.tsx",
+    "src/assets/app-icon.png",
+    "src/components/FileList.tsx",
+    "src/components/Header.tsx",
+    "src/components/Settings.tsx",
+    "src/lib/license.ts"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "54ed0a9f2afc",
+  "token_usage": {
+    "input_tokens": 2748,
+    "cache_creation_tokens": 338255,
+    "cache_read_tokens": 14499000,
+    "output_tokens": 66801,
+    "api_call_count": 146
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-08T11:59:27.239549Z",
+    "agent_lines": 680,
+    "human_added": 404,
+    "human_modified": 21,
+    "human_removed": 0,
+    "total_committed": 1100,
+    "agent_percentage": 61.81818181818181
+  }
+}
