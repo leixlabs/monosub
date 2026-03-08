@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "f3cc6333de9b",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "bun.lock",
+    "core-engine/main.py",
+    "core-engine/pyproject.toml",
+    "package.json",
+    "src-tauri/Cargo.lock",
+    "src-tauri/Cargo.toml",
+    "src-tauri/capabilities/default.json",
+    "src-tauri/gen/schemas/acl-manifests.json",
+    "src-tauri/gen/schemas/capabilities.json",
+    "src-tauri/gen/schemas/desktop-schema.json",
+    "src-tauri/gen/schemas/macOS-schema.json",
+    "src-tauri/src/commands/license.rs",
+    "src-tauri/src/main.rs",
+    "src-tauri/tauri.conf.json",
+    "src/App.tsx",
+    "src/assets/app-icon.png",
+    "src/components/FileList.tsx",
+    "src/components/Header.tsx",
+    "src/components/Settings.tsx",
+    "src/lib/license.ts"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f3/cc6333de9b/0/metadata.json",
+      "transcript": "/f3/cc6333de9b/0/full.jsonl",
+      "context": "",
+      "content_hash": "/f3/cc6333de9b/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  }
+}
