@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "08796a603c38",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "core-engine/main.py",
+    "core-engine/pyproject.toml",
+    "package.json",
+    "scripts/release/release.sh",
+    "src-tauri/Cargo.lock",
+    "src-tauri/Cargo.toml",
+    "src-tauri/src/commands/license.rs",
+    "src-tauri/tauri.conf.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/08/796a603c38/0/metadata.json",
+      "transcript": "/08/796a603c38/0/full.jsonl",
+      "context": "",
+      "content_hash": "/08/796a603c38/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  }
+}
