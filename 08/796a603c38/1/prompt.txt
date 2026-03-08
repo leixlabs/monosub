@@ -1,0 +1,366 @@
+fix those feedback 
+
+## Page Feedback: /
+**Viewport:** 1200×800
+### 1. <App> <FileList> paragraph: "Add video files and AI will automaticall..."
+**Location:** .h-screen > .flex-1 > .text-center > .text-sm
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/FileList.tsx:85:11
+**React:** <App> <FileList>
+**Feedback:** 这段是英文的情况下 也不能换行
+### 2. <App> <Header> rounded gradient
+**Location:** .h-screen > .bg-bg-secondary > .drag-region > .w-8
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/Header.tsx:40:9
+**React:** <App> <Header>
+**Feedback:** 把这个图标也是用 系统的 icon
+### 3. <App> <Settings> <motion.div> button "Open Checkout"
+**Location:** .space-y-4 > .p-4 > .flex > .relative
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/ui/glass-button.tsx:118:7
+**React:** <App> <Settings> <motion.div>
+**Feedback:** 把这个放在底下，把 clear key 换上来
+
+---
+
+第一个问题，英文的情况下 还是换行的
+
+---
+
+[Image: original 2400x1600, displayed at 2000x1333. Multiply coordinates by 1.20 to map to original image.]
+
+---
+
+## Page Feedback: /
+**Viewport:** 1200×800
+### 1. <App> <Header> image "MonoSub"
+**Location:** .h-screen > .bg-bg-secondary > .drag-region > .w-8
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/Header.tsx:41:9
+**React:** <App> <Header>
+**Feedback:** 在作为图标的时候 背景色能不能有一些透明度 或者去掉它吧；
+现在蓝色底很突兀
+
+---
+
+Subtitles 图标是怎么来的？
+
+---
+
+用户可以通过 sudo ln -s "/Applications/MonoSub.app/Contents/MacOS/monosub-engine" /usr/local/bin/monosub 来使用 monosub engine 但是这个脚本没有检测 pro功能的 license，我希望把这个漏洞加上，Python 脚本可以不要发送 validate license 请求，只需要检查是否校验通过过就行，
+
+---
+
+但是 状态文件如何没有任何加密 不也很容易被破解吗
+
+---
+
+## Page Feedback: /
+**Viewport:** 1200×800
+### 1. <App> <Settings> <motion.div> flex items
+**Location:** .flex-1 > .space-y-4 > .p-4 > .flex
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/Settings.tsx:500:21
+**React:** <App> <Settings> <motion.div>
+**Feedback:** 把这个配置去掉吧，普通用户无法理解这种配置，永远按照最佳实践开启就行
+### 2. <App> <Settings> <motion.div> flex items
+**Location:** .flex-1 > .space-y-4 > .p-4 > .flex
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/Settings.tsx:515:21
+**React:** <App> <Settings> <motion.div>
+**Feedback:** 把这个配置去掉吧，普通用户无法理解这种配置，永远按照最佳实践开启就行
+
+---
+
+## Page Feedback: /
+**Viewport:** 1200×800
+### 1. <App> <Settings> <motion.div> rounded 2xl
+**Location:** .flex-1 > .flex-1 > .space-y-4 > .p-4
+**Source:** /Users/lei/dev/projects/2601-monosub/src/components/Settings.tsx:692:19
+**React:** <App> <Settings> <motion.div>
+**Feedback:** 这个配置虽然有 但是并没有实现，我从没有收到过系统通知
+
+---
+
+为什么一次发起这么多调用 ？
+7:31:53 PM [vite] (client) ✨ optimized dependencies changed. reloading
+2026-03-08T11:31:53.631812Z  INFO Calling Polar API endpoint=https://polar.leix.dev/v1/customer-portal/license-keys/validate
+2026-03-08T11:31:53.633508Z  INFO Calling Polar API endpoint=https://polar.leix.dev/v1/customer-portal/license-keys/validate
+2026-03-08T11:31:53.659733Z  INFO Calling Polar API endpoint=https://polar.leix.dev/v1/customer-portal/license-keys/validate
+2026-03-08T11:31:53.659850Z  INFO Calling Polar API endpoint=https://polar.leix.dev/v1/customer-portal/license-keys/validate
+2026-03-08T11:31:54.016652Z  INFO Calling Polar API endpoint=https://polar.leix.dev/v1/customer-portal/license-keys/validate
+2026-03-08T11:31:54.020305Z  INFO Calling Polar API endpoint=https://polar.leix.dev/v1/customer-portal/license-keys/validate
+
+---
+
+This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+
+Analysis:
+Let me chronologically analyze the conversation to create a comprehensive summary.
+
+1. Initial feedback fixes requested:
+   - FileList.tsx: Text not wrapping in English ("不能换行")
+   - Header.tsx: Replace gradient icon with system icon
+   - Settings.tsx: Move "Open Checkout" button to bottom, bring "Clear Key" up
+
+2. Follow-up on fix #1 (text wrapping):
+   - User said text "还是换行的" (still wrapping awkwardly)
+   - The issue was orphaned "subtitles" word on second line
+   - Fixed with text-balance CSS class
+
+3. Header icon feedback:
+   - After using PNG app icon, the blue background was jarring
+   - User asked for transparent background or removal
+   - Solution: reverted to lucide Subtitles icon (no background)
+
+4. User asked "Subtitles 图标是怎么来的" - answered it's from lucide-react
+
+5. License CLI bypass fix:
+   - Users could bypass license via `sudo ln -s` symlink to CLI
+   - Solution: write license state file to ~/.monosub/license_state.json when validated
+   - Python checks this file before running --diarization
+   - Added HMAC-SHA256 signing for tamper detection
+
+6. Settings.tsx feedback:
+   - Remove volumeNormalization and skipExisting settings (too technical for users)
+   - Keep defaults as-is (volumeNormalization=true, skipExisting=false)
+
+7. Notifications not working:
+   - Settings had notification toggle but browser Notification API doesn't work in Tauri
+   - Implemented tauri-plugin-notification properly
+
+8. Multiple license validation API calls:
+   - 6 calls being made at once due to concurrent invocations
+   - Added Promise-based locks to prevent concurrent calls
+
+Let me trace all file changes carefully:
+
+**FileList.tsx**: Added `text-balance` to paragraph (initially added `break-words whitespace-normal`, then changed to `text-balance`)
+
+**Header.tsx**: 
+- Initially replaced gradient div+Subtitles icon with PNG app icon
+- Then reverted to Subtitles lucide icon without background
+
+**Settings.tsx**:
+- Reordered license buttons: Validate | Clear Key | Deactivate (conditional)
+- Moved Open Checkout to bottom (after status card)
+- Removed volumeNormalization and skipExisting settings from Processing section
+
+**src-tauri/src/commands/license.rs**:
+- Added hmac/sha2 imports
+- Added LICENSE_HMAC_KEY constant
+- Added license_state_path(), hmac_hex(), write_license_state(), clear_license_state()
+- write_license_state takes valid, expires_at, activation_id params
+- Called in validate_license after determining validity
+- clear_license_state called in deactivate_license on success
+
+**core-engine/main.py**:
+- Added _LICENSE_HMAC_KEY constant
+- Added _hmac_hex() function
+- Added _is_pro_licensed() function (reads and verifies state file)
+- Added license check in main() after args parsed, before processing
+
+**src-tauri/Cargo.toml**:
+- Added hmac = "0.12"
+- Added sha2 = "0.10"
+- Added tauri-plugin-notification = "2"
+
+**src-tauri/src/main.rs**:
+- Added .plugin(tauri_plugin_notification::init())
+
+**src-tauri/capabilities/default.json**:
+- Added "notification:default" permission
+
+**src/App.tsx**:
+- Added import from @tauri-apps/plugin-notification
+- Replaced browser Notification API with sendNotification() calls
+
+**src/lib/license.ts**:
+- Added _validatePromise lock around validatePolarLicense
+- Extracted implementation to _doValidatePolarLicense
+- Added _startupValidationPromise lock around validateLicenseOnStartup
+
+**src/assets/app-icon.png** - created (copy of 32x32.png), though ultimately not used in Header
+
+The most recent work was fixing concurrent license validation calls in license.ts with Promise locks.
+
+Summary:
+1. Primary Request and Intent:
+   The user submitted a series of page feedback items and follow-up requests across multiple rounds:
+   - **Round 1 (3 feedbacks)**: Fix English text not wrapping in FileList empty state; replace gradient icon in Header with system icon; reorder buttons in Settings license section (Open Checkout → bottom, Clear Key → second position)
+   - **Round 2**: Text still wrapping awkwardly (orphaned "subtitles" word on its own line)
+   - **Round 3**: App icon PNG has jarring blue background — make transparent or remove it
+   - **Round 4 (question)**: Asked where the Subtitles lucide icon came from
+   - **Round 5**: Add license check to Python CLI to prevent bypass via symlink (`sudo ln -s`); no network request needed, just check if previously validated
+   - **Round 6**: State file has no encryption — easy to bypass by editing JSON
+   - **Round 7 (2 feedbacks)**: Remove volumeNormalization and skipExisting settings from Processing (too technical; always apply best practice defaults)
+   - **Round 8**: Notifications setting exists but never worked — fix it
+   - **Round 9**: Why are 6 license validation API calls made at once?
+
+2. Key Technical Concepts:
+   - **Tauri 2.0** desktop app with React/TypeScript frontend and Rust backend
+   - **lucide-react** icon library (Subtitles, Settings, Film, etc.)
+   - **Tailwind CSS** `text-balance` for balanced multi-line text
+   - **tauri-plugin-notification** for native macOS system notifications (replacing broken `window.Notification` browser API)
+   - **HMAC-SHA256** signing of license state files using `hmac`/`sha2` Rust crates and Python's built-in `hmac`/`hashlib`
+   - **Polar license API** validation via Tauri Rust commands
+   - **Promise-based mutex/deduplication** to prevent concurrent async calls
+   - **Zustand** store for app state with localStorage persistence
+   - **PyArmor** code obfuscation for Python engine (mentioned as protection for HMAC key)
+   - **FunASR/SenseVoice** Python AI engine for speech recognition
+   - **stdout protocol** for Python↔Rust IPC: `MSG:`, `PROGRESS:`, `STEP:`, `SUCCESS:`, `ERROR:`
+
+3. Files and Code Sections:
+
+   - **`src/components/FileList.tsx`** (line 66)
+     - Changed paragraph class from `break-words whitespace-normal` to `text-balance` to prevent orphaned last word
+     - Final: `className="text-sm text-text-secondary dark:text-gray-400 mb-6 leading-relaxed text-balance"`
+
+   - **`src/components/Header.tsx`**
+     - Initially replaced gradient div + Subtitles icon with `<img src={appIcon}>` (PNG)
+     - Then reverted to lucide `Subtitles` icon with no background (PNG's blue background was too jarring)
+     - Final: `<Subtitles className="w-5 h-5 text-primary" />`
+
+   - **`src/components/Settings.tsx`**
+     - **License buttons reordered**: Validate → Clear Key → Deactivate (conditional); Open Checkout moved AFTER the status card div
+     - **Processing section**: Removed `volumeNormalization` and `skipExisting` toggle rows entirely (defaults remain in store: `true` and `false` respectively)
+
+   - **`src-tauri/src/commands/license.rs`**
+     - Added imports: `use hmac::{Hmac, Mac};`, `use sha2::Sha256;`
+     - Added constant: `const LICENSE_HMAC_KEY: &[u8] = b"ms_lic_v1_7f3a9c2e5b8d4f1a6e0c3b9d2f5a8e1c";`
+     - Added helpers: `license_state_path()`, `hmac_hex(payload)`, `write_license_state(valid, expires_at, activation_id)`, `clear_license_state()`
+     - `write_license_state` computes HMAC over `"valid|validated_at|expires_at|activation_id"` and stores it as `"sig"` field
+     - Called `write_license_state(valid, expires_at.as_deref(), request.activation_id.as_deref())` in `validate_license` after determining validity
+     - Called `clear_license_state()` in `deactivate_license` on success
+     - Also fixed duplicate `expires_at` extraction (reused variable instead of calling `extract_string` twice)
+
+   - **`core-engine/main.py`**
+     - Added `_LICENSE_HMAC_KEY = b"ms_lic_v1_7f3a9c2e5b8d4f1a6e0c3b9d2f5a8e1c"`
+     - Added `_hmac_hex(payload: str) -> str` using `hmac.new(..., hashlib.sha256).hexdigest()`
+     - Added `_is_pro_licensed() -> bool`: reads `~/.monosub/license_state.json`, checks `valid == True`, reconstructs HMAC payload and uses `hmac.compare_digest()` for timing-safe comparison
+     - In `main()` after `args = parser.parse_args()`:
+       ```python
+       if args.diarization and not _is_pro_licensed():
+           print("ERROR:Multi-speaker recognition requires a valid MonoSub Pro license...", flush=True)
+           sys.exit(1)
+       ```
+
+   - **`src-tauri/Cargo.toml`**
+     - Added: `hmac = "0.12"`, `sha2 = "0.10"`, `tauri-plugin-notification = "2"`
+
+   - **`src-tauri/src/main.rs`**
+     - Added: `.plugin(tauri_plugin_notification::init())`
+
+   - **`src-tauri/capabilities/default.json`**
+     - Added: `"notification:default"` to permissions array
+
+   - **`src/App.tsx`**
+     - Added import: `import { isPermissionGranted, requestPermission, sendNotification } from '@tauri-apps/plugin-notification';`
+     - Replaced both `window.Notification` / `new Notification()` usages with `sendNotification({ title, body })` wrapped in async IIFE that checks/requests permission first
+     - Error notification block reuses `isPermissionGranted()` check (no re-request)
+
+   - **`src/lib/license.ts`**
+     - Added module-level `_validatePromise` lock to deduplicate concurrent `validatePolarLicense` calls:
+       ```typescript
+       let _validatePromise: Promise<ValidateLicenseResponse> | null = null;
+       export const validatePolarLicense = async () => {
+         if (_validatePromise) return _validatePromise;
+         _validatePromise = _doValidatePolarLicense().finally(() => { _validatePromise = null; });
+         return _validatePromise;
+       };
+       const _doValidatePolarLicense = async () => { /* original body */ };
+       ```
+     - Added module-level `_startupValidationPromise` lock on `validateLicenseOnStartup`:
+       ```typescript
+       let _startupValidationPromise: Promise<void> | null = null;
+       export const validateLicenseOnStartup = async () => {
+         if (!safeTrim(licenseConfig?.licenseKey)) return;
+         if (_startupValidationPromise) return _startupValidationPromise;
+         _startupValidationPromise = ensureMultiSpeakerLicense({...}).then(() => undefined).finally(() => { _startupValidationPromise = null; });
+         await _startupValidationPromise;
+       };
+       ```
+
+   - **`src/assets/app-icon.png`** — created (copy of `src-tauri/icons/32x32.png`), used temporarily in Header then abandoned when PNG background proved too jarring
+
+4. Errors and Fixes:
+   - **Edit tool "File has not been read yet" error**: When trying to edit `main.rs` without reading it first. Fixed by reading a few lines of the file before editing.
+   - **Duplicate `expires_at` extraction in `validate_license`**: After refactoring to extract `expires_at` into a variable for `write_license_state`, the original `Ok(ValidateLicenseResult { expires_at: extract_string(...) })` was still calling `extract_string` again. Fixed by using the already-extracted `expires_at` variable in the result struct.
+   - **Text wrapping fix was wrong initially**: Added `break-words whitespace-normal` which didn't fix the orphaned word problem. User confirmed it was still a wrapping issue. Replaced with `text-balance` which distributes text evenly across lines.
+   - **PNG icon background**: Used `src-tauri/icons/32x32.png` for the header icon as requested, but the built-in blue background was jarring. User wanted it removed/transparent. Since background is baked into PNG, reverted to lucide `Subtitles` icon without any background container.
+
+5. Problem Solving:
+   - **License CLI bypass**: Users could symlink the Python CLI and use `--diarization` without license. Solved with a state file at `~/.monosub/license_state.json` written by Rust after validation, checked by Python. HMAC-SHA256 signing prevents trivial file tampering.
+   - **Notifications never working**: The code used `window.Notification` browser API which doesn't work properly in Tauri webviews for native macOS notifications. Fixed by integrating `tauri-plugin-notification` properly across all 4 layers (Rust crate, plugin init, capability permission, frontend SDK).
+   - **6 concurrent license API calls**: React StrictMode + Vite HMR causing multiple component remounts, each triggering `validateLicenseOnStartup`. No mutex existed so all calls fired simultaneously. Fixed with Promise deduplication locks on both `validatePolarLicense` and `validateLicenseOnStartup`.
+
+6. All User Messages:
+   - "fix those feedback" (with 3 page feedback items about FileList text, Header icon, Settings button order)
+   - "第一个问题，英文的情况下 还是换行的" (first issue, in English it's still wrapping) + screenshot
+   - Page feedback: Header icon — "在作为图标的时候 背景色能不能有一些透明度 或者去掉它吧；现在蓝色底很突兀" (blue background is jarring, make transparent or remove)
+   - "Subtitles 图标是怎么来的？" (Where does the Subtitles icon come from?)
+   - "用户可以通过 sudo ln -s ... 来使用 monosub engine 但是这个脚本没有检测 pro功能的 license，我希望把这个漏洞加上，Python 脚本可以不要发送 validate license 请求，只需要检查是否校验通过过就行"
+   - "但是 状态文件如何没有任何加密 不也很容易被破解吗" (state file without encryption is easily bypassed)
+   - 2 page feedbacks about Processing settings (volumeNormalization line 500, skipExisting line 515): "把这个配置去掉吧，普通用户无法理解这种配置，永远按照最佳实践开启就行"
+   - Page feedback about notifications (Settings.tsx:692): "这个配置虽然有 但是并没有实现，我从没有收到过系统通知"
+   - "为什么一次发起这么多调用？" with Vite HMR log showing 6 concurrent validate API calls
+
+7. Pending Tasks:
+   - None explicitly pending. All requested changes have been implemented.
+
+8. Current Work:
+   The most recent work was diagnosing and fixing concurrent license validation API calls in `src/lib/license.ts`. The user showed logs of 6 simultaneous calls to `https://polar.leix.dev/v1/customer-portal/license-keys/validate`. 
+
+   Root cause: `validateLicenseOnStartup` (called in `useEffect([], [])` in `App.tsx`) was being triggered multiple times due to Vite HMR causing React remounts, and all concurrent invocations started before any completed, so the `hasRecentValidCache()` check returned false for all of them.
+
+   Fix applied — two Promise locks in `src/lib/license.ts`:
+   1. `_validatePromise` on `validatePolarLicense` (wrapping implementation moved to `_doValidatePolarLicense`)
+   2. `_startupValidationPromise` on `validateLicenseOnStartup`
+
+9. Optional Next Step:
+   No explicit next step pending. The concurrent API calls issue was the last completed task. The user has not indicated any further work. If needed, could verify the fix works by checking that Vite HMR no longer produces multiple simultaneous API calls, but there is no explicit user request to follow up on.
+
+If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: /Users/lei/.claude/projects/-Users-lei-dev-projects-2601-monosub/7c6359ed-6295-4f49-8dd3-383f25ab826e.jsonl
+Please continue the conversation from where we left off without asking the user any further questions. Continue with the last task that you were asked to work on.
+
+---
+
+点击系统消息的时候 能不能使其打开 APP
+
+---
+
+处理设置 错误去错了，音频降噪去掉，忽略已存在字幕文件 这个需要保留的
+
+---
+
+弹窗消息通知没有 icon
+
+---
+
+还是没有效果
+
+---
+
+Continue from where you left off.
+
+---
+
+可能是开发测试的原因；
+
+[INFO] 4. 初始化前端环境及编译代码...
+bun install v1.3.4 (5eb2145b)
+Checked 297 installs across 353 packages (no changes) [71.00ms]
+$ tsc -b && vite build
+src/App.tsx:82:7 - error TS2322: Type 'PluginListener' is not assignable to type '() => void'.
+  Type 'PluginListener' provides no match for the signature '(): void'.
+82       unlisten = fn;
+         ~~~~~~~~
+Found 1 error.
+error: script "build" exited with code 1
+error: script "build:dmg" exited with code 1
+
+---
+
+我检查了一下加密文件 
+cat ~/.monosub/license_state.json 
+{"activation_id":"6fc198c2-3c38-4fdf-8ca4-b5c2f42fc0e3","expires_at":null,"sig":"6ea5b5cbdc868562be71ffac4319e9554e696a030c5f3b4c9b57292d5a6c547c","valid":true,"validated_at":"2026-03-08T12:00:47.202188+00:00"}
+
+还是明文的
+
+---
+
+release.sh 上传的是 1.1.33 tag 但是 package 是 1.1.34 不一致，应该先打包后增加版本？
