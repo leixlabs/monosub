@@ -111,13 +111,35 @@ def _hmac_hex(payload: str) -> str:
     return _hmac.new(_LICENSE_HMAC_KEY, payload.encode(), hashlib.sha256).hexdigest()
 
 
+def _xor_crypt(data: bytes) -> bytes:
+    """HMAC-SHA256 stream cipher (CTR mode) — mirrors the Rust xor_crypt function."""
+    import hmac as _hmac
+    import hashlib
+    result = []
+    for block_idx, i in enumerate(range(0, len(data), 32)):
+        chunk = data[i:i + 32]
+        keystream = _hmac.new(
+            _LICENSE_HMAC_KEY,
+            b"enc:" + block_idx.to_bytes(4, "big"),
+            hashlib.sha256,
+        ).digest()
+        result.append(bytes(b ^ k for b, k in zip(chunk, keystream)))
+    return b"".join(result)
+
+
 def _is_pro_licensed() -> bool:
     """Check if a valid Pro license has been previously validated by the app."""
     import json
+    import hmac as _hmac
     state_path = Path.home() / ".monosub" / "license_state.json"
     try:
-        with open(state_path) as f:
-            state = json.load(f)
+        raw = state_path.read_bytes().strip()
+        # New encrypted format: hex string
+        # Old plaintext format (starts with '{') is rejected — user must re-validate
+        if raw.startswith(b"{"):
+            return False
+        decrypted = _xor_crypt(bytes.fromhex(raw.decode("ascii")))
+        state = json.loads(decrypted.decode("utf-8"))
         if state.get("valid") is not True:
             return False
         validated_at = state.get("validated_at", "")
@@ -125,7 +147,6 @@ def _is_pro_licensed() -> bool:
         activation_id_str = state.get("activation_id") or ""
         stored_sig = state.get("sig", "")
         payload = f"1|{validated_at}|{expires_at_str}|{activation_id_str}"
-        import hmac as _hmac
         return _hmac.compare_digest(stored_sig, _hmac_hex(payload))
     except Exception:
         return False

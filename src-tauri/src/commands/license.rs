@@ -82,6 +82,23 @@ fn hmac_hex(payload: &str) -> String {
         .collect()
 }
 
+/// HMAC-SHA256 stream cipher (CTR mode): XOR each 32-byte block with
+/// HMAC(key, "enc:" || block_index_as_u32_be). Symmetric — same function encrypts and decrypts.
+fn xor_crypt(data: &[u8]) -> Vec<u8> {
+    type HmacSha256 = Hmac<Sha256>;
+    let mut result = Vec::with_capacity(data.len());
+    for (i, chunk) in data.chunks(32).enumerate() {
+        let mut mac = HmacSha256::new_from_slice(LICENSE_HMAC_KEY).expect("HMAC key error");
+        mac.update(b"enc:");
+        mac.update(&(i as u32).to_be_bytes());
+        let keystream = mac.finalize().into_bytes();
+        for (j, b) in chunk.iter().enumerate() {
+            result.push(b ^ keystream[j]);
+        }
+    }
+    result
+}
+
 fn write_license_state(valid: bool, expires_at: Option<&str>, activation_id: Option<&str>) {
     let Some(path) = license_state_path() else { return };
     if let Some(parent) = path.parent() {
@@ -90,7 +107,6 @@ fn write_license_state(valid: bool, expires_at: Option<&str>, activation_id: Opt
     let validated_at = chrono::Utc::now().to_rfc3339();
     let expires_at_str = expires_at.unwrap_or("");
     let activation_id_str = activation_id.unwrap_or("");
-    // Canonical payload: fields joined by | in fixed order
     let payload = format!(
         "{}|{}|{}|{}",
         valid as u8, validated_at, expires_at_str, activation_id_str
@@ -103,7 +119,10 @@ fn write_license_state(valid: bool, expires_at: Option<&str>, activation_id: Opt
         "activation_id": activation_id,
         "sig": sig,
     });
-    let _ = std::fs::write(&path, state.to_string());
+    // Encrypt the JSON and store as hex — not human-readable
+    let encrypted = xor_crypt(state.to_string().as_bytes());
+    let hex: String = encrypted.iter().map(|b| format!("{:02x}", b)).collect();
+    let _ = std::fs::write(&path, hex);
 }
 
 fn clear_license_state() {

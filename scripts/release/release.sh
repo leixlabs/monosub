@@ -280,8 +280,16 @@ else
     exit 1
 fi
 
-# Cleanup
-echo "Cleaning up..."
+# Bump version after successful release so next build gets the incremented number
+echo ""
+echo "Bumping version for next release..."
+BUMP_RESULT=$(./scripts/release/bump-version.sh 2>&1)
+if [ $? -eq 0 ]; then
+    echo "✓ Version bumped: $BUMP_RESULT"
+    echo "  Commit the version bump when ready for next release."
+else
+    echo "⚠ Version bump failed (non-fatal): $BUMP_RESULT"
+fi
 
 echo "==============================================="
 echo "Release process completed."
