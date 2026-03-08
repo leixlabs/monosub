@@ -481,36 +481,6 @@ export function Settings() {
                     <div className="flex items-center justify-between">
                       <div>
                         <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
-                          {t('settings.processing.noiseReduction')}
-                        </label>
-                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
-                          {t('settings.processing.noiseReductionDesc')}
-                        </p>
-                      </div>
-                      <GlassSwitch
-                        checked={settings.enableNoiseReduction}
-                        onCheckedChange={(checked) => updateSettings({ enableNoiseReduction: checked })}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
-                          {t('settings.processing.volumeNormalization')}
-                        </label>
-                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
-                          {t('settings.processing.volumeNormalizationDesc')}
-                        </p>
-                      </div>
-                      <GlassSwitch
-                        checked={settings.enableVolumeNormalization}
-                        onCheckedChange={(checked) => updateSettings({ enableVolumeNormalization: checked })}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
                           {t('settings.processing.skipExisting')}
                         </label>
                         <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
@@ -558,12 +528,16 @@ export function Settings() {
                       </GlassButton>
 
                       <GlassButton
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        onClick={() => void handleOpenCheckout()}
+                        onClick={() => {
+                          setLicenseKey('');
+                          setLicenseActivationId('');
+                          clearLicenseValidation();
+                        }}
+                        className="text-text-secondary dark:text-gray-400 hover:text-danger"
                       >
-                        <ExternalLink className="w-4 h-4" />
-                        {t('settings.license.openCheckout')}
+                        {t('settings.license.clearKey')}
                       </GlassButton>
 
                       {hasActivationId && (
@@ -581,19 +555,6 @@ export function Settings() {
                           {t('settings.license.deactivate')}
                         </GlassButton>
                       )}
-
-                      <GlassButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setLicenseKey('');
-                          setLicenseActivationId('');
-                          clearLicenseValidation();
-                        }}
-                        className="text-text-secondary dark:text-gray-400 hover:text-danger"
-                      >
-                        {t('settings.license.clearKey')}
-                      </GlassButton>
                     </div>
 
                     <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50">
@@ -616,6 +577,15 @@ export function Settings() {
                         </p>
                       )}
                     </div>
+
+                    <GlassButton
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleOpenCheckout()}
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      {t('settings.license.openCheckout')}
+                    </GlassButton>
                   </div>
                 </section>
               )}

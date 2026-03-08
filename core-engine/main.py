@@ -102,6 +102,35 @@ class StepTracker:
         return time.time() - self.start_time
 
 
+_LICENSE_HMAC_KEY = b"ms_lic_v1_7f3a9c2e5b8d4f1a6e0c3b9d2f5a8e1c"
+
+
+def _hmac_hex(payload: str) -> str:
+    import hmac as _hmac
+    import hashlib
+    return _hmac.new(_LICENSE_HMAC_KEY, payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _is_pro_licensed() -> bool:
+    """Check if a valid Pro license has been previously validated by the app."""
+    import json
+    state_path = Path.home() / ".monosub" / "license_state.json"
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+        if state.get("valid") is not True:
+            return False
+        validated_at = state.get("validated_at", "")
+        expires_at_str = state.get("expires_at") or ""
+        activation_id_str = state.get("activation_id") or ""
+        stored_sig = state.get("sig", "")
+        payload = f"1|{validated_at}|{expires_at_str}|{activation_id_str}"
+        import hmac as _hmac
+        return _hmac.compare_digest(stored_sig, _hmac_hex(payload))
+    except Exception:
+        return False
+
+
 def main():
     """主函数"""
     supported_devices = {"auto", "cpu", "cuda", "mps"}
@@ -140,6 +169,14 @@ def main():
     )
 
     args = parser.parse_args()
+
+    if args.diarization and not _is_pro_licensed():
+        print(
+            "ERROR:Multi-speaker recognition requires a valid MonoSub Pro license. "
+            "Please validate your license in the app.",
+            flush=True,
+        )
+        sys.exit(1)
 
     tracker = StepTracker()
     

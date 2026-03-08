@@ -97,7 +97,18 @@ const hasRecentValidCache = () => {
   return Date.now() - checkedAtMs <= VALID_STATUS_CACHE_MS;
 };
 
+let _validatePromise: Promise<ValidateLicenseResponse> | null = null;
+
 export const validatePolarLicense = async (): Promise<ValidateLicenseResponse> => {
+  if (_validatePromise) return _validatePromise;
+
+  _validatePromise = _doValidatePolarLicense().finally(() => {
+    _validatePromise = null;
+  });
+  return _validatePromise;
+};
+
+const _doValidatePolarLicense = async (): Promise<ValidateLicenseResponse> => {
   const state = useStore.getState();
   const { licenseConfig } = state;
   const key = safeTrim(licenseConfig?.licenseKey);
@@ -375,12 +386,24 @@ export const ensureMultiSpeakerLicense = async (
   return result.valid;
 };
 
+let _startupValidationPromise: Promise<void> | null = null;
+
 export const validateLicenseOnStartup = async () => {
   const { licenseConfig } = useStore.getState();
   if (!safeTrim(licenseConfig?.licenseKey)) return;
 
-  await ensureMultiSpeakerLicense({
+  if (_startupValidationPromise) {
+    return _startupValidationPromise;
+  }
+
+  _startupValidationPromise = ensureMultiSpeakerLicense({
     forceRefresh: true,
     openCheckoutOnFailure: false,
-  });
+  })
+    .then(() => undefined)
+    .finally(() => {
+      _startupValidationPromise = null;
+    });
+
+  await _startupValidationPromise;
 };

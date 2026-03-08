@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react';
+import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { resolveResource } from '@tauri-apps/api/path';
 import { useTranslation } from 'react-i18next';
 import i18n from './i18n';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { Agentation } from 'agentation';
 import { Header } from './components/Header';
 import { Toolbar } from './components/Toolbar';
 import { FileList } from './components/FileList';
@@ -31,6 +34,17 @@ interface TranscribeProgressPayload {
   total_time?: number;
 }
 
+let _notificationIconPath: string | undefined;
+const getNotificationIconPath = async (): Promise<string | undefined> => {
+  if (_notificationIconPath !== undefined) return _notificationIconPath || undefined;
+  try {
+    _notificationIconPath = await resolveResource('icon.png');
+  } catch {
+    _notificationIconPath = '';
+  }
+  return _notificationIconPath || undefined;
+};
+
 function App() {
   const { t } = useTranslation();
   const updateFile = useStore((state) => state.updateFile);
@@ -54,6 +68,22 @@ function App() {
 
   useEffect(() => {
     void validateLicenseOnStartup();
+  }, []);
+
+  // Bring window to front when user clicks a system notification
+  useEffect(() => {
+    let listener: { unregister: () => Promise<void> } | null = null;
+    onAction(() => {
+      const win = getCurrentWebviewWindow();
+      void win.show();
+      void win.setFocus();
+      void win.unminimize();
+    }).then((fn) => {
+      listener = fn;
+    });
+    return () => {
+      void listener?.unregister();
+    };
   }, []);
 
   // Sync tray menu labels with current language
@@ -112,15 +142,23 @@ function App() {
       // Show notification if enabled (use ref to get latest settings)
       const settings = settingsRef.current;
       const files = filesRef.current;
-      if (settings.showCompletedNotification && 'Notification' in window) {
+      if (settings.showCompletedNotification) {
         const file = files.find(f => f.id === task_id);
-        if (Notification.permission === 'granted') {
-          new Notification('MonoSub', {
-            body: `${file?.name || 'Video'} - ${t('notification.completed')}`,
-          });
-        } else if (Notification.permission !== 'denied') {
-          Notification.requestPermission();
-        }
+        void (async () => {
+          let granted = await isPermissionGranted();
+          if (!granted) {
+            const permission = await requestPermission();
+            granted = permission === 'granted';
+          }
+          if (granted) {
+            const icon = await getNotificationIconPath();
+            sendNotification({
+              title: 'MonoSub',
+              body: `${file?.name || 'Video'} - ${t('notification.completed')}`,
+              ...(icon ? { icon } : {}),
+            });
+          }
+        })();
       }
 
       if (useStore.getState().isBatchProcessing) {
@@ -143,13 +181,19 @@ function App() {
       // Show error notification if enabled
       const settings = settingsRef.current;
       const files = filesRef.current;
-      if (settings.showCompletedNotification && 'Notification' in window) {
+      if (settings.showCompletedNotification) {
         const file = files.find(f => f.id === task_id);
-        if (Notification.permission === 'granted') {
-          new Notification('MonoSub - Error', {
-            body: `${file?.name || 'Video'} - ${status}`,
-          });
-        }
+        void (async () => {
+          const granted = await isPermissionGranted();
+          if (granted) {
+            const icon = await getNotificationIconPath();
+            sendNotification({
+              title: 'MonoSub',
+              body: `${file?.name || 'Video'} - ${status}`,
+              ...(icon ? { icon } : {}),
+            });
+          }
+        })();
       }
 
       if (useStore.getState().isBatchProcessing) {
@@ -207,15 +251,18 @@ function App() {
   }, []);
 
   return (
-    <ThemeProvider>
-      <div className="h-screen overflow-hidden bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
-        <Header />
-        <Toolbar />
-        <FileList />
-        <BottomBar />
-        <Settings />
-      </div>
-    </ThemeProvider>
+    <>
+      <ThemeProvider>
+        <div className="h-screen overflow-hidden bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
+          <Header />
+          <Toolbar />
+          <FileList />
+          <BottomBar />
+          <Settings />
+        </div>
+      </ThemeProvider>
+      {process.env.NODE_ENV === "development" && <Agentation />}
+    </>
   );
 }
 

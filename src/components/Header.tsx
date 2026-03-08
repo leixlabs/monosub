@@ -18,9 +18,7 @@ export function Header() {
         data-tauri-drag-region
         className="drag-region flex items-center gap-3 cursor-grab active:cursor-grabbing"
       >
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-          <Subtitles className="w-4.5 h-4.5 text-white" />
-        </div>
+        <Subtitles className="w-5 h-5 text-primary" />
         <div>
           <h1 className="window-title text-base font-semibold leading-tight transition-colors">
             {t('app.name')}

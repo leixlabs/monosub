@@ -8,6 +8,7 @@
     "core:default",
     "core:window:allow-start-dragging",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    "notification:default"
   ]
 }

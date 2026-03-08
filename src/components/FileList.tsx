@@ -63,7 +63,7 @@ export function FileList() {
           <h2 className="text-2xl font-semibold text-text-primary dark:text-white mb-3">
             {t('fileList.emptyTitle')}
           </h2>
-          <p className="text-sm text-text-secondary dark:text-gray-400 mb-6 leading-relaxed">
+          <p className="text-sm text-text-secondary dark:text-gray-400 mb-6 leading-relaxed text-balance">
             {t('fileList.emptyDescription')}
           </p>
 

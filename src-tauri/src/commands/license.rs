@@ -1,11 +1,14 @@
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::process::Command;
 use std::time::Duration;
 
 const POLAR_BASE_URL: &str = "https://polar.leix.dev";
 const POLAR_ORGANIZATION_ID: &str = "6c7d88dd-4cae-4491-85c9-4dbb65170b12";
 const POLAR_BENEFIT_ID: &str = "f288c189-f31b-4e0a-b849-1a0308420110";
+const LICENSE_HMAC_KEY: &[u8] = b"ms_lic_v1_7f3a9c2e5b8d4f1a6e0c3b9d2f5a8e1c";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +63,53 @@ pub struct DeactivateLicenseResult {
     pub deactivated: bool,
     pub status: String,
     pub message: String,
+}
+
+fn license_state_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    let dir = std::path::Path::new(&home).join(".monosub");
+    Some(dir.join("license_state.json"))
+}
+
+fn hmac_hex(payload: &str) -> String {
+    type HmacSha256 = Hmac<Sha256>;
+    let mut mac = HmacSha256::new_from_slice(LICENSE_HMAC_KEY).expect("HMAC key error");
+    mac.update(payload.as_bytes());
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
+}
+
+fn write_license_state(valid: bool, expires_at: Option<&str>, activation_id: Option<&str>) {
+    let Some(path) = license_state_path() else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let validated_at = chrono::Utc::now().to_rfc3339();
+    let expires_at_str = expires_at.unwrap_or("");
+    let activation_id_str = activation_id.unwrap_or("");
+    // Canonical payload: fields joined by | in fixed order
+    let payload = format!(
+        "{}|{}|{}|{}",
+        valid as u8, validated_at, expires_at_str, activation_id_str
+    );
+    let sig = hmac_hex(&payload);
+    let state = json!({
+        "valid": valid,
+        "validated_at": validated_at,
+        "expires_at": expires_at,
+        "activation_id": activation_id,
+        "sig": sig,
+    });
+    let _ = std::fs::write(&path, state.to_string());
+}
+
+fn clear_license_state() {
+    if let Some(path) = license_state_path() {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 fn build_endpoints(path: &str) -> Vec<String> {
@@ -294,6 +344,9 @@ pub async fn validate_license(
         .unwrap_or_else(|| "unknown".to_string());
     let normalized_status = status.to_lowercase();
     let valid = normalized_status == "granted" || normalized_status == "active";
+    let expires_at = extract_string(&body, &[&["license_key", "expires_at"], &["expires_at"]]);
+
+    write_license_state(valid, expires_at.as_deref(), request.activation_id.as_deref());
 
     Ok(ValidateLicenseResult {
         valid,
@@ -303,7 +356,7 @@ pub async fn validate_license(
         } else {
             format!("License status is \"{}\".", status)
         },
-        expires_at: extract_string(&body, &[&["license_key", "expires_at"], &["expires_at"]]),
+        expires_at,
         activation_required: false,
     })
 }
@@ -342,6 +395,8 @@ pub async fn deactivate_license(
             ),
         });
     }
+
+    clear_license_state();
 
     Ok(DeactivateLicenseResult {
         deactivated: true,
