@@ -1,0 +1,2 @@
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-03-04T17:25:52.636Z","sessionId":"611234d4-ca93-4085-b033-da082698fd2e","content":"使用 tauri2-macos-app skill review 一下现在 app 的实现，计划一个重构计划"}
+{"type":"queue-operation","operation":"dequeue","timestamp":"2026-03-04T17:25:54.855Z","sessionId":"611234d4-ca93-4085-b033-da082698fd2e"}
