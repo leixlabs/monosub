@@ -1778,7 +1778,7 @@ dependencies = [
 
 [[package]]
 name = "monosub"
-version = "1.1.28"
+version = "1.1.30"
 dependencies = [
  "chrono",
  "lazy_static",

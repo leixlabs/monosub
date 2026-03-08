@@ -1,23 +1,84 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background gradient -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#4F46E5;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    <!-- Vibrant macOS Background Gradient (Bright Cyan to Deep Indigo) -->
+    <!-- This replaces the dull black with a premium "Siri/Apple Intelligence" vibe -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4"/> <!-- Cyan (Airy & Intelligent) -->
+      <stop offset="48%" stop-color="#3B82F6"/> <!-- Royal Blue (Trust & Tech) -->
+      <stop offset="100%" stop-color="#4F46E5"/> <!-- Deep Indigo (Cinematic) -->
     </linearGradient>
+
+    <!-- TV Frame Outer Glass Border -->
+    <linearGradient id="glassBorder" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.1"/>
+    </linearGradient>
+
+    <!-- TV Screen Inner Fill (Cinematic Slate Dark) -->
+    <!-- Dark enough to show the play button, but not heavy black -->
+    <linearGradient id="screenGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/> <!-- Slate 800 -->
+      <stop offset="100%" stop-color="#020617"/> <!-- Slate 950 -->
+    </linearGradient>
+
+    <!-- Subtitle Band Background (Letterbox area) -->
+    <linearGradient id="subtitleBand" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0"/>
+    </linearGradient>
+
+    <!-- Deep Drop Shadow for floating TV Frame -->
+    <filter id="dropShadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
   </defs>
 
-  <!-- Rounded rectangle background -->
-  <rect width="512" height="512" rx="115" fill="url(#bg)"/>
+  <!-- IMPORTANT: Pure Transparent Base to fix the black square issue! -->
+  <rect width="1024" height="1024" fill="transparent"/>
 
-  <!-- Video/Subtitle icon -->
-  <!-- Outer video frame -->
-  <rect x="96" y="128" width="320" height="200" rx="16" fill="white" fill-opacity="0.2" stroke="white" stroke-width="8"/>
+  <!-- NATIVE MAC OS SQUIRCLE BACKGROUND -->
+  <!-- Directly drawing the rounded rect so Tauri renderer respects the transparency! -->
+  <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230" fill="url(#bgGrad)"/>
+  
+  <!-- Inner Glass Reflection / Fine Bevel on the App Icon edges -->
+  <rect x="4" y="4" width="1016" height="1016" rx="226" ry="226" fill="none" stroke="#FFFFFF" stroke-width="8" opacity="0.35"/>
 
-  <!-- Play triangle -->
-  <path d="M 200 180 L 280 220 L 200 260 Z" fill="white"/>
+  <!-- TV Frame / Display Group with Drop Shadow -->
+  <g filter="url(#dropShadow)">
+    
+    <!-- Outer thick frosted glass border -->
+    <!-- Slightly translucent white adds physical depth -->
+    <rect x="128" y="240" width="768" height="544" rx="56" fill="#FFFFFF" fill-opacity="0.15"/>
+    <rect x="128" y="240" width="768" height="544" rx="56" fill="none" stroke="url(#glassBorder)" stroke-width="6"/>
 
-  <!-- Subtitle bars at bottom -->
-  <rect x="128" y="360" width="256" height="16" rx="8" fill="white"/>
-  <rect x="160" y="392" width="192" height="16" rx="8" fill="white" fill-opacity="0.7"/>
+    <!-- Dark Inner Screen (The Display itself) -->
+    <rect x="144" y="256" width="736" height="512" rx="40" fill="url(#screenGrad)"/>
+
+    <!-- Screen top reflection (curved glossy finish) -->
+    <!-- Gives that Apple display feeling -->
+    <path d="M 144 256 C 400 310 624 310 880 256 L 880 340 C 624 394 400 394 144 340 Z" fill="#FFFFFF" opacity="0.04"/>
+
+    <!-- CENTRAL PLAY BUTTON (Clear, sharp, unmistakable video metaphor) -->
+    <!-- Perfect center for the upper video area (y=256 to 580) -->
+    <path d="M 480 376 L 566 426 L 480 476 Z" fill="#FFFFFF" opacity="0.9"/>
+    <!-- Subtle vibrant glow edge on play button -->
+    <path d="M 480 376 L 566 426 L 480 476 Z" fill="none" stroke="#22D3EE" stroke-width="5" opacity="0.8"/>
+
+    <!-- Subtitle Lower Section (Faint background band for letterboxing) -->
+    <!-- Creating a path so bottom corners precisely match the screen's 40px radius -->
+    <path d="M 144 580 L 880 580 L 880 728 Q 880 768 840 768 L 184 768 Q 144 768 144 728 Z" fill="url(#subtitleBand)"/>
+    <rect x="144" y="580" width="736" height="2" fill="#FFFFFF" opacity="0.15"/>
+
+    <!-- HERO SUBTITLE BARS (The ultimate core of the app) -->
+    <!-- Main subtitle line -->
+    <rect x="232" y="620" width="560" height="44" rx="22" fill="#FFFFFF"/>
+    <!-- Secondary subtitle line -->
+    <rect x="312" y="684" width="400" height="34" rx="17" fill="#FFFFFF" opacity="0.8"/>
+  </g>
+  
+  <!-- AI Magic Sparkles (Subtle hint that this is AI powered, highly trending in macOS apps) -->
+  <!-- Top Right Sparkle -->
+  <path d="M 830 150 Q 830 190 870 190 Q 830 190 830 230 Q 830 190 790 190 Q 830 190 830 150 Z" fill="#FFFFFF" opacity="0.85"/>
+  <!-- Small Sparkle -->
+  <path d="M 750 110 Q 750 130 770 130 Q 750 130 750 150 Q 750 130 730 130 Q 750 130 750 110 Z" fill="#FFFFFF" opacity="0.5"/>
 </svg>

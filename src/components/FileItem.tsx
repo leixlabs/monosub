@@ -180,90 +180,92 @@ export function FileItem({ file }: FileItemProps) {
   return (
     <GlassCard
       glowEffect={file.status === 'processing'}
-      className={`p-4 flex gap-4 animate-fade-in ${file.status === 'processing' ? '' : 'hover:-translate-y-1 transition-transform duration-200'
+      className={`animate-fade-in ${file.status === 'processing' ? '' : 'hover:-translate-y-1 transition-transform duration-200'
         }`}
     >
-      {/* Thumbnail */}
-      <div className="w-[140px] h-[80px] rounded-lg bg-bg-secondary dark:bg-zinc-800 flex-shrink-0 overflow-hidden relative group">
-        {file.thumbnail ? (
-          <img
-            src={file.thumbnail}
-            alt={file.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-text-tertiary dark:text-gray-600">
-            <Play className="w-8 h-8" />
-          </div>
-        )}
-        {/* Duration overlay */}
-        <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/70 dark:bg-black/80 rounded text-[10px] text-white font-medium">
-          {formatDuration(file.duration)}
-        </div>
-      </div>
-
-      {/* Details */}
-      <div className="flex-1 flex flex-col justify-between min-w-0 py-0.5">
-        <div>
-          <h3 className="text-sm font-medium text-text-primary dark:text-white truncate mb-1">
-            {file.name}
-          </h3>
-          <div className="flex items-center gap-3 text-xs text-text-tertiary dark:text-gray-500">
-            <span>{formatFileSize(file.size)}</span>
-            <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
-            <span>{settings.outputFormat.toUpperCase()}</span>
+      <div className="flex gap-4 p-4 w-full h-full">
+        {/* Thumbnail */}
+        <div className="w-[140px] h-[80px] rounded-lg bg-bg-secondary dark:bg-zinc-800 flex-shrink-0 overflow-hidden relative group">
+          {file.thumbnail ? (
+            <img
+              src={file.thumbnail}
+              alt={file.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-text-tertiary dark:text-gray-600">
+              <Play className="w-8 h-8" />
+            </div>
+          )}
+          {/* Duration overlay */}
+          <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/70 dark:bg-black/80 rounded text-[10px] text-white font-medium">
+            {formatDuration(file.duration)}
           </div>
         </div>
-        <div className="mt-2">
-          {getStatusBadge()}
-        </div>
-      </div>
 
-      {/* Actions */}
-      <div className="flex flex-col justify-center gap-2 w-[100px]">
-        {file.status === 'pending' && (
+        {/* Details */}
+        <div className="flex-1 flex flex-col justify-between min-w-0 py-0.5">
+          <div>
+            <h3 className="text-sm font-medium text-text-primary dark:text-white truncate mb-1">
+              {file.name}
+            </h3>
+            <div className="flex items-center gap-3 text-xs text-text-tertiary dark:text-gray-500">
+              <span>{formatFileSize(file.size)}</span>
+              <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
+              <span>{settings.outputFormat.toUpperCase()}</span>
+            </div>
+          </div>
+          <div className="mt-2">
+            {getStatusBadge()}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col justify-center gap-2 w-[110px]">
+          {file.status === 'pending' && (
+            <GlassButton
+              variant="primary"
+              size="sm"
+              onClick={() => void handleStart()}
+              disabled={isProcessing}
+              className="w-full"
+            >
+              <Play className="w-4 h-4" />
+              {t('fileItem.start')}
+            </GlassButton>
+          )}
+          {file.status === 'processing' && (
+            <GlassButton
+              variant="destructive"
+              size="sm"
+              onClick={() => void handleCancel()}
+              className="w-full"
+            >
+              <Square className="w-4 h-4" />
+              {t('fileItem.cancel')}
+            </GlassButton>
+          )}
+          {(file.status === 'completed' || file.status === 'skipped') && (
+            <GlassButton
+              variant="default"
+              size="sm"
+              onClick={() => void handleOpenInFinder()}
+              className="w-full text-success border-success/30 hover:bg-success/20"
+            >
+              <FolderOpen className="w-4 h-4" />
+              {t('fileItem.open')}
+            </GlassButton>
+          )}
           <GlassButton
-            variant="primary"
+            variant="ghost"
             size="sm"
-            onClick={() => void handleStart()}
-            disabled={isProcessing}
-            className="w-full"
+            onClick={handleDelete}
+            className="w-full text-text-tertiary dark:text-gray-500 hover:text-danger"
           >
-            <Play className="w-4 h-4" />
-            {t('fileItem.start')}
+            <Trash2 className="w-4 h-4" />
+            {t('fileItem.delete')}
           </GlassButton>
-        )}
-        {file.status === 'processing' && (
-          <GlassButton
-            variant="destructive"
-            size="sm"
-            onClick={() => void handleCancel()}
-            className="w-full"
-          >
-            <Square className="w-4 h-4" />
-            {t('fileItem.cancel')}
-          </GlassButton>
-        )}
-        {(file.status === 'completed' || file.status === 'skipped') && (
-          <GlassButton
-            variant="default"
-            size="sm"
-            onClick={() => void handleOpenInFinder()}
-            className="w-full text-success border-success/30 hover:bg-success/20"
-          >
-            <FolderOpen className="w-4 h-4" />
-            {t('fileItem.open')}
-          </GlassButton>
-        )}
-        <GlassButton
-          variant="ghost"
-          size="sm"
-          onClick={handleDelete}
-          className="w-full text-text-tertiary dark:text-gray-500 hover:text-danger"
-        >
-          <Trash2 className="w-4 h-4" />
-          {t('fileItem.delete')}
-        </GlassButton>
+        </div>
       </div>
     </GlassCard>
   );

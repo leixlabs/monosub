@@ -5,7 +5,7 @@ import { Slot } from "@radix-ui/react-slot"
 
 const glassButtonVariants = cva(
   cn(
-    "relative inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl cursor-pointer",
+    "relative flex items-center justify-center gap-2 whitespace-nowrap rounded-xl cursor-pointer",
     "text-sm font-medium transition-all duration-300 ease-out",
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
     "disabled:pointer-events-none disabled:opacity-50",
@@ -97,7 +97,7 @@ const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>(
     if (!glowEffect) {
       return (
         <Comp className={cn(glassButtonVariants({ variant, size, className }))} ref={ref} {...props}>
-          <span className="relative z-10 flex items-center gap-2">{children}</span>
+          {children}
         </Comp>
       )
     }
@@ -106,7 +106,7 @@ const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>(
       <div className="relative inline-block">
         <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-cyan-500/40 via-blue-500/40 to-purple-500/40 blur-lg opacity-70 transition-opacity group-hover:opacity-100" />
         <Comp className={cn(glassButtonVariants({ variant, size, className }))} ref={ref} {...props}>
-          <span className="relative z-10 flex items-center gap-2">{children}</span>
+          {children}
         </Comp>
       </div>
     )
