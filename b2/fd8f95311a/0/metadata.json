@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "b2fd8f95311a",
+  "session_id": "611234d4-ca93-4085-b033-da082698fd2e",
+  "strategy": "manual-commit",
+  "created_at": "2026-03-09T03:06:51.379615Z",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "core-engine/pyproject.toml",
+    "package.json",
+    "src-tauri/Cargo.toml",
+    "src-tauri/src/commands/transcribe.rs",
+    "src-tauri/src/commands/video.rs",
+    "src-tauri/tauri.conf.json",
+    "core-engine/main.py",
+    "core-engine/monosub_core/audio_extractor.py"
+  ],
+  "agent": "Claude Code",
+  "turn_id": "5e3751c86b36",
+  "checkpoint_transcript_start": 2,
+  "transcript_lines_at_start": 2,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-03-09T03:06:51.364176Z",
+    "agent_lines": 42,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 42,
+    "agent_percentage": 100
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.4.8",
+  "checkpoint_id": "b2fd8f95311a",
+  "strategy": "manual-commit",
+  "branch": "main",
+  "checkpoints_count": 0,
+  "files_touched": [
+    "core-engine/main.py",
+    "core-engine/monosub_core/audio_extractor.py",
+    "core-engine/pyproject.toml",
+    "package.json",
+    "src-tauri/Cargo.toml",
+    "src-tauri/src/commands/transcribe.rs",
+    "src-tauri/src/commands/video.rs",
+    "src-tauri/tauri.conf.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/b2/fd8f95311a/0/metadata.json",
+      "transcript": "/b2/fd8f95311a/0/full.jsonl",
+      "context": "",
+      "content_hash": "/b2/fd8f95311a/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  }
+}
