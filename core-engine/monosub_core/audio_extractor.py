@@ -51,10 +51,10 @@ class AudioExtractor:
             音频文件路径
         """
         if output_audio_path is None:
-            # 在视频同目录创建隐藏音频文件
+            # 在视频同目录创建音频文件
             video_path_obj = Path(video_path)
             video_name = video_path_obj.stem
-            output_audio_path = str(video_path_obj.parent / f".{video_name}_audio.wav")
+            output_audio_path = str(video_path_obj.parent / f"{video_name}_audio.wav")
 
         # 检查缓存：如果文件已存在且有效，直接返回
         if use_cache and os.path.exists(output_audio_path):

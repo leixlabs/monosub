@@ -84,7 +84,7 @@ fn is_audio_input(path: &Path) -> bool {
 fn get_audio_cache_path(video_path: &Path) -> Option<PathBuf> {
     let parent = video_path.parent()?;
     let stem = video_path.file_stem()?.to_str()?;
-    Some(parent.join(format!(".{}_audio.wav", stem)))
+    Some(parent.join(format!("{}_audio.wav", stem)))
 }
 
 fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {

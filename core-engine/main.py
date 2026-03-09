@@ -17,30 +17,34 @@ import tempfile
 # This MUST happen BEFORE any imports that might use subprocess (especially FunASR)
 # Reason: FunASR internally calls bare 'ffmpeg' command without checking env vars
 import subprocess
+
 _original_run = subprocess.run
+
 
 def _patched_run(args, *pargs, **kwargs):
     """Intercept subprocess.run and replace bare ffmpeg/ffprobe with env var paths"""
     if isinstance(args, (list, tuple)) and len(args) > 0:
-        if args[0] == 'ffmpeg':
-            ffmpeg_path = os.environ.get('MONOSUB_FFMPEG_PATH', 'ffmpeg')
+        if args[0] == "ffmpeg":
+            ffmpeg_path = os.environ.get("MONOSUB_FFMPEG_PATH", "ffmpeg")
             args = list(args)
             args[0] = ffmpeg_path
-        elif args[0] == 'ffprobe':
-            ffprobe_path = os.environ.get('MONOSUB_FFPROBE_PATH', 'ffprobe')
+        elif args[0] == "ffprobe":
+            ffprobe_path = os.environ.get("MONOSUB_FFPROBE_PATH", "ffprobe")
             args = list(args)
             args[0] = ffprobe_path
     return _original_run(args, *pargs, **kwargs)
+
 
 subprocess.run = _patched_run
 
 # CRITICAL FIX #2: Pre-load torch to avoid circular import issues in PyInstaller
 # This must happen BEFORE importing FunASR or any module that uses torch
 # Resolves: "partially initialized module 'torch' has no attribute 'autograd'"
-if getattr(sys, 'frozen', False):
+if getattr(sys, "frozen", False):
     print("DEBUG: Pre-loading torch to avoid circular imports...", flush=True)
     try:
         import torch
+
         # Trigger full initialization
         _ = torch.tensor([1.0])
         print("DEBUG: torch pre-loaded successfully", flush=True)
@@ -66,20 +70,15 @@ def is_audio_input_file(path: str) -> bool:
 
 class StepTracker:
     """Track processing steps and elapsed time"""
-    
-    STEPS = [
-        "Extracting audio",
-        "Loading model",
-        "Transcribing",
-        "Writing subtitle"
-    ]
-    
+
+    STEPS = ["Extracting audio", "Loading model", "Transcribing", "Writing subtitle"]
+
     def __init__(self):
         self.start_time = time.time()
         self.step_start_time = self.start_time
         self.current_step = 0
         self.total_steps = len(self.STEPS)
-    
+
     def emit_step(self, step_num: int, step_name: str = None):
         """Emit current step info"""
         self.current_step = step_num
@@ -89,14 +88,14 @@ class StepTracker:
         total_elapsed = time.time() - self.start_time
         print(f"STEP:{step_num}/{self.total_steps}:{step_name}", flush=True)
         print(f"ELAPSED:{total_elapsed:.1f}", flush=True)
-    
+
     def emit_elapsed(self):
         """Emit current elapsed time"""
         step_elapsed = time.time() - self.step_start_time
         total_elapsed = time.time() - self.start_time
         print(f"STEP_ELAPSED:{step_elapsed:.1f}", flush=True)
         print(f"ELAPSED:{total_elapsed:.1f}", flush=True)
-    
+
     def get_total_time(self) -> float:
         """Get total processing time"""
         return time.time() - self.start_time
@@ -108,6 +107,7 @@ _LICENSE_HMAC_KEY = b"ms_lic_v1_7f3a9c2e5b8d4f1a6e0c3b9d2f5a8e1c"
 def _hmac_hex(payload: str) -> str:
     import hmac as _hmac
     import hashlib
+
     return _hmac.new(_LICENSE_HMAC_KEY, payload.encode(), hashlib.sha256).hexdigest()
 
 
@@ -115,9 +115,10 @@ def _xor_crypt(data: bytes) -> bytes:
     """HMAC-SHA256 stream cipher (CTR mode) — mirrors the Rust xor_crypt function."""
     import hmac as _hmac
     import hashlib
+
     result = []
     for block_idx, i in enumerate(range(0, len(data), 32)):
-        chunk = data[i:i + 32]
+        chunk = data[i : i + 32]
         keystream = _hmac.new(
             _LICENSE_HMAC_KEY,
             b"enc:" + block_idx.to_bytes(4, "big"),
@@ -131,6 +132,7 @@ def _is_pro_licensed() -> bool:
     """Check if a valid Pro license has been previously validated by the app."""
     import json
     import hmac as _hmac
+
     state_path = Path.home() / ".monosub" / "license_state.json"
     try:
         raw = state_path.read_bytes().strip()
@@ -200,7 +202,7 @@ def main():
         sys.exit(1)
 
     tracker = StepTracker()
-    
+
     try:
         # 验证输入文件
         if not os.path.exists(args.video_path):
@@ -218,7 +220,10 @@ def main():
         cleanup_paths = []
 
         if input_is_audio:
-            print("MSG:Audio input detected, trying direct transcription without conversion", flush=True)
+            print(
+                "MSG:Audio input detected, trying direct transcription without conversion",
+                flush=True,
+            )
         else:
             audio_path = extractor.extract_audio(args.video_path)
         tracker.emit_elapsed()
@@ -265,9 +270,7 @@ def main():
                 input_path = Path(args.video_path)
                 temp_dir = Path(tempfile.gettempdir())
                 is_hidden_audio_cache_wav = (
-                    input_path.suffix.lower() == ".wav"
-                    and input_path.name.startswith(".")
-                    and input_path.name.endswith("_audio.wav")
+                    input_path.suffix.lower() == ".wav" and input_path.name.endswith("_audio.wav")
                 )
                 is_rust_preextracted_wav = (
                     input_path.suffix.lower() == ".wav"

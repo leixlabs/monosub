@@ -175,7 +175,7 @@ fn get_thumbnail_cache_path(video_path: &Path) -> Option<std::path::PathBuf> {
         .and_then(|e| e.to_str())
         .filter(|e| !e.is_empty())
         .unwrap_or("media");
-    Some(parent.join(format!(".{}_{}_thumb.jpg", stem, ext)))
+    Some(parent.join(format!("{}_{}_thumb.jpg", stem, ext)))
 }
 
 fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
@@ -567,7 +567,10 @@ pub async fn resolve_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
 
 fn is_media_file(path: &Path, media_set: &std::collections::HashSet<&str>) -> bool {
     if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-        if file_name.starts_with('.') {
+        if file_name.starts_with('.')
+            || file_name.ends_with("_audio.wav")
+            || file_name.ends_with("_thumb.jpg")
+        {
             return false;
         }
     }
@@ -594,9 +597,12 @@ fn collect_media_files(
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // Skip hidden files and directories
+        // Skip hidden files/directories and cache files
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-            if file_name.starts_with('.') {
+            if file_name.starts_with('.')
+                || file_name.ends_with("_audio.wav")
+                || file_name.ends_with("_thumb.jpg")
+            {
                 continue;
             }
         }
