@@ -37,7 +37,9 @@ export const processQueueBatch = () => {
 
 const getOutputPath = (inputPath: string, fileName: string) => {
   const state = useStore.getState();
-  const extension = `.${state.settings.outputFormat}`;
+  // For multi-format (e.g. "srt,txt"), use the first format as the primary extension
+  const primaryFormat = state.settings.outputFormat.split(',')[0].trim();
+  const extension = `.${primaryFormat}`;
 
   if (state.storageMode === 'same') {
     return inputPath.replace(/\.[^/.]+$/, extension);

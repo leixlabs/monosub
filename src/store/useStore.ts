@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 
 export type VideoStatus = 'pending' | 'processing' | 'completed' | 'skipped' | 'error'
 export type StorageMode = 'same' | 'custom'
-export type SubtitleFormat = 'srt' | 'vtt' | 'txt'
+export type SubtitleFormat = 'srt' | 'vtt' | 'txt' | string  // string allows multi-format like "srt,txt"
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
 export type LicenseStatus = 'unknown' | 'checking' | 'valid' | 'invalid' | 'error'
 

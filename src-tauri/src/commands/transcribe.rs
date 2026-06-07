@@ -617,6 +617,7 @@ async fn run_dev_mode(
 thread_local! {
     static CURRENT_STEP: std::cell::RefCell<Option<StepInfo>> = std::cell::RefCell::new(None);
     static TOTAL_TIME: std::cell::RefCell<Option<f64>> = std::cell::RefCell::new(None);
+    static COMPLETED: std::cell::RefCell<bool> = std::cell::RefCell::new(false);
 }
 
 /// Process output line from Python script
@@ -721,24 +722,29 @@ fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
         );
     } else if line.starts_with("SUCCESS:") {
         let output_file = &line[8..];
-        tracing::info!(task_id = %task_id, output_file = %output_file, "Transcription completed");
+        tracing::info!(task_id = %task_id, output_file = %output_file, "Transcription output");
 
-        let total_time = TOTAL_TIME.with(|t| *t.borrow());
+        // Only emit transcribe_complete on the first SUCCESS line
+        // (multi-format outputs produce multiple SUCCESS lines)
+        let already_completed = COMPLETED.with(|c| c.replace(true));
+        if !already_completed {
+            let total_time = TOTAL_TIME.with(|t| *t.borrow());
 
-        let _ = app.emit(
-            "transcribe_complete",
-            TranscribeProgress {
-                task_id: task_id.to_string(),
-                progress: 100.0,
-                status: format!("Completed: {}", output_file),
-                step: None,
-                total_time,
-            },
-        );
+            let _ = app.emit(
+                "transcribe_complete",
+                TranscribeProgress {
+                    task_id: task_id.to_string(),
+                    progress: 100.0,
+                    status: format!("Completed: {}", output_file),
+                    step: None,
+                    total_time,
+                },
+            );
 
-        // Clear thread-local state
-        CURRENT_STEP.with(|s| *s.borrow_mut() = None);
-        TOTAL_TIME.with(|t| *t.borrow_mut() = None);
+            // Clear thread-local state
+            CURRENT_STEP.with(|s| *s.borrow_mut() = None);
+            TOTAL_TIME.with(|t| *t.borrow_mut() = None);
+        }
     } else if line.starts_with("ERROR:") {
         let error_msg = &line[6..];
         tracing::error!(task_id = %task_id, error = %error_msg, "Transcription error");

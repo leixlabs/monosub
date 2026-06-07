@@ -4,7 +4,7 @@ FunASR 语音转字幕主程序
 通过命令行调用，供 Tauri 使用
 
 用法:
-    python main.py <video_path> <output_path> [--format srt|vtt|txt] [--language zh|en]
+    python main.py <video_path> <output_path> [--format srt|vtt|txt,...] [--language zh|en]
 """
 
 import sys
@@ -168,8 +168,7 @@ def main():
         "--format",
         type=str,
         default="srt",
-        choices=["srt", "vtt", "txt"],
-        help="Subtitle format (default: srt)",
+        help="Subtitle format(s), comma-separated (default: srt). e.g. srt,vtt,txt",
     )
     parser.add_argument(
         "--language",
@@ -200,6 +199,19 @@ def main():
             flush=True,
         )
         sys.exit(1)
+
+    # Parse formats (comma-separated, e.g. "srt,vtt,txt")
+    ALLOWED_FORMATS = {"srt", "vtt", "txt"}
+    raw_formats = [f.strip().lower() for f in args.format.split(",") if f.strip()]
+    if not raw_formats:
+        print("ERROR:No valid format specified", flush=True)
+        sys.exit(1)
+    invalid_formats = [f for f in raw_formats if f not in ALLOWED_FORMATS]
+    if invalid_formats:
+        print(f"ERROR:Unsupported format(s): {','.join(invalid_formats)}", flush=True)
+        sys.exit(1)
+    # Deduplicate while preserving order
+    formats = list(dict.fromkeys(raw_formats))
 
     tracker = StepTracker()
 
@@ -308,7 +320,7 @@ def main():
         print(f"MSG:{len(segments)} segments found", flush=True)
         tracker.emit_elapsed()
 
-        # Step 4: 写入字幕文件
+        # Step 4: 写入字幕文件（支持多格式输出）
         tracker.emit_step(4, "Writing subtitle")
 
         # 确保输出目录存在
@@ -316,13 +328,23 @@ def main():
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        SubtitleWriter.write(segments, args.output_path, args.format)
+        # Derive output paths per format from the primary output_path
+        base_path, _ = os.path.splitext(args.output_path)
+
+        for fmt in formats:
+            output_file = (
+                args.output_path
+                if fmt == formats[0]
+                else f"{base_path}.{fmt}"
+            )
+            SubtitleWriter.write(segments, output_file, fmt)
+            print(f"SUCCESS:{output_file}", flush=True)
+
         tracker.emit_elapsed()
 
         # 完成
         total_time = tracker.get_total_time()
         print(f"TOTAL_TIME:{total_time:.1f}", flush=True)
-        print(f"SUCCESS:{args.output_path}", flush=True)
 
         # 清理临时音频文件
         for temp_path in cleanup_paths:
