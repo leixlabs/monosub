@@ -233,6 +233,7 @@ export function Settings() {
     { value: 'srt', label: 'SRT' },
     { value: 'vtt', label: 'VTT' },
     { value: 'txt', label: 'TXT' },
+    { value: 'md', label: 'MD' },
   ];
 
   const languageOptions: SelectOption<OutputLanguage>[] = [

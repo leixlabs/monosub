@@ -168,7 +168,7 @@ def main():
         "--format",
         type=str,
         default="srt",
-        help="Subtitle format(s), comma-separated (default: srt). e.g. srt,vtt,txt",
+        help="Subtitle format(s), comma-separated (default: srt). e.g. srt,vtt,txt,md",
     )
     parser.add_argument(
         "--language",
@@ -201,7 +201,7 @@ def main():
         sys.exit(1)
 
     # Parse formats (comma-separated, e.g. "srt,vtt,txt")
-    ALLOWED_FORMATS = {"srt", "vtt", "txt"}
+    ALLOWED_FORMATS = {"srt", "vtt", "txt", "md"}
     raw_formats = [f.strip().lower() for f in args.format.split(",") if f.strip()]
     if not raw_formats:
         print("ERROR:No valid format specified", flush=True)

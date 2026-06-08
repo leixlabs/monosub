@@ -1,6 +1,6 @@
 """
 字幕文件生成器
-支持 SRT, VTT, TXT 格式
+支持 SRT, VTT, TXT, MD 格式
 支持双语字幕
 """
 from typing import List, Dict, Optional
@@ -161,6 +161,50 @@ class SubtitleWriter:
                     if trans_text:
                         f.write(f"{trans_text}\n")
 
+    @staticmethod
+    def write_md(
+        segments: List[Dict],
+        output_path: str,
+        translation_segments: Optional[List[Dict]] = None
+    ) -> None:
+        """
+        写入 Markdown 格式字幕（纯文本，无时间戳）
+
+        输出格式:
+            **Speaker A**: 原文文本
+
+            翻译文本
+
+        Args:
+            segments: 字幕片段列表
+            output_path: 输出文件路径
+            translation_segments: 翻译字幕片段（可选）
+        """
+        import os
+
+        # 从输出路径提取文件名作为文档标题
+        filename = os.path.splitext(os.path.basename(output_path))[0]
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            # 文档标题
+            f.write(f"# {filename}\n\n")
+
+            for idx, segment in enumerate(segments, 1):
+                text = segment['text'].strip()
+                speaker = segment.get('speaker')
+
+                # 说话人标签 + 原文
+                if speaker:
+                    f.write(f"{speaker}: {text}\n\n")
+                else:
+                    f.write(f"{text}\n\n")
+
+                # 翻译（双语模式）
+                if translation_segments and idx <= len(translation_segments):
+                    trans_text = translation_segments[idx - 1].get('text', '').strip()
+                    if trans_text:
+                        f.write(f"{trans_text}\n\n")
+
     @classmethod
     def write(
         cls,
@@ -186,6 +230,8 @@ class SubtitleWriter:
             cls.write_vtt(segments, output_path, translation_segments)
         elif format == 'txt':
             cls.write_txt(segments, output_path, translation_segments)
+        elif format == 'md':
+            cls.write_md(segments, output_path, translation_segments)
         else:
             raise ValueError(f"Unsupported format: {format}")
 
