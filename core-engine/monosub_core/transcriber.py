@@ -736,6 +736,124 @@ class FunASRTranscriber:
         print(f"DEBUG: Merged segments: {len(segments)} -> {len(merged)}", flush=True)
         return merged
 
+    def transcribe_raw(
+        self,
+        audio_path: str,
+        progress_callback: ProgressCallback,
+        language: str = "zh"
+    ) -> dict:
+        """转录音频，返回 Scribe 兼容的字级 JSON 格式。
+
+        仅在 Paraformer 模型下有效（SenseVoice 无字级时间戳）。
+        跳过 _split_by_punctuation / _merge_short_segments，
+        保留 FunASR 原始逐字时间戳，插入 spacing 条目标记停顿。
+
+        Returns:
+            dict with "words" key, each word: {type, text, start, end, speaker_id}
+        """
+        if not self.model:
+            self.load_model(progress_callback)
+
+        # 强制要求 Paraformer 模型 — SenseVoice 没有字级时间戳
+        if self.model_type == "sensevoice":
+            raise RuntimeError(
+                "Raw word-level output requires a Paraformer model. "
+                "Use --model paraformer-zh or paraformer-large."
+            )
+
+        progress_callback.update(30, "Starting raw transcription...")
+
+        generate_kwargs = {
+            "input": audio_path,
+            "batch_size_s": self.batch_size_s,
+        }
+        result = self.model.generate(**generate_kwargs)
+
+        progress_callback.update(85, "Building word-level JSON...")
+
+        words = self._build_scribe_words(result)
+        progress_callback.update(95, "Raw transcription complete")
+        return words
+
+    def _is_chinese_char(self, ch: str) -> bool:
+        """判断是否为中文字符（含中文标点）"""
+        cp = ord(ch)
+        return (
+            (0x4E00 <= cp <= 0x9FFF) or    # CJK Unified
+            (0x3400 <= cp <= 0x4DBF) or    # CJK Extension A
+            (0x20000 <= cp <= 0x2A6DF) or  # CJK Extension B
+            (0xF900 <= cp <= 0xFAFF) or    # CJK Compatibility
+            (0x3000 <= cp <= 0x303F) or    # CJK punctuation
+            (0xFF00 <= cp <= 0xFFEF)       # Fullwidth forms
+        )
+
+    def _build_scribe_words(self, result) -> dict:
+        """将 FunASR Paraformer 原始结果转为 Scribe 兼容的字级 JSON。
+
+        Scribe 格式:
+          {"words": [
+            {"type": "word", "text": "...", "start": s, "end": s, "speaker_id": null},
+            {"type": "spacing", "start": s, "end": s},
+            ...
+          ]}
+
+        核心逻辑：
+        - 逐个字符映射 timestamp，汉字/字母为 "word"，空格忽略
+        - 相邻字符间若 end != next_start，插入 "spacing" 条目
+        - spacing 的 gap = end - start ≥ 0.5s 会被 pack_transcripts.py 用来断句
+        """
+        words: list[dict] = []
+
+        if not isinstance(result, list) or len(result) == 0:
+            return {"words": words}
+
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+
+            text = item.get("text", "")
+            timestamps = item.get("timestamp")
+
+            if not timestamps or not text:
+                continue
+
+            # 过滤掉空格，建立 字符→timestamp 的映射
+            # Paraformer timestamp 数量 ≈ 文本字符数（含标点，不含空格）
+            chars = [c for c in text if c != " "]  # noqa: PLW2901
+
+            # 如果时间戳数量远小于字符数→分段模式，不可靠，跳过
+            if len(timestamps) < len(chars) * 0.5:
+                continue
+
+            prev_end: float | None = None
+
+            for idx, ch in enumerate(chars):
+                if idx >= len(timestamps):
+                    break
+
+                start_ms, end_ms = timestamps[idx]
+                start_s = start_ms / 1000.0
+                end_s = end_ms / 1000.0
+
+                # 插入 spacing（如果上一字符结束 ≠ 当前开始）
+                if prev_end is not None and start_s > prev_end:
+                    words.append({
+                        "type": "spacing",
+                        "start": prev_end,
+                        "end": start_s,
+                    })
+
+                words.append({
+                    "type": "word",
+                    "text": ch,
+                    "start": start_s,
+                    "end": end_s,
+                    "speaker_id": None,
+                })
+                prev_end = end_s
+
+        return {"words": words}
+
     def transcribe_with_diarization(
         self,
         audio_path: str,

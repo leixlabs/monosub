@@ -162,6 +162,24 @@ class SubtitleWriter:
                         f.write(f"{trans_text}\n")
 
     @staticmethod
+    def write_json(
+        raw_result: dict,
+        output_path: str,
+    ) -> None:
+        """写入 Scribe 兼容的字级 JSON 格式。
+
+        格式: {"words": [{"type": "word", ...}, {"type": "spacing", ...}, ...]}
+        此格式可直接被 video-use 的 pack_transcripts.py 消费。
+
+        Args:
+            raw_result: transcribe_raw() 返回的 dict
+            output_path: 输出文件路径
+        """
+        import json
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(raw_result, f, indent=2, ensure_ascii=False)
+
+    @staticmethod
     def write_md(
         segments: List[Dict],
         output_path: str,
@@ -232,6 +250,15 @@ class SubtitleWriter:
             cls.write_txt(segments, output_path, translation_segments)
         elif format == 'md':
             cls.write_md(segments, output_path, translation_segments)
+        elif format == 'json':
+            # JSON 格式期望 segments 是 raw dict（transcribe_raw 的输出）
+            if isinstance(segments, dict):
+                cls.write_json(segments, output_path)
+            else:
+                raise ValueError(
+                    "JSON format requires raw word-level data. "
+                    "Use --raw with monosub to produce compatible output."
+                )
         else:
             raise ValueError(f"Unsupported format: {format}")
 

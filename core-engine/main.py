@@ -189,8 +189,30 @@ def main():
         choices=["auto", "cpu", "cuda", "mps"],
         help="Inference device (default: auto, can be overridden by MONOSUB_ASR_DEVICE)",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="sensevoice",
+        choices=["sensevoice", "paraformer-zh", "paraformer-large"],
+        help="ASR model (default: sensevoice). Use paraformer-zh for word-level timestamps.",
+    )
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help=(
+            "Output word-level JSON (Scribe-compatible) instead of SRT/VTT/TXT. "
+            "Forces --model paraformer-zh and --format json. "
+            "Spacing entries mark silences for video-use pack_transcripts.py."
+        ),
+    )
 
     args = parser.parse_args()
+
+    # --raw 强制覆盖为 word-level JSON 模式
+    if args.raw:
+        args.format = "json"
+        args.model = "paraformer-zh"
+        print("MSG:Raw mode enabled — using paraformer-zh, output word-level JSON", flush=True)
 
     if args.diarization and not _is_pro_licensed():
         print(
@@ -201,7 +223,7 @@ def main():
         sys.exit(1)
 
     # Parse formats (comma-separated, e.g. "srt,vtt,txt")
-    ALLOWED_FORMATS = {"srt", "vtt", "txt", "md"}
+    ALLOWED_FORMATS = {"srt", "vtt", "txt", "md", "json"}
     raw_formats = [f.strip().lower() for f in args.format.split(",") if f.strip()]
     if not raw_formats:
         print("ERROR:No valid format specified", flush=True)
@@ -244,7 +266,7 @@ def main():
         tracker.emit_step(2, "Loading model")
 
         transcriber = FunASRTranscriber(
-            model_name="sensevoice",  # 使用 SenseVoice 模型
+            model_name=args.model,  # 尊重 --model 参数
             device=args.device,
         )
         print(f"MSG:Using device: {transcriber.device}", flush=True)
@@ -264,6 +286,13 @@ def main():
         tracker.emit_step(3, "Transcribing")
 
         def run_transcription(target_audio_path: str):
+            if args.raw:
+                print("MSG:Transcribing with word-level timestamps (raw mode)", flush=True)
+                return transcriber.transcribe_raw(
+                    target_audio_path,
+                    progress_callback,
+                    args.language,
+                )
             if args.diarization:
                 print("MSG:Multi-speaker mode enabled", flush=True)
                 return transcriber.transcribe_with_diarization(
@@ -317,7 +346,11 @@ def main():
             else:
                 raise
 
-        print(f"MSG:{len(segments)} segments found", flush=True)
+        if args.raw:
+            word_count = len(segments.get("words", []))
+            print(f"MSG:{word_count} word-level tokens found", flush=True)
+        else:
+            print(f"MSG:{len(segments)} segments found", flush=True)
         tracker.emit_elapsed()
 
         # Step 4: 写入字幕文件（支持多格式输出）
