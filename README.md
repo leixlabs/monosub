@@ -57,11 +57,17 @@ Drag in a video or audio file. Get a transcript. That's it.
 ## 🚀 Quick Start
 
 1. **Download** MonoSub from [Releases](https://github.com/0xkamalei/monosub-public/releases/latest)
-2. **Drag** video/audio files into the app
-3. **Click** "Start"
-4. **Get** your transcript
+2. **Open Settings → Models** and download the speech model (~250 MB, one time)
+3. **Drag** video/audio files into the app
+4. **Click** "Start"
+5. **Get** your transcript
 
-That's it. No account. No subscription. No internet needed.
+That's it. No account. No subscription. No internet needed after the model download.
+
+> **v2.0 note:** speech recognition now runs on a bundled [audio.cpp](https://github.com/0xShug0/audio.cpp)
+> engine instead of Python + PyTorch. The app is much smaller and uses far less memory, but the
+> recognition model is no longer shipped inside the installer — you download it once from
+> Settings → Models. See the release notes for details.
 
 ---
 
@@ -72,10 +78,14 @@ That's it. No account. No subscription. No internet needed.
 | Feature | Free | Pro |
 |---------|------|-----|
 | Transcription | ✅ Unlimited | ✅ Unlimited |
-| Export to SRT, TXT, VTT | ✅ | ✅ |
+| Export to SRT, TXT, VTT, MD | ✅ | ✅ |
 | Batch processing | ✅ | ✅ |
-| **Speaker diarization** (who spoke when) | ❌ | ✅ |
+| **Speaker diarization** (who spoke when) | ❌ | ⏳ *temporarily unavailable* |
 | **Priority support** | ❌ | ✅ |
+
+> **Multi-speaker recognition is temporarily unavailable in v2.0.** The v2.0 engine swap changed the
+> speech backend, and diarization is being re-implemented on the new engine. It will return in a later
+> release; existing Pro licenses stay valid and Pro will cover it again once it ships.
 
 **Pro License: $20** — one-time purchase, lifetime valid  
 🎉 **First 1,000 customers: 50% off with code `F1N1MSVJ`**
@@ -98,7 +108,8 @@ Then open the app again.
 
 ### Do I need internet to use MonoSub?
 
-**No.** After the initial download and setup, MonoSub works completely offline.
+**Not for transcription.** The first time you use it, download the speech model from
+Settings → Models (~250 MB, one time). After that MonoSub works completely offline.
 
 ### What file formats are supported?
 

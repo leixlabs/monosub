@@ -5,8 +5,6 @@
 # Sync targets:
 #   - src-tauri/Cargo.toml
 #   - package.json
-#   - core-engine/pyproject.toml
-#   - src-tauri/resources/core-engine/pyproject.toml
 
 set -euo pipefail
 

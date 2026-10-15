@@ -48,14 +48,6 @@ set_package_json_version() {
     perl -i -pe 'if (!$done && s/^\s*"version"\s*:\s*"[^"]+"/  "version": "'"$new_version"'"/) { $done = 1 }' "$package_json"
 }
 
-set_pyproject_version_if_exists() {
-    local pyproject_file="$1"
-    local new_version="$2"
-    if [ -f "$pyproject_file" ]; then
-        perl -i -pe 'if (!$done && s/^version\s*=\s*"[^"]+"/version = "'"$new_version"'"/) { $done = 1 }' "$pyproject_file"
-    fi
-}
-
 sync_versions_from_tauri() {
     local project_root="$1"
     local version
@@ -63,8 +55,6 @@ sync_versions_from_tauri() {
 
     set_cargo_version "$project_root" "$version"
     set_package_json_version "$project_root" "$version"
-    set_pyproject_version_if_exists "$project_root/core-engine/pyproject.toml" "$version"
-    set_pyproject_version_if_exists "$project_root/src-tauri/resources/core-engine/pyproject.toml" "$version"
 }
 
 bump_patch_version_and_sync() {
