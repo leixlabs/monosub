@@ -1,5 +1,7 @@
 mod commands;
+mod engine;
 mod logging;
+mod subtitle;
 mod tray;
 
 use commands::*;

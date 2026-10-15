@@ -1,6 +1,6 @@
 # 重构方案：用 audio.cpp 替换 Python/FunASR 推理引擎
 
-> 状态：**Planned**
+> 状态：**Phase 0 已完成 → Go（附条件）**，见 [audiocpp-poc.md](./audiocpp-poc.md)
 > 目标版本：v2.0（破坏性变更）
 > 定位：个人 App，方案以"够用、好维护"为准，不做企业级的灰度/兼容/合规设计。
 > 上游：[0xShug0/audio.cpp](https://github.com/0xShug0/audio.cpp)，锁定 **v0.9.1**（Apache-2.0）
@@ -135,7 +135,7 @@ src-tauri/src/
 
 - 来源：`scripts/build/fetch-audiocpp.sh` 下载 v0.9.1 release 的 `macos-arm64-metal` 包，**校验 SHA256**（脚本内写死），取出 `audiocpp_cli` 与 `LICENSE`。需要 Intel 时取 `macos-x64-metal` 包，二者 `lipo` 合成 universal。
 - 放置：`src-tauri/resources/bin/audiocpp_cli-aarch64-apple-darwin`，路径解析复用 ffmpeg 的规则（dev：`src-tauri/resources/bin/`；prod：`Resources/resources/bin/`）。
-- VAD 模型：`src-tauri/resources/models/silero_vad/silero_vad_16k.safetensors`，由同一脚本从上游仓库 `assets/framework/models/silero_vad/` 下载（固定 commit），**随 App 内置**，不走用户模型目录。
+- VAD 模型：`src-tauri/resources/models/silero_vad/silero_vad_16k.safetensors`，由同一脚本从上游仓库 `assets/framework/models/silero_vad/` 下载（Phase 0 实测：**v0.9.1 tag 内即可取到**，无需回溯 commit），**随 App 内置**，不走用户模型目录。
 - `.gitignore` 忽略二进制与 VAD 文件，`prepare-resources.sh` 调用 fetch 脚本。
 - 签名：`sign-app.sh` 对 `resources/bin/*` 逐个 `codesign --options runtime`；hardened runtime 下是否需要额外 entitlement，在 Phase 2 干净机验证。
 - `tauri.conf.json`：删除 `externalBin`；`resources` 已是 `resources/**/*`，无需改。
@@ -208,19 +208,29 @@ audiocpp_cli --task vad --family silero_vad \
 **Step 3 切片 + 转写**（模型加载一次）：
 
 1. Rust 用 `hound` 读 WAV，按 `start_sample..end_sample` 切出 `chunk_0000.wav …`。
-2. 生成 `requests.json`：`{"requests":[{"id":"c0000","audio":"chunk_0000.wav"}, …]}`（`audio` 字段名 Phase 0 确认，备选 `--batch-audio-dir`）。
+2. 生成 `requests.json`。**逐请求选项必须写在这里**，不能用 `--request-option`（Phase 0 实测：sequence 模式下 CLI 不解析 `--request-option`，随后按未识别参数报错 `unknown options`——详见 [PoC §4.1](./audiocpp-poc.md)）：
+
+```jsonc
+{"requests":[
+  {"id":"c0000","audio":"chunk_0000.wav","language":"zh",
+   "options":{"audio_chunk_mode":"none"}},
+  …
+]}
+```
+
+`audio` 字段名、顶层 `language`、`options` 映射均已实测确认。相对路径以 `requests.json` 所在目录为 base。
+
 3. 调用：
 
 ```bash
 audiocpp_cli --task asr --family sense_asr --model <gguf> --backend metal \
   --request-sequence requests.json --text-out out/text.txt \
-  --request-option language=zh --request-option audio_chunk_mode=none \
   --session-option sense_asr.vad_model_path=<res>/models/silero_vad \
   --threads <物理核数> --metrics
 ```
 
-4. 每段文本从 `out/text_<id>.txt` 读取（CLI 对 sequence 的命名规则：`<stem>_<id><ext>`）。
-5. 进度：逐行读 stdout，匹配 `metrics[<id>]` 计数，`progress = done / total`，emit 到 Step 3。若 Phase 0 发现 metrics 只在结束时统一打印，则退化为不确定进度。
+4. 每段文本从 CLI 打印的 `text_out[<id>]=<path>` 行取路径（命名规则 `<stem>_<safe_id><ext>`，`safe_output_name` 会把非 `[A-Za-z0-9_-]` 转成 `_`）。直接解析该行比自行拼接更稳。
+5. 进度：逐行读 stdout，匹配 `metrics[<id>].` 计数 → `progress = done / total`，emit 到 Step 3。**Phase 0 确认 metrics 逐条实时输出**，无需退化。
 
 **Step 4 后处理 + 写文件**：见 §5.4。
 
@@ -275,11 +285,13 @@ audiocpp_cli --task asr --family qwen3_asr --model <dir> --backend metal --audio
 |----------------------|---------------------|----------------------|
 | `auto` | `auto` | 不传 |
 | `zh` | `zh` | `zh` |
-| `zh-tw` | `zh`（输出简体，与现状一致需 Phase 0 确认；必要时后处理加 OpenCC 繁转，非首版） | `zh` |
+| `zh-tw` | `zh`（**Phase 0 已确认**：现状 FunASR 与 audio.cpp 均输出简体，无回归；OpenCC 繁转为可选增强 P4-5） | `zh` |
 | `en` / `ja` / `ko` | 同值 | 同值 |
 | `es` / `de` / `fr` / `pt` | `auto`（模型仅硬编码 5 种语言） | 同值 |
 
 映射函数放 `engine/catalog.rs`，按 `models.json` 的 `languages` 判定，不支持的回落 `auto`。
+
+> **Phase 0 修正**：`sense_asr` 的 `is_language_tag()` 实际接受 **23 种**语言标签（不会因传 `es`/`de` 等报错），但 `language_query_token()` 只把 `{auto, zh, en, yue, ja, ko, nospeech}` 映射为真实 token，其余一律返回 `0`（= auto）。因此**结论（回落 auto）正确，机制描述需修正**：`models.json` 的 `languages` 应填完整 23 项（决定 CLI 是否报错），而「映射到 auto」需在 `map_language` 里单独实现，不能依赖 CLI。
 
 ### 5.7 说话人分离与授权
 
@@ -329,7 +341,8 @@ audiocpp_cli --task asr --family qwen3_asr --model <dir> --backend metal --audio
 | 4 | HF 下载在国内慢/失败 | mirrors 回退 + 手动放置 |
 | 5 | 预编译二进制 Gatekeeper/公证问题 | 重签名 + 公证；干净机验证 |
 | 6 | 上游迭代快、接口变化 | 锁定 v0.9.1 + SHA256；升级单独评估并跑 Phase 0 脚本回归 |
-| 7 | `zh-tw` 输出简繁不符预期 | Phase 0 确认现状行为后决定是否引入繁转 |
+| 7 | ~~`zh-tw` 输出简繁不符预期~~ | **Phase 0 已关闭**：现状 FunASR 同样输出简体，无回归 |
+| 10 | **中文准确率未充分对照**（Phase 0 唯一缺口） | 已实测速度/内存大幅优于现状，但准确率仅单样例、且对 VAD `padding` 敏感。**发版前必须用真实素材补测**；若不达标，评估默认切换 `qwen3_asr`（P4-1） |
 | 8 | 多说话人下线影响 Pro 用户 | 发版说明告知；Phase 4 优先 |
 | 9 | 长音频（≥2h）切片数量多、临时文件大 | 切片总大小 ≈ 原 WAV；必要时分批 sequence（每批 200 段） |
 

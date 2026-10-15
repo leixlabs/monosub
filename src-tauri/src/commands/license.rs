@@ -131,6 +131,32 @@ fn clear_license_state() {
     }
 }
 
+/// True when a previously validated Pro license is still trustworthy.
+///
+/// Decrypts `~/.monosub/license_state.json`, verifies the HMAC signature over
+/// `1|validated_at|expires_at|activation_id`, and requires `valid == true`.
+///
+/// Task: P1-13.
+#[allow(dead_code)]
+pub fn is_pro_licensed() -> bool {
+    unimplemented!("P1-13")
+}
+
+/// Same check against an explicit `$HOME`, so the unit test can point at a
+/// temporary directory instead of the developer's real licence.
+///
+/// Task: P1-13.
+#[allow(dead_code, unused_variables)]
+pub fn is_pro_licensed_in(home: &std::path::Path) -> bool {
+    unimplemented!("P1-13")
+}
+
+/// Compiled-in signature key, exposed for the P1-13 unit test fixture.
+#[allow(dead_code)]
+pub(crate) fn license_signature(payload: &str) -> String {
+    hmac_hex(payload)
+}
+
 fn build_endpoints(path: &str) -> Vec<String> {
     let base = POLAR_BASE_URL.trim_end_matches('/');
     let mut endpoints = vec![format!("{}/v1{}", base, path)];

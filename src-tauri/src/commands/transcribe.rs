@@ -208,7 +208,7 @@ pub async fn start_transcription(
                 (cache_path_str, keep_cache)
             } else {
                 let audio_path_str = cache_path.to_string_lossy().to_string();
-                let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(&app));
+                let ffmpeg_path = crate::commands::video::get_ffmpeg_path(Some(&app));
                 let output = tokio::process::Command::new(&ffmpeg_path)
                     .args(&[
                         "-i",
@@ -344,8 +344,8 @@ async fn run_sidecar(
     let shell = app.shell();
 
     // Get ffmpeg path from video.rs helper
-    let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(app));
-    let ffprobe_path = crate::commands::video::get_ffprobe_path_for_python(Some(app));
+    let ffmpeg_path = crate::commands::video::get_ffmpeg_path(Some(app));
+    let ffprobe_path = crate::commands::video::get_ffprobe_path(Some(app));
 
     tracing::debug!(
         task_id = %task_id,
@@ -508,8 +508,8 @@ async fn run_dev_mode(
     );
 
     // Get ffmpeg path from video.rs helper
-    let ffmpeg_path = crate::commands::video::get_ffmpeg_path_for_python(Some(app));
-    let ffprobe_path = crate::commands::video::get_ffprobe_path_for_python(Some(app));
+    let ffmpeg_path = crate::commands::video::get_ffmpeg_path(Some(app));
+    let ffprobe_path = crate::commands::video::get_ffprobe_path(Some(app));
 
     tracing::debug!(
         task_id = %task_id,

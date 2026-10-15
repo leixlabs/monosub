@@ -24,6 +24,26 @@
 | P0-10 | （可选）跑 `qwen3_asr` + forced aligner 的 `--words-out`，记录模型体积与速度 | S | P0-1 | 数据 |
 | P0-11 | 产出 `docs/tech-spec/audiocpp-poc.md`：数据、JSON 样例、Go/No-Go 结论；回填 spec 中所有"Phase 0 确认"项 | S | P0-1..10 | 文档合入 |
 
+### Phase 0 执行状态（2026-10-15）
+
+结论 **Go（附条件）**，详见 [audiocpp-poc.md](./audiocpp-poc.md)。
+
+| ID | 状态 | 说明 |
+|----|------|------|
+| P0-1 | ✅ | SHA256 `960436787b84…d1100d`；114 个 loader，所需 6 个齐全 |
+| P0-2 | ✅ | GGUF 254,211,200 B / `4dedf169…6ff0ec`；VAD 1,239,748 B / `c59271c2…19ea1` |
+| P0-3 | ✅ | 中文样例正常；RTF 0.059（5.6s 音频） |
+| P0-4 | ✅ | 采样点格式确认；padding 语义为**替换**而非外扩；全静音返回 `[]` 且退出码 0 |
+| P0-5 | ✅ | 三项全部确认。**但 spec §5.3 的 `--request-option` + `--request-sequence` 组合会直接报错**，逐请求选项必须写进 `requests.json`（见 PoC §4.1） |
+| P0-6 | ✅ | `scripts/poc/run_pipeline.py` 已入库，112s / 562s 音频各 20/100 段全部取回。**未产出 SRT**（后处理属 P1-10/11） |
+| P0-7 | ⚠️ **部分** | 速度/内存数据完整（9.36min：**6.78s / 560MB** vs FunASR **12.98s / 3.0GB**）。**准确率与时间轴观感未验证**——本机无真实评测素材，仅合成音频 |
+| P0-8 | ✅ | FunASR 与 audio.cpp **均输出简体**（现状本就不繁转）→ 无回归，P4-5 非必需 |
+| P0-9 | ✅ | 三项**全部失效**（死代码）；P1-21 migrate 应丢弃 |
+| P0-10 | ⬜ | 未做（可选，不阻塞） |
+| P0-11 | ✅ | `docs/tech-spec/audiocpp-poc.md` 已产出 |
+
+**遗留未决（阻塞发版，不阻塞 P1 开工）**：P0-7 的中文准确率对照。需真实素材（≥1h 长音频／多人对话／中英混合）后补测，建议并入 P1-23。
+
 **Go 条件**：中文准确率主观不劣；时间轴可用；速度与内存不劣于现状；P0-5 有可行方案。
 
 ---
@@ -38,6 +58,10 @@
 | P1-2 | `src-tauri/resources/models.json`：SenseVoice 条目（字段见 spec §5.2，填实测 size/sha256，配置镜像 URL） | S | P0-11 | JSON 可被 P1-5 解析 |
 | P1-3 | `video.rs`：`get_ffmpeg_path_for_python` → `get_ffmpeg_path`（ffprobe 同理），更新所有调用 | S | — | `cargo check` |
 | P1-4 | `Cargo.toml` 增加 `hound`（WAV）、`futures-util`（下载流）；`reqwest` 加 `stream` feature | S | — | `cargo check` |
+
+**1A 执行状态（2026-10-15）**：P1-1 ✅（已实测幂等，见 `fetch-audiocpp.sh`）／P1-2 ✅／P1-3 ✅／P1-4 ✅（`cargo check` 通过，clippy 无新增告警）。
+
+> P1-3 落地细节：`video.rs` 原本已有一对同名**私有** `get_ffmpeg_path`/`get_ffprobe_path`，与 `*_for_python` 是重复实现。已合并为单一 `pub fn`，并更新 `transcribe.rs` 的 5 处调用。
 
 ### 1B. Rust 核心模块
 

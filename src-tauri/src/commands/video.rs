@@ -133,23 +133,13 @@ fn resolve_binary_path(binary_name: &str, env_var: &str, app: Option<&AppHandle>
     binary_name.to_string()
 }
 
-/// Get ffmpeg binary path
-fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
+/// Get ffmpeg binary path (bundled or system)
+pub fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
     resolve_binary_path("ffmpeg", "MONOSUB_FFMPEG_PATH", app)
 }
 
-/// Get ffmpeg binary path for Python subprocess (checks bundled and system locations)
-pub fn get_ffmpeg_path_for_python(app: Option<&AppHandle>) -> String {
-    resolve_binary_path("ffmpeg", "MONOSUB_FFMPEG_PATH", app)
-}
-
-/// Get ffprobe binary path for Python subprocess (checks bundled and system locations)
-pub fn get_ffprobe_path_for_python(app: Option<&AppHandle>) -> String {
-    resolve_binary_path("ffprobe", "MONOSUB_FFPROBE_PATH", app)
-}
-
-/// Get ffprobe binary path
-fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
+/// Get ffprobe binary path (bundled or system)
+pub fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
     resolve_binary_path("ffprobe", "MONOSUB_FFPROBE_PATH", app)
 }
 
