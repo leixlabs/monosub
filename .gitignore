@@ -52,6 +52,10 @@ src-tauri/target/
 src-tauri/resources/*
 # The model catalogue is source, not a fetched artifact
 !src-tauri/resources/models.json
+# License texts are source: Apache-2.0 requires shipping audio.cpp's LICENSE,
+# so these must be committed rather than fetched (P2-6).
+!src-tauri/resources/licenses/
+!src-tauri/resources/licenses/**
 
 # Temporary files
 *.wav

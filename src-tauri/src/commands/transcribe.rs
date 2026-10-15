@@ -66,9 +66,8 @@ const TOTAL_STEPS: u32 = 4;
 
 /// ffmpeg filter chain of the previous engine, reproduced verbatim.
 ///
-/// The old Python extractor (`core-engine/monosub_core/audio_extractor.py`,
-/// `AudioExtractor.extract_audio`) always ran with `enable_preprocessing=True,
-/// normalize_volume=True, noise_reduction=True` — callers never passed the
+/// The old Python extractor always ran with `enable_preprocessing=True`,
+/// `normalize_volume=True`, `noise_reduction=True` — callers never passed the
 /// flags — appending in this order: `highpass=f=80`, `lowpass=f=8000`,
 /// `afftdn=nf=-25:nr=12:nt=w`, `loudnorm=I=-16:TP=-1.5:LRA=11`. Keeping it
 /// keeps the recognition input identical (spec §3; PoC §7 / P0-9).
@@ -592,7 +591,7 @@ async fn extract_wav(app: &AppHandle, input: &Path) -> Result<ExtractedAudio, En
             })
         }
         Err(filtered) => {
-            // Mirrors the Python engine's `_extract_basic` fallback: an input
+            // Mirrors the old engine's `_extract_basic` fallback: an input
             // ffmpeg cannot filter may still decode without `-af`. Only a
             // genuine ffmpeg failure reaches here.
             tracing::warn!(
