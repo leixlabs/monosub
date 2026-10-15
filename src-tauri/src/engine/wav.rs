@@ -315,3 +315,154 @@ mod tests {
         assert_eq!(chunk_path(work, 42), work.join("chunk_0042.wav"));
     }
 }
+
+/// Slice invariants that P1-9's pipeline depends on.
+///
+/// These deliberately go beyond frame counts: the guardrail for chunked
+/// transcription is that slicing is *lossless*, because the engine hands
+/// `audiocpp_cli` only these cut WAVs. A silent off-by-one here would drop or
+/// duplicate a sample at every VAD boundary.
+#[cfg(test)]
+mod slice_invariants {
+    use super::*;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "monosub-wavinv-{}-{}",
+            tag,
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    fn write(path: &Path, sample_rate: u32, channels: u16, samples: &[i16]) {
+        let spec = hound::WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).expect("create wav");
+        for &sample in samples {
+            writer.write_sample(sample).expect("write sample");
+        }
+        writer.finalize().expect("finalize wav");
+    }
+
+    /// Concatenating adjacent slices must reproduce the source PCM exactly.
+    ///
+    /// Boundaries are deliberately uneven and adjacent (0,1,7,100,101,500,999,1000)
+    /// so an off-by-one at either end shows up as a value mismatch rather than
+    /// cancelling out.
+    #[test]
+    fn adjacent_slices_concatenate_back_to_the_original_samples() {
+        let dir = scratch("concat");
+        let original: Vec<i16> = (0..1000).collect();
+        let source = dir.join("source.wav");
+        write(&source, 16_000, 1, &original);
+
+        let data = read(&source).expect("read source");
+        assert_eq!(data.frames(), 1000);
+
+        let bounds = [0u64, 1, 7, 100, 101, 500, 999, 1000];
+        let mut rebuilt: Vec<i16> = Vec::new();
+        for (index, pair) in bounds.windows(2).enumerate() {
+            let out = dir.join(format!("part-{}.wav", index));
+            slice(&data, pair[0], pair[1], &out).expect("slice");
+
+            let part = read(&out).expect("read part");
+            assert_eq!(
+                part.frames(),
+                (pair[1] - pair[0]) as usize,
+                "part {} frame count",
+                index
+            );
+            rebuilt.extend_from_slice(&part.samples);
+        }
+
+        assert_eq!(rebuilt, original, "slices must reconstruct the source");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every requested range lands inside `[0, frames]`, including inverted
+    /// ranges and ranges entirely past the end.
+    #[test]
+    fn clamp_range_stays_within_the_source() {
+        for (total, start, end) in [
+            (100usize, 0u64, 1000u64),
+            (100, 50, 200),
+            (100, 200, 300),
+            (100, 99, 100),
+            (0, 0, 10),
+            (100, 100, 100),
+        ] {
+            let (lo, hi) = clamp_range(total, start, end);
+            assert!(lo <= hi, "({total}, {start}, {end}) -> ({lo}, {hi})");
+            assert!(hi <= total, "end {hi} exceeds {total}");
+            assert!(lo <= total);
+        }
+    }
+
+    /// An empty range still produces a valid, re-readable WAV (P1-9 writes one
+    /// per VAD chunk, and `audiocpp_cli` must accept every one of them).
+    #[test]
+    fn zero_length_slice_is_still_a_valid_wav() {
+        let dir = scratch("zero");
+        let source = dir.join("source.wav");
+        write(&source, 16_000, 1, &[1, 2, 3, 4, 5]);
+        let data = read(&source).expect("read source");
+
+        let out = dir.join("empty.wav");
+        slice(&data, 3, 3, &out).expect("slice");
+
+        let empty = read(&out).expect("re-read empty slice");
+        assert_eq!(empty.frames(), 0);
+        assert_eq!(empty.sample_rate, 16_000);
+        assert_eq!(empty.channels, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Rejections must name the actual layout, so a user report is actionable.
+    #[test]
+    fn layout_rejections_name_the_actual_format() {
+        let dir = scratch("reject");
+        for (label, sample_rate, channels, expected) in [
+            ("48k", 48_000u32, 1u16, "48000"),
+            ("44k", 44_100, 1, "44100"),
+            ("stereo", 16_000, 2, "2 channel"),
+        ] {
+            let path = dir.join(format!("{}.wav", label));
+            write(&path, sample_rate, channels, &[0i16; 32]);
+
+            let message = format!("{}", read(&path).expect_err("must reject"));
+            assert!(
+                message.contains(expected),
+                "{label}: expected {expected:?} in {message:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 8-bit input must be rejected rather than silently reinterpreted.
+    #[test]
+    fn rejects_eight_bit_depth() {
+        let dir = scratch("depth");
+        let path = dir.join("u8.wav");
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 8,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(&path, spec).expect("create wav");
+        for _ in 0..32 {
+            writer.write_sample(0i8).expect("sample");
+        }
+        writer.finalize().expect("finalize");
+
+        let message = format!("{}", read(&path).expect_err("must reject 8-bit"));
+        assert!(message.contains("8-bit"), "{message:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
