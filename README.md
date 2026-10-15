@@ -1,210 +1,125 @@
-# Voice to Subtitle
+<div align="center">
 
-基于 Tauri + React + FunASR 的本地语音转字幕桌面应用。
+# MonoSub
 
-![UI Design](design/screenShot.png)
+**Turn your videos & audio into text. Locally. For free.**
 
-## 特性
+[中文文档](README_CN.md) · [Download](#-download) · [FAQ](#-faq)
 
-- 🎬 **多文件队列处理** - 同时管理多个视频文件
-- 🖼️ **视频缩略图** - 自动生成视频预览
-- ⚡ **本地 AI 处理** - 使用 FunASR 进行高质量语音识别
-- 📝 **多格式支持** - 输出 SRT、VTT、TXT 格式字幕
-- 🌐 **多语言支持** - 支持中文、英文
-- 💾 **灵活存储** - 同目录或自定义目录保存
-- 🎨 **现代化 UI** - 基于设计系统的精美界面
+</div>
 
-## 技术栈
+---
 
-### 前端
-- React 18 + TypeScript
-- TailwindCSS
-- Zustand (状态管理)
-- Lucide React (图标)
-- **包管理**: Bun
+## The Problem
 
-### 后端
-- Tauri 2.0 (Rust)
-- FunASR (Python)
-- FFmpeg (视频处理)
-- **包管理**: uv
+You have hours of video content. Podcasts, interviews, lectures, meetings. But LLMs can't watch videos or listen to audio — they only understand text.
 
-## 快速开始
+So you need transcripts. But existing solutions either:
+- Force you to upload private content to the cloud
+- Charge monthly fees for something that should be simple
+- Take forever because everything has to upload first
 
-### 环境要求
+**MonoSub fixes this.** Run it on your computer, process files locally, get text fast.
 
-- **Bun** (前端包管理器) - [安装](https://bun.sh/)
-- **uv** (Python 包管理器) - [安装](https://docs.astral.sh/uv/)
-- **Rust** 1.70+
-- **FFmpeg** (视频处理)
+---
 
-### 安装依赖
+## What MonoSub Does
 
-1. **安装前端依赖 (使用 Bun)**
+Drag in a video or audio file. Get a transcript. That's it.
+
+- **100% local** — your files never leave your computer
+- **Works offline** — no internet needed after installation
+- **Multiple formats** — MP4, MOV, MP3, WAV, and more
+- **Export to SRT, VTT, TXT** — use with any LLM or video editor
+- **Fast** — hardware accelerated on Apple Silicon and NVIDIA GPUs
+
+### Perfect For
+
+- **Content creators** turning YouTube videos into blog posts
+- **Researchers** transcribing interviews for analysis
+- **Students** converting lecture recordings to searchable notes
+- **Developers** feeding video content to LLMs for processing
+
+---
+
+## 📥 Download
+
+**Latest Release:** [GitHub Releases](https://github.com/0xkamalei/monosub-public/releases/latest)
+
+### System Requirements
+
+- **macOS** 11.0+ (Apple Silicon M1/M2/M3 optimized)
+- **Windows** (Coming Soon)
+- **Linux** (Coming Soon)
+
+---
+
+## 🚀 Quick Start
+
+1. **Download** MonoSub from [Releases](https://github.com/0xkamalei/monosub-public/releases/latest)
+2. **Drag** video/audio files into the app
+3. **Click** "Start"
+4. **Get** your transcript
+
+That's it. No account. No subscription. No internet needed.
+
+---
+
+## 💎 Pro License
+
+**MonoSub is completely free** — unlimited transcription for personal use.
+
+| Feature | Free | Pro |
+|---------|------|-----|
+| Transcription | ✅ Unlimited | ✅ Unlimited |
+| Export to SRT, TXT, VTT | ✅ | ✅ |
+| Batch processing | ✅ | ✅ |
+| **Speaker diarization** (who spoke when) | ❌ | ✅ |
+| **Priority support** | ❌ | ✅ |
+
+**Pro License: $20** — one-time purchase, lifetime valid  
+🎉 **First 1,000 customers: 50% off with code `F1N1MSVJ`**
+
+[**Upgrade to Pro**](https://polar.leix.dev/v1/checkout-links/polar_cl_JgYlmsUnlbej0vpnuI197nQltlEsUxg1hZd0r3unixT/redirect)
+
+---
+
+## FAQ
+
+### macOS says "MonoSub is damaged and can't be opened"
+
+This is Apple's Gatekeeper being overprotective. Run this in Terminal:
+
 ```bash
-bun install
+xattr -cr /Applications/MonoSub.app
 ```
 
-2. **设置 Python 环境 (使用 uv)**
-```bash
-./scripts/setup-python.sh
-```
+Then open the app again.
 
-这个脚本会：
-- 检查 uv 和 FFmpeg 是否安装
-- 使用 uv 创建虚拟环境
-- 安装 FunASR 和所有依赖
+### Do I need internet to use MonoSub?
 
-3. **验证安装**
-```bash
-# 使用 uv 运行 Python 引擎
-cd core-engine
-uv run python main.py --help
-```
+**No.** After the initial download and setup, MonoSub works completely offline.
 
-### 开发
+### What file formats are supported?
 
-```bash
-# 启动开发服务器
-bun run dev
+Video: MP4, MOV, AVI, MKV, FLV, WMV  
+Audio: MP3, WAV, AAC, FLAC, M4A  
+If it has audio, MonoSub can transcribe it.
 
-# 类型检查
-bun run check
+### What languages can it transcribe?
 
-# 代码检查
-bun run lint
-```
+Currently supports Chinese (Mandarin), English, and more languages are being added. The AI automatically detects the language.
 
-### 构建
+### Is there a refund policy?
 
+Yes. 7-day money-back guarantee on Pro licenses.
 
-**打包方案说明：**
-- **Lite 版本**（~80MB）：打包 Python 解释器 + uv 工具 + 源码，首次运行时自动安装依赖
-- **Full 版本**（~800MB）：打包完整 Python venv，无需首次安装，稳定性更好
+---
 
-**重要说明：**
-- `core-engine/` 是 Python 源代码目录
-- `src-tauri/resources/` 在构建时自动生成，不提交到 git
-- 构建脚本会自动复制 Python 代码到打包目录
+<div align="center">
 
-## 项目结构
+Made for people who just want their videos in text format.
 
-```
-voice-to-subtitle/
-├── src/                      # 前端代码
-│   ├── components/          # React 组件
-│   ├── store/              # Zustand 状态管理
-│   └── App.tsx             # 主应用
-│
-├── src-tauri/               # Rust 后端
-│   ├── src/
-│   │   ├── commands/       # Tauri 命令
-│   │   │   ├── video.rs   # 视频处理
-│   │   │   └── transcribe.rs  # 转录管理
-│   │   └── main.rs        # 入口
-│   └── Cargo.toml
-│
-├── core-engine/             # Python AI 引擎（源代码）
-│   ├── monosub_core/       # 核心模块
-│   │   ├── audio_extractor.py
-│   │   ├── transcriber.py
-│   │   └── subtitle_writer.py
-│   ├── main.py             # 入口
-│   ├── pyproject.toml      # uv 项目配置
-│   └── .venv/              # Python 虚拟环境（自动生成，已忽略）
-│
-├── design/                  # UI 设计文件
-├── _docs/                   # 产品文档
-└── scripts/                 # 辅助脚本
-```
+[Download Now](https://github.com/0xkamalei/monosub-public/releases/latest)
 
-## 使用说明
-
-### 1. 添加视频文件
-- 点击"添加文件"按钮
-- 或拖拽视频文件到窗口
-
-### 2. 选择存储位置
-- **同目录**: 字幕保存在视频文件同目录
-- **指定目录**: 选择自定义目录保存所有字幕
-
-### 3. 开始处理
-- 点击文件项的"开始"按钮
-- 查看实时进度
-
-### 4. 管理任务
-- **暂停**: 暂停当前任务（开发中）
-- **删除**: 移除文件项
-- **清空**: 清空所有文件
-
-## 配置
-
- 
-### 修改输出格式
-在前端或通过命令行参数:
-```bash
-cd core-engine
-uv run python main.py video.mp4 output.srt --format vtt
-```
-
-支持的格式：`srt`, `vtt`, `txt`
-
-## 开发指南
-
-详见以下文档：
-- [core-engine/README.md](core-engine/README.md) - Python 引擎文档
-
-## 故障排除
-
-### uv 未安装
-```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 或使用 Homebrew (macOS)
-brew install uv
-```
-
-### Python 依赖问题
-```bash
-cd core-engine
-# 重新同步依赖
-uv sync --reinstall
-```
-
-### FFmpeg 未安装
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt-get install ffmpeg
-```
-
-### Rust 编译错误
-```bash
-# 更新 Rust
-rustup update
-
-# 清理并重新构建
-cd src-tauri
-cargo clean
-cargo build
-```
-
-## 路线图
-
-- [ ] 完成 FunASR 集成测试
-- [ ] 支持 GPU 加速
-- [ ] 批量处理队列
-- [ ] 多语言界面
-- [ ] Windows 和 Linux 支持
-
- 
- 
-
-## 致谢
-
-- [Tauri](https://tauri.app/) - 桌面应用框架
-- [FunASR](https://github.com/alibaba-damo-academy/FunASR) - 语音识别模型
-- [FFmpeg](https://ffmpeg.org/) - 视频处理工具
+</div>
