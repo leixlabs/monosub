@@ -466,16 +466,21 @@ fn emit_error(app: &AppHandle, task_id: &str, status: &str) {
     );
 }
 
-/// Short status text for a failed engine call (spec §5.3); the full detail
-/// (including `EngineError::Failed::stderr_tail`) goes to the log.
+/// Short status for a failed engine call (spec §5.3).
+///
+/// These are i18n **keys**, not sentences: the frontend resolves
+/// `errors.<status>` when such a key exists and otherwise shows the raw string,
+/// so a technical writer message still comes through verbatim. The full detail
+/// (including `EngineError::Failed::stderr_tail`) always goes to the log.
 fn engine_failure(err: EngineError) -> TaskFailure {
     let status = match &err {
-        EngineError::Missing(_) => "Speech engine is missing",
-        EngineError::AudioExtractFailed(_) => "Audio extraction failed",
-        EngineError::Failed { .. } => "Transcription failed",
-        EngineError::Io(_) | EngineError::InvalidAudio(_) | EngineError::Protocol(_) => {
-            "Transcription failed"
-        }
+        EngineError::Missing(_) => "engineMissing",
+        EngineError::ModelNotInstalled(_) => "modelNotInstalled",
+        EngineError::AudioExtractFailed(_) => "audioExtractFailed",
+        EngineError::Failed { .. }
+        | EngineError::Io(_)
+        | EngineError::InvalidAudio(_)
+        | EngineError::Protocol(_) => "engineFailed",
     };
     TaskFailure::new("transcription failed", status, engine_error_detail(&err))
 }
@@ -1008,6 +1013,60 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The engine-failure statuses are i18n keys, not sentences: the frontend
+    /// resolves `errors.<status>` and falls back to the raw string. Pin the keys
+    /// so a rename cannot silently make every locale dead again (review P2-2).
+    #[test]
+    fn engine_failures_emit_i18n_keys_that_exist_in_the_locales() {
+        let cases = [
+            (
+                EngineError::Missing("no binary".into()),
+                "engineMissing",
+            ),
+            (
+                EngineError::AudioExtractFailed("ffmpeg".into()),
+                "audioExtractFailed",
+            ),
+            (
+                EngineError::Failed {
+                    message: "exit 1".into(),
+                    stderr_tail: "boom".into(),
+                },
+                "engineFailed",
+            ),
+            (EngineError::Io("disk".into()), "engineFailed"),
+            (EngineError::InvalidAudio("layout".into()), "engineFailed"),
+            (EngineError::Protocol("bad json".into()), "engineFailed"),
+        ];
+
+        let locales = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("src/i18n/locales");
+
+        for (err, expected) in cases {
+            let failure = engine_failure(err);
+            assert_eq!(failure.status, expected);
+
+            // Every locale must define the key, or the fallback hides it forever.
+            for entry in std::fs::read_dir(&locales).expect("read locales") {
+                let path = entry.expect("entry").path();
+                if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                    continue;
+                }
+                let body = std::fs::read_to_string(&path).expect("read locale");
+                let json: serde_json::Value = serde_json::from_str(&body)
+                    .unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+                assert!(
+                    json.get("errors").and_then(|e| e.get(expected)).is_some(),
+                    "{} is missing errors.{}",
+                    path.display(),
+                    expected
+                );
+            }
+        }
     }
 
     #[test]

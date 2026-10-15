@@ -171,13 +171,23 @@ function App() {
       const { task_id, status } = event.payload;
       console.error('[transcribe_error]', { task_id, status });
       const modelMissing = isModelNotInstalledError(status);
-      const errorMessage = modelMissing ? t('errors.modelNotInstalled') : status;
+      // `status` is either the MODEL_NOT_INSTALLED sentinel, one of the
+      // `errors.*` keys the Rust layer emits for its known failure modes, or a
+      // raw message (e.g. from the subtitle writer). Resolve a key when we have
+      // one and otherwise show the message as-is.
+      const errorMessage =
+        modelMissing || status === 'modelNotInstalled'
+          ? t('errors.modelNotInstalled')
+          : t(`errors.${status}`, { defaultValue: status });
+      // A model that is missing (sentinel) or not in the catalogue (engine key)
+      // both need the user to visit the download list.
+      const needsModelDownload = modelMissing || status === 'modelNotInstalled';
       updateFile(task_id, {
         status: 'error',
         progress: 0,
         error: errorMessage,
       });
-      if (modelMissing) {
+      if (needsModelDownload) {
         openModelsSettings();
       }
       setIsProcessing(false);

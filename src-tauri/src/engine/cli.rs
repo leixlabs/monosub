@@ -48,6 +48,12 @@ pub enum EngineError {
     Missing(String),
     /// Non-zero exit → `errors.engineFailed`.
     Failed { message: String, stderr_tail: String },
+    /// The requested model is not in the catalogue. Distinct from [`Missing`]
+    /// because the remediation differs: the user downloads a model rather than
+    /// reinstalling the engine (review P2-3).
+    ///
+    /// [`Missing`]: EngineError::Missing
+    ModelNotInstalled(String),
     /// ffmpeg non-zero → `errors.audioExtractFailed`.
     AudioExtractFailed(String),
     /// Spawn/IO failure.
@@ -63,6 +69,7 @@ impl std::fmt::Display for EngineError {
         match self {
             EngineError::Missing(m) => write!(f, "engine missing: {}", m),
             EngineError::Failed { message, .. } => write!(f, "engine failed: {}", message),
+            EngineError::ModelNotInstalled(m) => write!(f, "model not installed: {}", m),
             EngineError::AudioExtractFailed(m) => write!(f, "audio extract failed: {}", m),
             EngineError::Io(m) => write!(f, "io error: {}", m),
             EngineError::InvalidAudio(m) => write!(f, "invalid audio: {}", m),

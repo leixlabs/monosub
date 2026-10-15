@@ -90,13 +90,12 @@ pub async fn transcribe(
         .clone()
         .unwrap_or_else(|| catalog::default_model_id().to_string());
     let model_file = catalog::model_path(app, &model_id)?.ok_or_else(|| {
-        EngineError::Missing(format!("model '{}' is not in the catalogue", model_id))
+        EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
     })?;
     let specs = catalog::catalog(Some(app))?;
-    let spec = specs
-        .iter()
-        .find(|m| m.id == model_id)
-        .ok_or_else(|| EngineError::Missing(format!("model '{}' is not in the catalogue", model_id)))?;
+    let spec = specs.iter().find(|m| m.id == model_id).ok_or_else(|| {
+        EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
+    })?;
     let language = catalog::map_language(spec, &opts.language);
 
     // Step 2: VAD. Cheap (no model load) and decides everything downstream.
@@ -180,9 +179,21 @@ async fn transcribe_batch(
     let vad_dir = cli::resolve_vad_path(Some(app))?;
     let requests_path = write_requests(dir, batch, language)?;
 
+    // `done` may only ever increase for a given file. A Metal attempt can emit
+    // metrics and *then* fail, so without a shared floor the retry would report a
+    // lower value and the progress bar would visibly run backwards. One
+    // monotonic floor across both attempts makes that impossible.
+    let floor = std::sync::atomic::AtomicUsize::new(done_before);
+    // Same 3-arg shape as `ProgressFn`, so `run_sequence` stays unchanged.
+    let report = |done: usize, total: usize, message: &str| {
+        if should_report(&floor, done, total) {
+            on_progress(done.min(total), total, message);
+        }
+    };
+
     match run_sequence(
         app, dir, model_file, &vad_dir, &requests_path, backend, batch, total, done_before,
-        on_progress,
+        &report,
     )
     .await
     {
@@ -192,15 +203,31 @@ async fn transcribe_batch(
                 error = %err,
                 "metal backend failed; retrying once on cpu"
             );
-            on_progress(done_before, total, "Metal unavailable, retrying on CPU");
+            // Announce only if the notice itself would not move progress back.
+            if floor.load(std::sync::atomic::Ordering::SeqCst) <= done_before {
+                on_progress(done_before, total, "Metal unavailable, retrying on CPU");
+            }
             run_sequence(
                 app, dir, model_file, &vad_dir, &requests_path, Backend::Cpu, batch, total,
-                done_before, on_progress,
+                done_before, &report,
             )
             .await
         }
         Err(err) => Err(err),
     }
+}
+
+/// True when `done` advances the monotonic floor, recording the new high-water
+/// mark. Extracted so the "progress never regresses" rule is unit-testable
+/// without an `AppHandle`.
+fn should_report(
+    floor: &std::sync::atomic::AtomicUsize,
+    done: usize,
+    total: usize,
+) -> bool {
+    let done = done.min(total);
+    // `fetch_max` returns the previous value, so this fires only on an increase.
+    floor.fetch_max(done, std::sync::atomic::Ordering::SeqCst) < done
 }
 
 /// One `--request-sequence` invocation plus its `text_out` files.
@@ -238,7 +265,10 @@ async fn run_sequence(
 
     let mut reported: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
     let mut metrics_seen = 0usize;
-    let mut last_reported_done = 0usize;
+    // Seeded from `done_before`, not 0: on a Metal→CPU retry some metrics may
+    // already have advanced inside the failed attempt, so starting at 0 would
+    // re-emit an already-reported value and let the percentage visibly regress.
+    let mut last_reported_done = done_before;
 
     {
         let mut on_line = |line: &str| {
@@ -636,5 +666,66 @@ mod tests {
         let second = TempWorkDir::create("unit-stale").expect("create over stale dir");
         assert_eq!(second.path(), path);
         assert!(!path.join("leftover").exists(), "stale files must be cleared");
+    }
+}
+
+#[cfg(test)]
+mod progress_monotonicity {
+    use super::*;
+    use std::sync::atomic::AtomicUsize;
+
+    /// Progress must never regress, including across the Metal→CPU retry where a
+    /// failed attempt may already have advanced it (review finding P2-1).
+    #[test]
+    fn reported_progress_is_strictly_monotonic() {
+        let floor = AtomicUsize::new(0);
+        // Climbing normally.
+        for done in 1..=5 {
+            assert!(should_report(&floor, done, 10), "{} should advance", done);
+        }
+        // The retry re-starts this batch's counter and can report a LOWER value;
+        // that must be suppressed.
+        assert!(!should_report(&floor, 0, 10));
+        assert!(!should_report(&floor, 3, 10));
+        assert!(!should_report(&floor, 5, 10), "equal value is not an advance");
+        // ...and it must recover once the retry passes the old high-water mark.
+        assert!(should_report(&floor, 6, 10));
+    }
+
+    /// A file whose chunks span several batches must climb across the boundary and
+    /// land exactly on `total`, never exceeding it.
+    #[test]
+    fn progress_spans_batches_and_clamps_at_total() {
+        let total = 300;
+        // Batch 1 reports 1..=200.
+        let floor = AtomicUsize::new(0);
+        let mut emitted = Vec::new();
+        for done in 1..=200 {
+            if should_report(&floor, done, total) {
+                emitted.push(done.min(total));
+            }
+        }
+        assert_eq!(emitted.last(), Some(&200));
+        // Batch 2 re-anchors on done_before=200.
+        let floor = AtomicUsize::new(200);
+        for done in 201..=300 {
+            if should_report(&floor, done, total) {
+                emitted.push(done.min(total));
+            }
+        }
+        assert_eq!(emitted.first(), Some(&1));
+        assert_eq!(emitted.last(), Some(&300), "must reach exactly total");
+        assert!(emitted.windows(2).all(|w| w[0] < w[1]), "strictly increasing");
+        // An over-count can never exceed `total`.
+        assert!(!should_report(&floor, 999, total));
+        assert_eq!(floor.load(std::sync::atomic::Ordering::SeqCst), total);
+    }
+
+    /// A zero-chunk (all-silence) run must not produce a bogus advance.
+    #[test]
+    fn zero_total_never_advances() {
+        let floor = AtomicUsize::new(0);
+        assert!(!should_report(&floor, 0, 0));
+        assert!(!should_report(&floor, 5, 0));
     }
 }
