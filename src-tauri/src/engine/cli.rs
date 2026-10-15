@@ -558,11 +558,11 @@ mod tests {
                 "--vad-chunks-out",
                 "/tmp/monosub-t1/vad_chunks.json",
                 "--vad-chunk-max-seconds",
-                "15",
+                VAD_MAX_SECONDS.to_string().as_str(),
                 "--vad-chunk-merge-gap-seconds",
-                "0.5",
+                VAD_MERGE_GAP_SECONDS.to_string().as_str(),
                 "--vad-chunk-padding-seconds",
-                "0.25",
+                VAD_PADDING_SECONDS.to_string().as_str(),
             ]
         );
     }

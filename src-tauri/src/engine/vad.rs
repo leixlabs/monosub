@@ -12,11 +12,25 @@ use crate::engine::cli::{resolve_vad_path, spawn, Backend, CliInvocation};
 use crate::engine::EngineError;
 
 /// Tuning constants (spec §5.3): `max 15s` keeps per-chunk text short enough
-/// for proportional timestamp estimation. PoC §4.3 flags `padding` as a
-/// quality-sensitive knob to re-validate in P1-23.
+/// for proportional timestamp estimation.
+///
+/// `padding` and `merge_gap` were re-validated in P1-23 and deliberately moved
+/// off the spec's drafted `0.25` / `0.5`. `padding p` widens every speech span by
+/// `p` on both sides, so a raw gap `g` becomes `g - 2p`, and the two spans merge
+/// when `g - 2p < merge_gap`. At the drafted values that means any gap under
+/// `1.0s` fuses two utterances into one chunk; measured on 0.8s-spaced speech the
+/// drafted pair merged 4 sentences into 3 and misattributed a boundary token
+/// (`会议纪要？` landed in the previous sentence's chunk). See
+/// docs/tech-spec/audiocpp-accuracy-p1-23.md §3.3/§3.4.
+///
+/// The asymmetry is why this matters: over-merging loses a boundary for good,
+/// whereas under-merging is recovered downstream, because `subtitle::postprocess`
+/// re-joins adjacent cues closer than its own 0.5s `gap_threshold`. At `0.10` /
+/// `0.2`, pauses up to ~0.4s still fuse inside the VAD pass and longer ones stay
+/// separate. Re-confirm against real material before release (PoC §6.1).
 pub const VAD_MAX_SECONDS: f64 = 15.0;
-pub const VAD_MERGE_GAP_SECONDS: f64 = 0.5;
-pub const VAD_PADDING_SECONDS: f64 = 0.25;
+pub const VAD_MERGE_GAP_SECONDS: f64 = 0.2;
+pub const VAD_PADDING_SECONDS: f64 = 0.1;
 
 /// Sample rate audiocpp expects; WAV input must be 16 kHz mono s16le.
 pub const SAMPLE_RATE: u32 = 16_000;
@@ -243,28 +257,45 @@ mod tests {
                 "--vad-chunk-max-seconds",
                 "15",
                 "--vad-chunk-merge-gap-seconds",
-                "0.5",
+                "0.2",
                 "--vad-chunk-padding-seconds",
-                "0.25",
+                "0.1",
             ]
         );
 
-        // Full argv, after `cli::spawn` prepends the common flags.
+        // Full argv, after `cli::spawn` prepends the common flags. Values come
+        // from the constants, so tuning them cannot silently desync this test.
         let argv = full_argv(&invocation);
         for (flag, value) in [
-            ("--task", "vad"),
-            ("--family", "silero_vad"),
-            ("--model", "/res/models/silero_vad"),
-            ("--backend", "cpu"),
-            ("--audio", "/tmp/work/audio.wav"),
-            ("--vad-chunks-out", "/tmp/work/vad_chunks.json"),
-            ("--vad-chunk-max-seconds", "15"),
-            ("--vad-chunk-merge-gap-seconds", "0.5"),
-            ("--vad-chunk-padding-seconds", "0.25"),
+            ("--task", "vad".to_string()),
+            ("--family", "silero_vad".to_string()),
+            ("--model", "/res/models/silero_vad".to_string()),
+            ("--backend", "cpu".to_string()),
+            ("--audio", "/tmp/work/audio.wav".to_string()),
+            ("--vad-chunks-out", "/tmp/work/vad_chunks.json".to_string()),
+            ("--vad-chunk-max-seconds", seconds_arg(VAD_MAX_SECONDS)),
+            ("--vad-chunk-merge-gap-seconds", seconds_arg(VAD_MERGE_GAP_SECONDS)),
+            ("--vad-chunk-padding-seconds", seconds_arg(VAD_PADDING_SECONDS)),
         ] {
-            assert_eq!(arg_after(&argv, flag), Some(value), "flag {flag}");
+            assert_eq!(arg_after(&argv, flag), Some(value.as_str()), "flag {flag}");
         }
         assert_eq!(argv.len(), 18, "no flags beyond the spec vector: {argv:?}");
+    }
+
+    /// The tuned VAD constants are a deliberate deviation from the spec's drafted
+    /// values (P1-23); pin them so a revert is visible rather than silent.
+    #[test]
+    fn vad_constants_are_the_p1_23_tuned_values() {
+        assert_eq!(VAD_MAX_SECONDS, 15.0);
+        assert_eq!(VAD_MERGE_GAP_SECONDS, 0.2);
+        assert_eq!(VAD_PADDING_SECONDS, 0.1);
+        // Two spans merge when `gap - 2 * padding < merge_gap`.
+        let merges_below = VAD_MERGE_GAP_SECONDS + 2.0 * VAD_PADDING_SECONDS;
+        assert!(
+            (merges_below - 0.4).abs() < 1e-9,
+            "a {merges_below}s pause is the merge point; the drafted 0.25/0.5 values 
+             merged everything under 1.0s"
+        );
     }
 
     #[test]
