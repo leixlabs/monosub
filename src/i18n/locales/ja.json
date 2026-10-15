@@ -14,7 +14,8 @@
     "pending": "待機中",
     "processing": "処理中",
     "completed": "完了",
-    "clear": "クリア"
+    "clear": "クリア",
+    "startAll": "すべて開始"
   },
   "fileList": {
     "emptyTitle": "字幕を生成",
@@ -33,7 +34,8 @@
     "cancel": "キャンセル",
     "open": "開く",
     "delete": "削除",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "スキップ"
   },
   "bottomBar": {
     "saveLocation": "保存先",
@@ -46,8 +48,14 @@
     "english": "英語",
     "multiSpeaker": "Multi-speaker",
     "stop": "停止",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "後で",
+    "licensePromptMessage": "複数話者の認識には有効なライセンスが必要です。先に設定で有効化するか、ブラウザで購入ページを開けます。",
+    "licensePromptTitle": "複数話者をアンロック（Pro）",
+    "licensePromptWithKeyMessage": "ライセンスキーが保存されています。先に設定で有効化してから、複数話者をオンにしてください。",
+    "multiSpeakerComingBack": "複数話者認識は近日復活予定です",
+    "openInBrowser": "ブラウザで開く",
+    "openSettings": "設定を開く"
   },
   "settings": {
     "title": "設定",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "処理",
-      "noiseReduction": "ノイズ除去",
-      "noiseReductionDesc": "背景ノイズを低減",
-      "volumeNormalization": "音量正規化",
-      "volumeNormalizationDesc": "音声レベルを標準化",
-      "autoQueue": "自動キュー",
-      "autoQueueDesc": "次のファイルを自動処理"
+      "skipExisting": "既存の字幕をスキップ",
+      "skipExistingDesc": "出力ファイルが既に存在する場合は処理をスキップ"
     },
     "notifications": {
       "title": "通知",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "ライセンスを確認中...",
+        "hint": "ライセンスキーを入力し、「ライセンスを検証」をクリックすると有効化できます。",
+        "notActivated": "ライセンスは未認証です",
+        "valid": "ライセンスは有効化済みです"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "アプリのバージョン",
+      "checkFailed": "アップデートの確認に失敗しました",
+      "checkUpdate": "アップデートを確認",
+      "checkingUpdate": "確認中...",
+      "hint": "「アップデートを確認」をクリックすると、GitHub の最新リリースを取得します。",
+      "latestVersion": "最新バージョン",
+      "newVersionAvailable": "新しいバージョンがあります: {{version}}",
+      "openReleasePage": "ダウンロードページを開く",
+      "publishedAt": "公開日時",
+      "title": "アプリについて",
+      "unknownVersion": "不明",
+      "upToDate": "最新バージョンです"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "このファイルから音声を抽出できませんでした。",
+    "engineFailed": "音声認識に失敗しました。詳細はログを確認してください。",
+    "engineMissing": "音声エンジンが見つからないか実行できません。MonoSub を再インストールしてください。",
+    "modelNotInstalled": "音声モデルがインストールされていません。設定 → モデルを開いてダウンロードしてください。"
+  },
+  "models": {
+    "cancel": "キャンセル",
+    "credits": {
+      "audioCpp": "音声エンジン: audio.cpp（Apache-2.0）。",
+      "sensevoice": "モデル: SenseVoice-Small（FunAudioLLM/SenseVoiceSmall）、FunASR Model License v1.1 に基づきます。",
+      "title": "クレジットとライセンス"
+    },
+    "description": "MonoSub はすべてお使いの端末上で動作します。音声認識モデルを一度ダウンロードすれば、オフラインでも利用できます。",
+    "download": "ダウンロード",
+    "empty": "モデルが見つかりません。",
+    "installed": "インストール済み",
+    "loadFailed": "モデルを読み込めませんでした",
+    "loading": "モデルを読み込み中...",
+    "notInstalled": "未インストール",
+    "openFolder": "モデルフォルダを開く",
+    "remove": "削除",
+    "retry": "再試行",
+    "size": "サイズ",
+    "title": "モデル"
   }
 }

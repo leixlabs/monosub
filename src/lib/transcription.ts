@@ -1,9 +1,17 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
-import { ensureMultiSpeakerLicense } from '@/lib/license';
 import { exists } from '@tauri-apps/plugin-fs';
+import i18n from '@/i18n';
+import { MODEL_NOT_INSTALLED_ERROR, openModelsSettings } from '@/lib/models';
 
 let isQueueProcessing = false;
+
+/**
+ * `start_transcription` rejects with this sentinel when the default model is
+ * not installed (spec §5.2/§5.3). The Rust side embeds it in the error string.
+ */
+export const isModelNotInstalledError = (error: unknown): boolean =>
+  String(error).includes(MODEL_NOT_INSTALLED_ERROR);
 
 export const processQueueBatch = () => {
   const state = useStore.getState();
@@ -81,23 +89,9 @@ export const startTranscriptionTask = async (taskId: string) => {
     }
   }
 
-  if (state.enableSpeakerDiarization) {
-    const licensed = await ensureMultiSpeakerLicense({
-      openCheckoutOnFailure: false,
-    });
-
-    if (!licensed) {
-      const message =
-        useStore.getState().licenseMessage ||
-        'Multi-speaker recognition requires a valid Polar license.';
-      state.updateFile(file.id, {
-        status: 'error',
-        progress: 0,
-        error: message,
-      });
-      return false;
-    }
-  }
+  // Multi-speaker (diarization) is offline in v2.0 (spec §5.7) and its BottomBar
+  // control is disabled, so the licence pre-flight is intentionally not routed
+  // here any more. The flag still travels with the request; Rust owns the check.
 
   state.updateFile(file.id, { status: 'processing', progress: 0, error: undefined });
   state.setIsProcessing(true);
@@ -116,7 +110,17 @@ export const startTranscriptionTask = async (taskId: string) => {
     });
     return true;
   } catch (error) {
-    state.updateFile(file.id, { status: 'error', progress: 0, error: String(error) });
+    if (isModelNotInstalledError(error)) {
+      // Guide the user straight to the download list instead of just failing.
+      state.updateFile(file.id, {
+        status: 'error',
+        progress: 0,
+        error: i18n.t('errors.modelNotInstalled'),
+      });
+      openModelsSettings();
+    } else {
+      state.updateFile(file.id, { status: 'error', progress: 0, error: String(error) });
+    }
     state.setIsProcessing(false);
     state.setCurrentTaskId(null);
     return false;

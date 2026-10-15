@@ -14,7 +14,8 @@ import { FileList } from './components/FileList';
 import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
-import { startTranscriptionTask, processQueueBatch } from './lib/transcription';
+import { processQueueBatch, isModelNotInstalledError } from './lib/transcription';
+import { openModelsSettings } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
 import { validateLicenseOnStartup } from './lib/license';
 
@@ -51,7 +52,6 @@ function App() {
   const setIsProcessing = useStore((state) => state.setIsProcessing);
   const incrementProcessedCount = useStore((state) => state.incrementProcessedCount);
   const setCurrentTaskId = useStore((state) => state.setCurrentTaskId);
-  const queueStartingRef = useRef(false);
 
   // Use refs to avoid stale closure issues
   const filesRef = useRef(useStore.getState().files);
@@ -170,11 +170,16 @@ function App() {
     const errorUnlisten = listen<TranscribeProgressPayload>('transcribe_error', (event) => {
       const { task_id, status } = event.payload;
       console.error('[transcribe_error]', { task_id, status });
+      const modelMissing = isModelNotInstalledError(status);
+      const errorMessage = modelMissing ? t('errors.modelNotInstalled') : status;
       updateFile(task_id, {
         status: 'error',
         progress: 0,
-        error: status,
+        error: errorMessage,
       });
+      if (modelMissing) {
+        openModelsSettings();
+      }
       setIsProcessing(false);
       setCurrentTaskId(null);
 
@@ -189,7 +194,7 @@ function App() {
             const icon = await getNotificationIconPath();
             sendNotification({
               title: 'MonoSub',
-              body: `${file?.name || 'Video'} - ${status}`,
+              body: `${file?.name || 'Video'} - ${errorMessage}`,
               ...(icon ? { icon } : {}),
             });
           }

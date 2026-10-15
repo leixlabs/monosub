@@ -53,8 +53,11 @@ fn main() {
             deactivate_license,
             open_external_url,
             check_github_release_update,
-            check_dependencies,
-            install_dependencies,
+            list_models,
+            download_model,
+            cancel_model_download,
+            remove_model,
+            open_models_dir,
             update_tray_menu,
         ])
         .build(tauri::generate_context!())

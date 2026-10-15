@@ -53,7 +53,7 @@
     "chinese": "Chinese",
     "english": "English",
     "multiSpeaker": "Multi-speaker",
-    "multiSpeakerHint": "Requires a valid Polar license",
+    "multiSpeakerComingBack": "Multi-speaker is coming back soon",
     "proRequired": "PRO license required",
     "licensePromptTitle": "Unlock Multi-speaker (Pro)",
     "licensePromptMessage": "Multi-speaker requires a valid license. You can activate it in Settings first, or open the purchase page in your browser.",
@@ -75,10 +75,6 @@
     },
     "processing": {
       "title": "Processing",
-      "noiseReduction": "Noise Reduction",
-      "noiseReductionDesc": "Reduce background noise",
-      "volumeNormalization": "Volume Normalization",
-      "volumeNormalizationDesc": "Standardize audio levels",
       "skipExisting": "Skip Existing Subtitles",
       "skipExistingDesc": "Skip processing if output file already exists"
     },
@@ -116,21 +112,6 @@
       },
       "unlimited": "No expiration"
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
-    },
     "notifications": {
       "title": "Notifications",
       "showCompleted": "Completion Alert",
@@ -152,6 +133,32 @@
     },
     "resetDefaults": "Reset Defaults",
     "done": "Done"
+  },
+  "models": {
+    "title": "Models",
+    "description": "MonoSub runs entirely on your machine. Download the speech model once and it stays available offline.",
+    "loading": "Loading models...",
+    "loadFailed": "Could not load models",
+    "retry": "Retry",
+    "empty": "No models found.",
+    "installed": "Installed",
+    "notInstalled": "Not installed",
+    "size": "Size",
+    "download": "Download",
+    "cancel": "Cancel",
+    "remove": "Delete",
+    "openFolder": "Open Models Folder",
+    "credits": {
+      "title": "Credits & Licenses",
+      "audioCpp": "Speech engine: audio.cpp (Apache-2.0).",
+      "sensevoice": "Model: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) under the FunASR Model License v1.1."
+    }
+  },
+  "errors": {
+    "modelNotInstalled": "The speech model is not installed. Open Settings → Models to download it.",
+    "engineMissing": "The speech engine is missing or not executable. Reinstall MonoSub to restore it.",
+    "engineFailed": "Speech recognition failed. See the logs for details.",
+    "audioExtractFailed": "Could not extract audio from this file."
   },
   "notification": {
     "completed": "Subtitle generation completed"

@@ -47,10 +47,29 @@ impl Default for PostProcessConfig {
 /// Clean → split by punctuation → distribute time by effective character count
 /// → merge short neighbours → enforce min length and monotonicity.
 ///
-/// Task: P1-10.
+/// Task: P1-10. Mirrors Python `transcribe()`: split each chunk, estimate time
+/// inside that chunk's window, then run one flat merge + constraint pass over the
+/// concatenated result (spec §5.4).
 pub fn postprocess(chunks: &[RawChunk], config: &PostProcessConfig) -> Vec<Segment> {
-    let _ = (chunks, config);
-    unimplemented!("P1-10")
+    let mut segments: Vec<Segment> = Vec::new();
+
+    for chunk in chunks {
+        let Some(text) = postprocess::clean_text(&chunk.text) else {
+            continue;
+        };
+        let sentences = postprocess::split_sentences(&text, config.max_chars);
+        if sentences.is_empty() {
+            continue;
+        }
+        // Each chunk already carries its own VAD window; distributing inside that
+        // window preserves the model's timing information (spec §5.4 step 3).
+        let start = chunk.start_s.max(0.0);
+        let end = chunk.end_s.max(start);
+        segments.extend(postprocess::distribute_times(&sentences, start, end, config));
+    }
+
+    let merged = postprocess::merge_short(segments, config);
+    postprocess::enforce_constraints(merged, config)
 }
 
 /// Supported output formats, mirroring `SubtitleWriter.write` in Python.
@@ -91,8 +110,21 @@ impl Format {
 /// Task: P1-11. Both formats share this computation so the SRT/VTT outputs
 /// cannot drift; `separator` is `,` or `.`.
 pub fn format_timestamp(seconds: f64, separator: char) -> String {
-    let _ = (seconds, separator);
-    unimplemented!("P1-11")
+    // Spec §5.4: integer milliseconds via `(seconds * 1000.0).round()`. Negative
+    // and non-finite inputs clamp to zero, matching the Python guard.
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return format!("00:00:00{}000", separator);
+    }
+    let total_ms = (seconds * 1000.0).round() as u64;
+    let millis = total_ms % 1000;
+    let total_seconds = total_ms / 1000;
+    let secs = total_seconds % 60;
+    let minutes = (total_seconds / 60) % 60;
+    let hours = total_seconds / 3600;
+    format!(
+        "{:02}:{:02}:{:02}{}{:03}",
+        hours, minutes, secs, separator, millis
+    )
 }
 
 /// Write one format. `output_path` is the exact destination file.
@@ -103,8 +135,16 @@ pub fn write(
     output_path: &std::path::Path,
     format: Format,
 ) -> Result<(), crate::engine::EngineError> {
-    let _ = (segments, output_path, format);
-    unimplemented!("P1-11")
+    let content = match format {
+        Format::Srt => writer::render_srt(segments),
+        Format::Vtt => writer::render_vtt(segments),
+        Format::Txt => writer::render_txt(segments),
+        Format::Md => writer::render_md(segments, output_path),
+        Format::Json => writer::render_json(segments),
+    };
+
+    std::fs::write(output_path, content)
+        .map_err(|error| crate::engine::EngineError::Io(format!("{}: {}", output_path.display(), error)))
 }
 
 /// Localized error when `json` is requested without word-level data, matching

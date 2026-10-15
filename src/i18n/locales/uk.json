@@ -14,7 +14,8 @@
     "pending": "Очікування",
     "processing": "Обробка",
     "completed": "Завершено",
-    "clear": "Очистити"
+    "clear": "Очистити",
+    "startAll": "Запустити все"
   },
   "fileList": {
     "emptyTitle": "Створити субтитри",
@@ -33,7 +34,8 @@
     "cancel": "Скасувати",
     "open": "Відкрити",
     "delete": "Видалити",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Пропущено"
   },
   "bottomBar": {
     "saveLocation": "Зберегти в",
@@ -46,8 +48,14 @@
     "english": "Англійська",
     "multiSpeaker": "Multi-speaker",
     "stop": "Стоп",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Можливо, пізніше",
+    "licensePromptMessage": "Для розпізнавання кількох мовців потрібна дійсна ліцензія. Спочатку активуйте її в налаштуваннях або відкрийте сторінку покупки в браузері.",
+    "licensePromptTitle": "Розблокувати розпізнавання мовців (Pro)",
+    "licensePromptWithKeyMessage": "Ключ ліцензії вже збережено. Спершу активуйте його в налаштуваннях, потім увімкніть розпізнавання мовців.",
+    "multiSpeakerComingBack": "Розпізнавання мовців незабаром повернеться",
+    "openInBrowser": "Відкрити в браузері",
+    "openSettings": "Відкрити налаштування"
   },
   "settings": {
     "title": "Налаштування",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "Обробка",
-      "noiseReduction": "Шумозаглушення",
-      "noiseReductionDesc": "Зменшити фоновий шум",
-      "volumeNormalization": "Нормалізація гучності",
-      "volumeNormalizationDesc": "Стандартизувати рівні звуку",
-      "autoQueue": "Авто-черга",
-      "autoQueueDesc": "Автоматично обробляти наступний файл"
+      "skipExisting": "Пропускати наявні субтитри",
+      "skipExistingDesc": "Пропускати обробку, якщо вихідний файл уже існує"
     },
     "notifications": {
       "title": "Сповіщення",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Перевірка ліцензії...",
+        "hint": "Введіть ключ ліцензії та натисніть «Перевірити ліцензію», щоб активувати.",
+        "notActivated": "Ліцензію не активовано",
+        "valid": "Ліцензію активовано"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "Версія програми",
+      "checkFailed": "Не вдалося перевірити оновлення",
+      "checkUpdate": "Перевірити оновлення",
+      "checkingUpdate": "Перевірка...",
+      "hint": "Натисніть «Перевірити оновлення», щоб отримати найновіший випуск із GitHub.",
+      "latestVersion": "Найновіша версія",
+      "newVersionAvailable": "Доступна нова версія: {{version}}",
+      "openReleasePage": "Відкрити сторінку завантаження",
+      "publishedAt": "Дата публікації",
+      "title": "Про програму",
+      "unknownVersion": "Невідомо",
+      "upToDate": "У вас найновіша версія"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Не вдалося витягти звук із цього файлу.",
+    "engineFailed": "Розпізнавання мовлення не вдалося. Деталі дивіться в журналах.",
+    "engineMissing": "Мовний рушій відсутній або не запускається. Переінсталюйте MonoSub.",
+    "modelNotInstalled": "Модель розпізнавання мовлення не встановлено. Відкрийте «Налаштування → Моделі», щоб її завантажити."
+  },
+  "models": {
+    "cancel": "Скасувати",
+    "credits": {
+      "audioCpp": "Мовний рушій: audio.cpp (Apache-2.0).",
+      "sensevoice": "Модель: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) за ліцензією FunASR Model License v1.1.",
+      "title": "Подяки та ліцензії"
+    },
+    "description": "MonoSub працює повністю на вашому комп’ютері. Завантажте модель розпізнавання мовлення один раз — вона залишиться доступною офлайн.",
+    "download": "Завантажити",
+    "empty": "Моделей не знайдено.",
+    "installed": "Встановлено",
+    "loadFailed": "Не вдалося завантажити моделі",
+    "loading": "Завантаження моделей...",
+    "notInstalled": "Не встановлено",
+    "openFolder": "Відкрити теку моделей",
+    "remove": "Видалити",
+    "retry": "Повторити",
+    "size": "Розмір",
+    "title": "Моделі"
   }
 }

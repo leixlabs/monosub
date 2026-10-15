@@ -14,7 +14,8 @@
     "pending": "Bekliyor",
     "processing": "İşleniyor",
     "completed": "Tamamlandı",
-    "clear": "Temizle"
+    "clear": "Temizle",
+    "startAll": "Tümünü başlat"
   },
   "fileList": {
     "emptyTitle": "Altyazı Oluştur",
@@ -33,7 +34,8 @@
     "cancel": "İptal",
     "open": "Aç",
     "delete": "Sil",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Atlandı"
   },
   "bottomBar": {
     "saveLocation": "Kaydet",
@@ -46,8 +48,14 @@
     "english": "İngilizce",
     "multiSpeaker": "Multi-speaker",
     "stop": "Durdur",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Belki sonra",
+    "licensePromptMessage": "Çok konuşlu tanıma geçerli bir lisans gerektirir. Önce Ayarlar’dan etkinleştirebilir veya satın alma sayfasını tarayıcıda açabilirsiniz.",
+    "licensePromptTitle": "Çok konuşluyu aç (Pro)",
+    "licensePromptWithKeyMessage": "Kayıtlı bir lisans anahtarınız var. Önce Ayarlar’dan etkinleştirin, sonra çok konuşluyu açın.",
+    "multiSpeakerComingBack": "Konuşmacı tanıma yakında geri geliyor",
+    "openInBrowser": "Tarayıcıda aç",
+    "openSettings": "Ayarları aç"
   },
   "settings": {
     "title": "Ayarlar",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "İşleme",
-      "noiseReduction": "Gürültü Azaltma",
-      "noiseReductionDesc": "Arka plan gürültüsünü azalt",
-      "volumeNormalization": "Ses Normalleştirme",
-      "volumeNormalizationDesc": "Ses seviyelerini standartlaştır",
-      "autoQueue": "Otomatik Kuyruk",
-      "autoQueueDesc": "Sonraki dosyayı otomatik işle"
+      "skipExisting": "Mevcut altyazıları atla",
+      "skipExistingDesc": "Çıktı dosyası zaten varsa işlemeyi atla"
     },
     "notifications": {
       "title": "Bildirimler",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Lisans kontrol ediliyor...",
+        "hint": "Lisans anahtarınızı girin ve etkinleştirmek için “Lisansı doğrula”ya tıklayın.",
+        "notActivated": "Lisans etkin değil",
+        "valid": "Lisans etkinleştirildi"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "Uygulama sürümü",
+      "checkFailed": "Güncelleme kontrolü başarısız",
+      "checkUpdate": "Güncellemeleri kontrol et",
+      "checkingUpdate": "Kontrol ediliyor...",
+      "hint": "GitHub’daki en son sürümü almak için “Güncellemeleri kontrol et”e tıklayın.",
+      "latestVersion": "En son sürüm",
+      "newVersionAvailable": "Yeni sürüm mevcut: {{version}}",
+      "openReleasePage": "İndirme sayfasını aç",
+      "publishedAt": "Yayın tarihi",
+      "title": "Hakkında",
+      "unknownVersion": "Bilinmiyor",
+      "upToDate": "En son sürümü kullanıyorsunuz"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Bu dosyadan ses çıkarılamadı.",
+    "engineFailed": "Konuşma tanıma başarısız oldu. Ayrıntılar için günlüklere bakın.",
+    "engineMissing": "Konuşma motoru yok veya çalıştırılamıyor. MonoSub’u yeniden kurun.",
+    "modelNotInstalled": "Konuşma modeli kurulu değil. İndirmek için Ayarlar → Modeller’i açın."
+  },
+  "models": {
+    "cancel": "İptal",
+    "credits": {
+      "audioCpp": "Konuşma motoru: audio.cpp (Apache-2.0).",
+      "sensevoice": "Model: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall), FunASR Model License v1.1 kapsamında.",
+      "title": "Emeği geçenler ve lisanslar"
+    },
+    "description": "MonoSub tamamen kendi cihazınızda çalışır. Konuşma modelini bir kez indirin; çevrimdışı kullanılabilir kalır.",
+    "download": "İndir",
+    "empty": "Model bulunamadı.",
+    "installed": "Kurulu",
+    "loadFailed": "Modeller yüklenemedi",
+    "loading": "Modeller yükleniyor...",
+    "notInstalled": "Kurulu değil",
+    "openFolder": "Model klasörünü aç",
+    "remove": "Sil",
+    "retry": "Yeniden dene",
+    "size": "Boyut",
+    "title": "Modeller"
   }
 }

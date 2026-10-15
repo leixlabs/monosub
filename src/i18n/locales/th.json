@@ -14,7 +14,8 @@
     "pending": "รอดำเนินการ",
     "processing": "กำลังประมวลผล",
     "completed": "เสร็จสิ้น",
-    "clear": "ล้าง"
+    "clear": "ล้าง",
+    "startAll": "เริ่มทั้งหมด"
   },
   "fileList": {
     "emptyTitle": "สร้างคำบรรยาย",
@@ -33,7 +34,8 @@
     "cancel": "ยกเลิก",
     "open": "เปิด",
     "delete": "ลบ",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "ข้ามแล้ว"
   },
   "bottomBar": {
     "saveLocation": "บันทึกที่",
@@ -46,8 +48,14 @@
     "english": "อังกฤษ",
     "multiSpeaker": "Multi-speaker",
     "stop": "หยุด",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "ไว้ค่อยทีหลัง",
+    "licensePromptMessage": "การแยกผู้พูดต้องมีใบอนุญาตที่ถูกต้อง คุณสามารถเปิดใช้งานในการตั้งค่าก่อน หรือเปิดหน้าซื้อในเบราว์เซอร์",
+    "licensePromptTitle": "ปลดล็อกการแยกผู้พูด (Pro)",
+    "licensePromptWithKeyMessage": "มีคีย์ใบอนุญาตบันทึกไว้แล้ว เปิดใช้งานในการตั้งค่าก่อน แล้วจึงเปิดการแยกผู้พูด",
+    "multiSpeakerComingBack": "การแยกผู้พูดจะกลับมาเร็ว ๆ นี้",
+    "openInBrowser": "เปิดในเบราว์เซอร์",
+    "openSettings": "เปิดการตั้งค่า"
   },
   "settings": {
     "title": "การตั้งค่า",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "การประมวลผล",
-      "noiseReduction": "ลดเสียงรบกวน",
-      "noiseReductionDesc": "ลดเสียงรบกวนพื้นหลัง",
-      "volumeNormalization": "ปรับระดับเสียง",
-      "volumeNormalizationDesc": "ทำให้ระดับเสียงเป็นมาตรฐาน",
-      "autoQueue": "คิวอัตโนมัติ",
-      "autoQueueDesc": "ประมวลผลไฟล์ถัดไปอัตโนมัติ"
+      "skipExisting": "ข้ามคำบรรยายที่มีอยู่แล้ว",
+      "skipExistingDesc": "ข้ามการประมวลผลหากมีไฟล์ผลลัพธ์อยู่แล้ว"
     },
     "notifications": {
       "title": "การแจ้งเตือน",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "กำลังตรวจสอบใบอนุญาต...",
+        "hint": "กรอกคีย์ใบอนุญาตแล้วคลิก “ตรวจสอบใบอนุญาต” เพื่อเปิดใช้งาน",
+        "notActivated": "ใบอนุญาตยังไม่เปิดใช้งาน",
+        "valid": "ใบอนุญาตเปิดใช้งานแล้ว"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "เวอร์ชันแอป",
+      "checkFailed": "ตรวจสอบอัปเดตไม่สำเร็จ",
+      "checkUpdate": "ตรวจสอบอัปเดต",
+      "checkingUpdate": "กำลังตรวจสอบ...",
+      "hint": "คลิก “ตรวจสอบอัปเดต” เพื่อดึงรุ่นล่าสุดจาก GitHub",
+      "latestVersion": "เวอร์ชันล่าสุด",
+      "newVersionAvailable": "มีเวอร์ชันใหม่: {{version}}",
+      "openReleasePage": "เปิดหน้าดาวน์โหลด",
+      "publishedAt": "วันที่เผยแพร่",
+      "title": "เกี่ยวกับ",
+      "unknownVersion": "ไม่ทราบ",
+      "upToDate": "คุณใช้เวอร์ชันล่าสุดแล้ว"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "ไม่สามารถแยกเสียงจากไฟล์นี้ได้",
+    "engineFailed": "การรู้จำเสียงล้มเหลว ดูรายละเอียดในบันทึก",
+    "engineMissing": "ไม่พบเอนจินเสียงหรือไม่สามารถเรียกทำงานได้ กรุณาติดตั้ง MonoSub ใหม่",
+    "modelNotInstalled": "ยังไม่ได้ติดตั้งโมเดลรู้จำเสียง เปิดการตั้งค่า → โมเดล เพื่อดาวน์โหลด"
+  },
+  "models": {
+    "cancel": "ยกเลิก",
+    "credits": {
+      "audioCpp": "เอนจินเสียง: audio.cpp (Apache-2.0)",
+      "sensevoice": "โมเดล: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) ภายใต้ FunASR Model License v1.1",
+      "title": "เครดิตและใบอนุญาต"
+    },
+    "description": "MonoSub ทำงานบนเครื่องของคุณทั้งหมด ดาวน์โหลดโมเดลรู้จำเสียงครั้งเดียวแล้วใช้งานออฟไลน์ได้ตลอด",
+    "download": "ดาวน์โหลด",
+    "empty": "ไม่พบโมเดล",
+    "installed": "ติดตั้งแล้ว",
+    "loadFailed": "โหลดโมเดลไม่สำเร็จ",
+    "loading": "กำลังโหลดโมเดล...",
+    "notInstalled": "ยังไม่ได้ติดตั้ง",
+    "openFolder": "เปิดโฟลเดอร์โมเดล",
+    "remove": "ลบ",
+    "retry": "ลองใหม่",
+    "size": "ขนาด",
+    "title": "โมเดล"
   }
 }

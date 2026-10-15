@@ -14,7 +14,8 @@
     "pending": "Ausstehend",
     "processing": "Verarbeitung",
     "completed": "Abgeschlossen",
-    "clear": "Leeren"
+    "clear": "Leeren",
+    "startAll": "Alle starten"
   },
   "fileList": {
     "emptyTitle": "Untertitel erstellen",
@@ -33,7 +34,8 @@
     "cancel": "Abbrechen",
     "open": "Öffnen",
     "delete": "Löschen",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Übersprungen"
   },
   "bottomBar": {
     "saveLocation": "Speichern in",
@@ -46,8 +48,14 @@
     "english": "Englisch",
     "multiSpeaker": "Multi-speaker",
     "stop": "Stopp",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Vielleicht später",
+    "licensePromptMessage": "Multi-Speaker erfordert eine gültige Lizenz. Du kannst sie zuerst in den Einstellungen aktivieren oder die Kaufseite im Browser öffnen.",
+    "licensePromptTitle": "Multi-Speaker freischalten (Pro)",
+    "licensePromptWithKeyMessage": "Ein Lizenzschlüssel ist bereits gespeichert. Aktiviere ihn zuerst in den Einstellungen und aktiviere dann Multi-Speaker.",
+    "multiSpeakerComingBack": "Multi-Speaker kommt bald zurück",
+    "openInBrowser": "Im Browser öffnen",
+    "openSettings": "Einstellungen öffnen"
   },
   "settings": {
     "title": "Einstellungen",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "Verarbeitung",
-      "noiseReduction": "Rauschunterdrückung",
-      "noiseReductionDesc": "Hintergrundgeräusche reduzieren",
-      "volumeNormalization": "Lautstärkenormalisierung",
-      "volumeNormalizationDesc": "Audiopegel standardisieren",
-      "autoQueue": "Auto-Warteschlange",
-      "autoQueueDesc": "Nächste Datei automatisch verarbeiten"
+      "skipExisting": "Vorhandene Untertitel überspringen",
+      "skipExistingDesc": "Verarbeitung überspringen, wenn die Ausgabedatei bereits existiert"
     },
     "notifications": {
       "title": "Benachrichtigungen",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Lizenz wird geprüft...",
+        "hint": "Gib deinen Lizenzschlüssel ein und klicke auf „Lizenz prüfen“, um zu aktivieren.",
+        "notActivated": "Lizenz ist nicht aktiviert",
+        "valid": "Lizenz ist aktiviert"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "App-Version",
+      "checkFailed": "Update-Suche fehlgeschlagen",
+      "checkUpdate": "Nach Updates suchen",
+      "checkingUpdate": "Wird geprüft...",
+      "hint": "Klicke auf „Nach Updates suchen“, um die neueste Version von GitHub zu laden.",
+      "latestVersion": "Neueste Version",
+      "newVersionAvailable": "Neue Version verfügbar: {{version}}",
+      "openReleasePage": "Downloadseite öffnen",
+      "publishedAt": "Veröffentlicht am",
+      "title": "Über",
+      "unknownVersion": "Unbekannt",
+      "upToDate": "Du bist auf dem neuesten Stand"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Aus dieser Datei konnte kein Audio extrahiert werden.",
+    "engineFailed": "Spracherkennung fehlgeschlagen. Details findest du in den Logs.",
+    "engineMissing": "Die Sprach-Engine fehlt oder ist nicht ausführbar. Installiere MonoSub erneut.",
+    "modelNotInstalled": "Das Spracherkennungsmodell ist nicht installiert. Öffne Einstellungen → Modelle, um es herunterzuladen."
+  },
+  "models": {
+    "cancel": "Abbrechen",
+    "credits": {
+      "audioCpp": "Sprach-Engine: audio.cpp (Apache-2.0).",
+      "sensevoice": "Modell: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) unter der FunASR Model License v1.1.",
+      "title": "Danksagungen & Lizenzen"
+    },
+    "description": "MonoSub läuft vollständig auf deinem Rechner. Lade das Spracherkennungsmodell einmal herunter – danach ist es offline verfügbar.",
+    "download": "Herunterladen",
+    "empty": "Keine Modelle gefunden.",
+    "installed": "Installiert",
+    "loadFailed": "Modelle konnten nicht geladen werden",
+    "loading": "Modelle werden geladen...",
+    "notInstalled": "Nicht installiert",
+    "openFolder": "Modellordner öffnen",
+    "remove": "Löschen",
+    "retry": "Erneut versuchen",
+    "size": "Größe",
+    "title": "Modelle"
   }
 }

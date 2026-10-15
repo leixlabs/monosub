@@ -7,9 +7,7 @@
     "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx @tauri-apps/cli dev",
     "dev:servers": "vite dev",
     "build": "tsc -b && vite build",
-    "build:dmg": "./scripts/build/build-macos-app.sh lite",
-    "build:dmg:lite": "BUILD_TYPE=lite ./scripts/build/build-macos-app.sh",
-    "build:dmg:full": "BUILD_TYPE=full ./scripts/build/build-macos-app.sh",
+    "build:dmg": "./scripts/build/build-macos-app.sh",
     "lint": "eslint .",
     "check": "tsc -b --noEmit",
     "clean": "rm -rf dist src-tauri/target"

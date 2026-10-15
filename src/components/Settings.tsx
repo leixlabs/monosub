@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X,
   RotateCcw,
   Globe,
-  ShieldCheck,
-  ShieldAlert,
   RefreshCw,
   Loader2,
   SlidersHorizontal,
@@ -16,9 +14,13 @@ import {
   AlertTriangle,
   Unplug,
   Info,
+  Package,
+  Download,
+  FolderOpen,
+  Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
 import { supportedLanguages } from '@/i18n';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
@@ -36,8 +38,25 @@ import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { GlassInput } from '@/components/ui/glass-input';
 import { GlassSwitch } from '@/components/ui/glass-switch';
+import {
+  MODEL_DOWNLOAD_COMPLETE_EVENT,
+  MODEL_DOWNLOAD_ERROR_EVENT,
+  MODEL_DOWNLOAD_PROGRESS_EVENT,
+  cancelModelDownload,
+  downloadPercent,
+  downloadModel,
+  formatModelSize,
+  listModels,
+  modelManifestSize,
+  openModelsDir,
+  removeModel,
+  type ModelDownloadCompletePayload,
+  type ModelDownloadErrorPayload,
+  type ModelDownloadProgressPayload,
+  type ModelStatus,
+} from '@/lib/models';
 
-type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'environment' | 'notifications' | 'about';
+type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'models' | 'notifications' | 'about';
 
 const RELEASES_URL = 'https://github.com/0xkamalei/monosub/releases';
 
@@ -48,15 +67,10 @@ const isSettingsCategory = (value: string | null): value is SettingsCategory => 
     || value === 'output'
     || value === 'processing'
     || value === 'license'
-    || value === 'environment'
+    || value === 'models'
     || value === 'notifications'
     || value === 'about';
 };
-
-interface InstallProgressPayload {
-  progress: number;
-  status: string;
-}
 
 interface GithubReleaseUpdateResult {
   currentVersion: string;
@@ -85,16 +99,28 @@ export function Settings() {
   const licenseLastCheckedAt = useStore((state) => state.licenseLastCheckedAt);
   const clearLicenseValidation = useStore((state) => state.clearLicenseValidation);
 
-  const [envStatus, setEnvStatus] = useState<'idle' | 'checking' | 'healthy' | 'broken' | 'error'>('idle');
-  const [isRepairing, setIsRepairing] = useState(false);
-  const [repairProgress, setRepairProgress] = useState(0);
-  const [repairMsg, setRepairMsg] = useState('');
+  const [models, setModels] = useState<ModelStatus[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelsError, setModelsError] = useState('');
+  const [downloadPercentById, setDownloadPercentById] = useState<Record<string, number>>({});
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [modelActionError, setModelActionError] = useState('');
+  const isMountedRef = useRef(true);
+  const ignoreDownloadErrorRef = useRef<string | null>(null);
   const [isValidatingLicense, setIsValidatingLicense] = useState(false);
   const [isDeactivatingLicense, setIsDeactivatingLicense] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<GithubReleaseUpdateResult | null>(null);
   const [updateError, setUpdateError] = useState('');
+
+  useEffect(() => {
+    // StrictMode mounts effects twice in development; re-arm the guard.
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -113,27 +139,55 @@ export function Settings() {
     }
     setActiveCategory(initialCategory);
 
+    let disposed = false;
+
     const setupListeners = async () => {
-      const unlistenProgress = await listen<InstallProgressPayload>('install_progress', (event) => {
-        const { progress, status } = event.payload;
-        if (progress > 0) setRepairProgress(progress);
-        setRepairMsg(status);
+      const unlistenProgress = await listen<ModelDownloadProgressPayload>(MODEL_DOWNLOAD_PROGRESS_EVENT, (event) => {
+        if (disposed || !isMountedRef.current) return;
+        const { id, downloaded, total } = event.payload;
+        const percent = downloadPercent(downloaded, total);
+        // The Rust downloader throttles at 200ms; skip re-renders while the
+        // rounded percentage has not moved.
+        setDownloadPercentById((prev) => (prev[id] === percent ? prev : { ...prev, [id]: percent }));
       });
 
-      const unlistenComplete = await listen('install_complete', () => {
-        setIsRepairing(false);
-        setEnvStatus('healthy');
-        setRepairMsg(t('settings.environment.repairSuccess'));
+      const unlistenComplete = await listen<ModelDownloadCompletePayload>(MODEL_DOWNLOAD_COMPLETE_EVENT, (event) => {
+        if (disposed || !isMountedRef.current) return;
+        const { id } = event.payload;
+        setModels((prev) => prev.map((model) => (
+          model.id === id
+            ? { ...model, installed: true, size_on_disk: modelManifestSize(model) }
+            : model
+        )));
+        setDownloadPercentById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setDownloadingId((current) => (current === id ? null : current));
+      });
+
+      const unlistenError = await listen<ModelDownloadErrorPayload>(MODEL_DOWNLOAD_ERROR_EVENT, (event) => {
+        if (disposed || !isMountedRef.current) return;
+        const { id, message } = event.payload;
+        setModelActionError(message);
+        setDownloadPercentById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        setDownloadingId((current) => (current === id ? null : current));
       });
 
       return () => {
         unlistenProgress();
         unlistenComplete();
+        unlistenError();
       };
     };
 
     const cleanup = setupListeners();
-    checkEnv();
+    void loadModels();
     void getVersion()
       .then((version) => {
         setAppVersion(version);
@@ -143,31 +197,99 @@ export function Settings() {
       });
 
     return () => {
+      disposed = true;
       cleanup.then((fn) => fn && fn());
     };
   }, [isOpen, t]);
 
-  const checkEnv = async () => {
-    setEnvStatus('checking');
+  const loadModels = async () => {
+    setIsLoadingModels(true);
+    setModelsError('');
     try {
-      const isHealthy = await invoke<boolean>('check_dependencies');
-      setEnvStatus(isHealthy ? 'healthy' : 'broken');
+      const list = await listModels();
+      if (!isMountedRef.current) return;
+      setModels(list);
     } catch (error) {
-      console.error('Failed to check env:', error);
-      setEnvStatus('error');
+      console.error('[list_models] Failed:', error);
+      if (!isMountedRef.current) return;
+      setModelsError(String(error));
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoadingModels(false);
+      }
     }
   };
 
-  const repairEnv = async () => {
-    setIsRepairing(true);
-    setRepairProgress(0);
-    setRepairMsg(t('settings.environment.repairing'));
+  const handleOpenModelsDir = async () => {
     try {
-      await invoke('install_dependencies');
+      await openModelsDir();
     } catch (error) {
-      console.error('Failed to repair env:', error);
-      setIsRepairing(false);
-      setRepairMsg(t('settings.environment.repairFailed'));
+      console.error('[open_models_dir] Failed:', error);
+      setModelActionError(String(error));
+    }
+  };
+
+  const handleDownloadModel = async (id: string) => {
+    setModelActionError('');
+    ignoreDownloadErrorRef.current = null;
+    setDownloadingId(id);
+    setDownloadPercentById((prev) => ({ ...prev, [id]: 0 }));
+    try {
+      await downloadModel(id);
+    } catch (error) {
+      if (isMountedRef.current && ignoreDownloadErrorRef.current !== id) {
+        console.error('[download_model] Failed:', error);
+        setModelActionError(String(error));
+      }
+    } finally {
+      ignoreDownloadErrorRef.current = null;
+      if (isMountedRef.current) {
+        setDownloadingId((current) => (current === id ? null : current));
+        setDownloadPercentById((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    }
+  };
+
+  const handleCancelModelDownload = async (id: string) => {
+    ignoreDownloadErrorRef.current = id;
+    setModelActionError('');
+    try {
+      await cancelModelDownload(id);
+    } catch (error) {
+      console.error('[cancel_model_download] Failed:', error);
+      if (isMountedRef.current) {
+        setModelActionError(String(error));
+      }
+    }
+    if (isMountedRef.current) {
+      setDownloadingId((current) => (current === id ? null : current));
+      setDownloadPercentById((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+  };
+
+  const handleRemoveModel = async (id: string) => {
+    setModelActionError('');
+    try {
+      await removeModel(id);
+      if (!isMountedRef.current) return;
+      setModels((prev) => prev.map((model) => (
+        model.id === id
+          ? { ...model, installed: false, size_on_disk: 0 }
+          : model
+      )));
+    } catch (error) {
+      console.error('[remove_model] Failed:', error);
+      if (isMountedRef.current) {
+        setModelActionError(String(error));
+      }
     }
   };
 
@@ -360,7 +482,7 @@ export function Settings() {
                 { id: 'output' as const, label: t('settings.output.title'), icon: SlidersHorizontal },
                 { id: 'processing' as const, label: t('settings.processing.title'), icon: Cpu },
                 { id: 'license' as const, label: t('settings.license.title'), icon: KeyRound },
-                { id: 'environment' as const, label: t('settings.environment.title'), icon: RefreshCw },
+                { id: 'models' as const, label: t('models.title'), icon: Package },
                 { id: 'notifications' as const, label: t('settings.notifications.title'), icon: Bell },
                 { id: 'about' as const, label: t('settings.about.title'), icon: Info },
               ].map((item) => {
@@ -394,7 +516,7 @@ export function Settings() {
                     output: t('settings.output.title'),
                     processing: t('settings.processing.title'),
                     license: t('settings.license.title'),
-                    environment: t('settings.environment.title'),
+                    models: t('models.title'),
                     notifications: t('settings.notifications.title'),
                     about: t('settings.about.title'),
                   }[activeCategory]
@@ -591,78 +713,151 @@ export function Settings() {
                 </section>
               )}
 
-              {activeCategory === 'environment' && (
+              {activeCategory === 'models' && (
                 <section className="space-y-4">
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
-                    <div className="flex items-center justify-between p-3 bg-bg-secondary dark:bg-zinc-800/50 rounded-2xl border border-divider dark:border-zinc-700">
-                      <div className="flex items-center gap-3">
-                        {envStatus === 'checking' && <Loader2 className="w-5 h-5 text-primary animate-spin" />}
-                        {envStatus === 'healthy' && <ShieldCheck className="w-5 h-5 text-success" />}
-                        {envStatus === 'broken' && <ShieldAlert className="w-5 h-5 text-danger" />}
-                        {envStatus === 'error' && <ShieldAlert className="w-5 h-5 text-warning" />}
-                        {envStatus === 'idle' && <RefreshCw className="w-5 h-5 text-text-tertiary" />}
-
-                        <div>
-                          <p className="text-sm font-bold text-text-primary dark:text-white leading-none">
-                            {t(`settings.environment.status.${envStatus}`)}
-                          </p>
-                          {repairMsg && (
-                            <p className="text-xxs text-text-secondary dark:text-gray-400 mt-1.5 flex items-center gap-1.5">
-                              <span className="w-1 h-1 rounded-full bg-primary/40" />
-                              {repairMsg}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex gap-2">
-                        <GlassButton
-                          variant="default"
-                          size="icon"
-                          onClick={() => void checkEnv()}
-                          disabled={envStatus === 'checking' || isRepairing}
-                          title={t('settings.environment.check')}
-                          className="h-8 w-8"
-                        >
-                          <RefreshCw className={`w-4 h-4 ${envStatus === 'checking' ? 'animate-spin' : ''}`} />
-                        </GlassButton>
-                        <GlassButton
-                          variant="primary"
-                          size="sm"
-                          onClick={() => void repairEnv()}
-                          disabled={isRepairing}
-                        >
-                          {isRepairing ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCw className="w-3.5 h-3.5" />
-                          )}
-                          {t('settings.environment.repair')}
-                        </GlassButton>
-                      </div>
+                    <div className="flex items-start justify-between gap-4">
+                      <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                        {t('models.description')}
+                      </p>
+                      <GlassButton
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handleOpenModelsDir()}
+                        className="shrink-0"
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                        {t('models.openFolder')}
+                      </GlassButton>
                     </div>
 
-                    <AnimatePresence>
-                      {isRepairing && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          className="overflow-hidden"
-                        >
-                          <div className="w-full bg-divider dark:bg-zinc-700 rounded-full h-1.5">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${repairProgress}%` }}
-                              className="bg-primary h-full rounded-full"
-                            />
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {isLoadingModels && (
+                      <div className="flex items-center gap-2 text-sm text-text-secondary dark:text-gray-400">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        {t('models.loading')}
+                      </div>
+                    )}
 
+                    {!isLoadingModels && modelsError && (
+                      <div className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50">
+                        <p className="text-xs text-danger">
+                          {t('models.loadFailed')}: {modelsError}
+                        </p>
+                        <GlassButton variant="outline" size="sm" onClick={() => void loadModels()}>
+                          <RefreshCw className="w-4 h-4" />
+                          {t('models.retry')}
+                        </GlassButton>
+                      </div>
+                    )}
+
+                    {!isLoadingModels && !modelsError && models.length === 0 && (
+                      <p className="text-xs text-text-secondary dark:text-gray-400">{t('models.empty')}</p>
+                    )}
+
+                    {models.map((model) => {
+                      const isDownloading = downloadingId === model.id;
+                      const percent = downloadPercentById[model.id] ?? 0;
+                      const displayName = model.display_name || model.id;
+                      const displaySize = model.installed && model.size_on_disk > 0
+                        ? model.size_on_disk
+                        : modelManifestSize(model);
+                      const licenseLine = model.attribution
+                        ? `${model.attribution} — ${model.license}`
+                        : model.license;
+
+                      return (
+                        <div
+                          key={model.id}
+                          className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-text-primary dark:text-white truncate">
+                                  {displayName}
+                                </p>
+                                <GlassBadge variant={model.installed ? 'success' : 'warning'} size="sm">
+                                  {model.installed ? t('models.installed') : t('models.notInstalled')}
+                                </GlassBadge>
+                              </div>
+                              <p className="text-xs text-text-secondary dark:text-gray-400 mt-1">
+                                {t('models.size')}: {formatModelSize(displaySize)}
+                              </p>
+                              {licenseLine && (
+                                <p
+                                  className="text-xxs text-text-secondary dark:text-gray-400 mt-0.5 truncate"
+                                  title={licenseLine}
+                                >
+                                  {licenseLine}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {!model.installed && !isDownloading && (
+                                <GlassButton
+                                  variant="primary"
+                                  size="sm"
+                                  onClick={() => void handleDownloadModel(model.id)}
+                                >
+                                  <Download className="w-4 h-4" />
+                                  {t('models.download')}
+                                </GlassButton>
+                              )}
+                              {isDownloading && (
+                                <GlassButton
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => void handleCancelModelDownload(model.id)}
+                                >
+                                  <X className="w-4 h-4" />
+                                  {t('models.cancel')}
+                                </GlassButton>
+                              )}
+                              {model.installed && (
+                                <GlassButton
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => void handleRemoveModel(model.id)}
+                                  className="text-text-secondary dark:text-gray-400 hover:text-danger"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                  {t('models.remove')}
+                                </GlassButton>
+                              )}
+                            </div>
+                          </div>
+
+                          {isDownloading && (
+                            <div className="space-y-1.5">
+                              <div className="w-full bg-divider dark:bg-zinc-700 rounded-full h-1.5">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${percent}%` }}
+                                  className="bg-primary h-full rounded-full"
+                                />
+                              </div>
+                              <p className="text-xxs text-text-secondary dark:text-gray-400">{percent}%</p>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {modelActionError && (
+                      <p className="text-xs text-danger">{modelActionError}</p>
+                    )}
+                  </div>
+
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-2">
+                    <p className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                      {t('models.credits.title')}
+                    </p>
                     <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
-                      {t('settings.environment.repairDesc')}
+                      {t('models.credits.audioCpp')}
+                    </p>
+                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                      {t('models.credits.sensevoice')}
                     </p>
                   </div>
                 </section>

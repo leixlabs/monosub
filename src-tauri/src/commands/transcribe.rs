@@ -1,10 +1,27 @@
+//! Transcription command: WAV extraction → audio.cpp inference → subtitle files.
+//!
+//! Tasks: P1-15 (rewrite) and P1-16 (cancel). See
+//! docs/tech-spec/refactor-audiocpp.md §3, §5.3, §5.7, §5.8.
+//!
+//! The event contract is frozen (zero frontend change): the three events
+//! `transcribe_progress` / `transcribe_complete` / `transcribe_error` carry
+//! [`TranscribeProgress`] and the four [`StepInfo`] steps. What used to be the
+//! Python stdout protocol (`STEP:`/`ELAPSED:`/`MSG:`/`SUCCESS:`/`ERROR:`,
+//! parsed by `process_output_line`) is gone; the values are measured here and
+//! the inference itself is delegated to `engine::transcribe`.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Instant, SystemTime};
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_shell::ShellExt;
 use tokio::sync::Mutex;
+
+use crate::commands::license;
+use crate::commands::models::MODEL_NOT_INSTALLED;
+use crate::engine::{self, Backend, EngineError, TranscribeOpts};
+use crate::subtitle::{self, Format, PostProcessConfig};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StepInfo {
@@ -37,8 +54,41 @@ pub struct TranscribeRequest {
     pub enable_diarization: Option<bool>,
 }
 
+/// Step names are part of the frozen contract: `FileItem.tsx` derives the i18n
+/// key as `steps.<lowercase, spaces → _>`, so the wording must not change.
+const STEP_NAMES: [&str; 4] = [
+    "Extracting audio",
+    "Loading model",
+    "Transcribing",
+    "Writing subtitle",
+];
+const TOTAL_STEPS: u32 = 4;
+
+/// ffmpeg filter chain of the previous engine, reproduced verbatim.
+///
+/// The old Python extractor (`core-engine/monosub_core/audio_extractor.py`,
+/// `AudioExtractor.extract_audio`) always ran with `enable_preprocessing=True,
+/// normalize_volume=True, noise_reduction=True` — callers never passed the
+/// flags — appending in this order: `highpass=f=80`, `lowpass=f=8000`,
+/// `afftdn=nf=-25:nr=12:nt=w`, `loudnorm=I=-16:TP=-1.5:LRA=11`. Keeping it
+/// keeps the recognition input identical (spec §3; PoC §7 / P0-9).
+const AUDIO_FILTER_CHAIN: &str =
+    "highpass=f=80,lowpass=f=8000,afftdn=nf=-25:nr=12:nt=w,loudnorm=I=-16:TP=-1.5:LRA=11";
+
+/// One in-flight task: its abort handle plus everything needed to clean up
+/// after a cancel (P1-16).
+struct TaskEntry {
+    handle: tokio::task::JoinHandle<()>,
+    /// Every file this run will write, derived from `output_path` + formats.
+    outputs: Vec<PathBuf>,
+    started: SystemTime,
+    /// Set once the run emitted `transcribe_complete`, so a cancel that races
+    /// the final write cannot delete a finished result.
+    completed: Arc<std::sync::atomic::AtomicBool>,
+}
+
 // Global task manager
-type TaskMap = Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>;
+type TaskMap = Arc<Mutex<HashMap<String, TaskEntry>>>;
 
 lazy_static::lazy_static! {
     static ref TASKS: TaskMap = Arc::new(Mutex::new(HashMap::new()));
@@ -46,44 +96,442 @@ lazy_static::lazy_static! {
     static ref TRANSCRIBE_SEMAPHORE: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(1));
 }
 
-/// Check if running in development mode
-fn is_dev_mode() -> bool {
-    // 检查是否存在 core-engine/.venv 目录
-    let current_dir = std::env::current_dir().ok();
-    if let Some(dir) = current_dir {
-        // Dev: monosub/src-tauri -> monosub/core-engine/.venv
-        if dir.join("../core-engine/.venv").exists() {
-            return true;
+/// Everything one queued file needs, so the spawned task owns no borrows.
+struct TaskParams {
+    task_id: String,
+    input: PathBuf,
+    output: PathBuf,
+    formats: Vec<Format>,
+    language: String,
+    model_id: String,
+    backend: Backend,
+    completed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// A failure that has already been turned into user-showable text.
+///
+/// `status` is what `transcribe_error` carries (short, rendered by the UI);
+/// `detail` is the full chain, logged with `tracing::error`.
+struct TaskFailure {
+    context: &'static str,
+    status: String,
+    detail: String,
+}
+
+impl TaskFailure {
+    fn new(context: &'static str, status: impl Into<String>, detail: impl Into<String>) -> Self {
+        Self {
+            context,
+            status: status.into(),
+            detail: detail.into(),
         }
     }
-    false
 }
 
-/// Get the core-engine directory
-fn get_core_engine_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager;
-    if is_dev_mode() {
-        let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
-        Ok(current_dir.join("../core-engine"))
+/// Start a transcription task.
+///
+/// Request-level preconditions are checked *before* anything is spawned, so a
+/// rejected request cannot leave a half-registered task behind.
+#[tauri::command]
+pub async fn start_transcription(
+    app: AppHandle,
+    request: TranscribeRequest,
+) -> Result<String, String> {
+    let TranscribeRequest {
+        id: task_id,
+        path,
+        output_path,
+        format,
+        language,
+        device,
+        enable_diarization,
+    } = request;
+
+    let format = format.unwrap_or_else(|| "srt".to_string());
+    let language = language.unwrap_or_else(|| "zh".to_string());
+    let backend = resolve_backend(device.as_deref());
+    let enable_diarization = enable_diarization.unwrap_or(false);
+
+    tracing::info!(
+        task_id = %task_id,
+        path = %path,
+        output_path = %output_path,
+        format = %format,
+        language = %language,
+        backend = ?backend,
+        enable_diarization = %enable_diarization,
+        "Starting transcription task"
+    );
+
+    let formats = match parse_formats(&format) {
+        Ok(formats) => formats,
+        Err(status) => {
+            tracing::warn!(task_id = %task_id, format = %format, "rejected request");
+            emit_error(&app, &task_id, &status);
+            return Ok(task_id);
+        }
+    };
+
+    if enable_diarization {
+        // Speaker diarization is offline for v2.0 (spec §5.7); the licence gate
+        // is kept so the check itself cannot regress.
+        let status = if license::is_pro_licensed() {
+            "Multi-speaker recognition is not available yet."
+        } else {
+            "Multi-speaker recognition requires a MonoSub Pro license."
+        };
+        tracing::warn!(task_id = %task_id, "rejected diarization request");
+        emit_error(&app, &task_id, status);
+        return Ok(task_id);
+    }
+
+    // Model gate (spec §5.2): the frontend recognises this code and opens the
+    // model download dialog, so fail the invoke instead of emitting an event.
+    let model_id = engine::catalog::default_model_id().to_string();
+    if !engine::catalog::is_installed(&app, &model_id) {
+        tracing::warn!(task_id = %task_id, model = %model_id, "model is not installed");
+        return Err(MODEL_NOT_INSTALLED.to_string());
+    }
+
+    let input = PathBuf::from(path);
+    let output = PathBuf::from(output_path);
+    let outputs = derive_output_paths(&output, &formats);
+
+    {
+        let mut tasks = TASKS.lock().await;
+        if let Some(existing) = tasks.get(&task_id) {
+            if !existing.handle.is_finished() {
+                tracing::warn!(task_id = %task_id, "Task already running");
+                return Err("Task already running".to_string());
+            }
+            // A task that finished before the parent registered its handle
+            // would otherwise wedge this id forever.
+            tasks.remove(&task_id);
+        }
+    }
+
+    let params = TaskParams {
+        task_id: task_id.clone(),
+        input,
+        output,
+        formats,
+        language,
+        model_id,
+        backend,
+        completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    let app_for_task = app.clone();
+    let completed = Arc::clone(&params.completed);
+    let handle = tokio::spawn(async move { run_transcription(app_for_task, params).await });
+
+    TASKS.lock().await.insert(
+        task_id.clone(),
+        TaskEntry {
+            handle,
+            outputs,
+            started: SystemTime::now(),
+            completed,
+        },
+    );
+
+    Ok(task_id)
+}
+
+/// Cancel a running task.
+///
+/// `engine::cli::spawn` marks the CLI child `kill_on_drop(true)` and
+/// `engine::transcribe` owns a `Drop` guard for its temp directory, so aborting
+/// the tokio task is sufficient to kill the child process and remove the temp
+/// directory — the future is dropped, which drops both guards.
+#[tauri::command]
+pub async fn cancel_transcription(task_id: String) -> Result<(), String> {
+    tracing::info!(task_id = %task_id, "Cancelling transcription task");
+
+    let entry = TASKS.lock().await.remove(&task_id);
+    let Some(entry) = entry else {
+        tracing::warn!(task_id = %task_id, "Cannot cancel: task not found");
+        return Err("Task not found".to_string());
+    };
+
+    entry.handle.abort();
+    // Awaiting the aborted handle makes the cleanup below deterministic: the
+    // future has been dropped, so the CLI child is dead and no writer can still
+    // be mid-write.
+    let _ = entry.handle.await;
+
+    if entry.completed.load(std::sync::atomic::Ordering::SeqCst) {
+        // The run finished while the cancel was in flight; its output is whole.
+        tracing::info!(task_id = %task_id, "Task completed before the cancel arrived");
     } else {
-        let resource_dir = app.path().resource_dir().map_err(|e| e.to_string())?;
-        Ok(resource_dir.join("resources").join("core-engine"))
+        remove_partial_outputs(&entry.outputs, entry.started);
+    }
+
+    tracing::info!(task_id = %task_id, "Transcription task cancelled");
+    Ok(())
+}
+
+/// Task body: run one file end to end, then report a single outcome.
+async fn run_transcription(app: AppHandle, params: TaskParams) {
+    if let Err(failure) = transcribe_file(&app, &params).await {
+        tracing::error!(
+            task_id = %params.task_id,
+            detail = %failure.detail,
+            "{}",
+            failure.context
+        );
+        emit_error(&app, &params.task_id, &failure.status);
+    }
+
+    // Only unregister ourselves: a cancel followed by an immediate restart of
+    // the same id leaves a newer entry in the map, which must survive.
+    let mut tasks = TASKS.lock().await;
+    let ours = tasks
+        .get(&params.task_id)
+        .is_some_and(|entry| Arc::ptr_eq(&entry.completed, &params.completed));
+    if ours {
+        tasks.remove(&params.task_id);
     }
 }
 
-fn is_audio_input(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| {
-            ["mp3", "wav", "flac", "aac", "m4a", "ogg", "wma"]
-                .contains(&ext.to_lowercase().as_str())
-        })
-        .unwrap_or(false)
+async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), TaskFailure> {
+    let mut steps = Steps::new();
+    emit_queued(app, &params.task_id);
+
+    // Step 1: 16 kHz mono s16le WAV, cached next to the media file. Audio
+    // inputs are converted too — audio.cpp only accepts WAV (spec §3).
+    steps.begin(app, &params.task_id, 1);
+    let audio = {
+        let _permit = AUDIO_SEMAPHORE.acquire().await;
+        extract_wav(app, &params.input)
+            .await
+            .map_err(engine_failure)?
+    };
+
+    // Steps 2/3: the CLI loads the model inside the ASR session, so "Loading
+    // model" is a transition only; the work happens under "Transcribing".
+    let chunks = {
+        let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
+        steps.begin(app, &params.task_id, 2);
+        steps.begin(app, &params.task_id, 3);
+
+        let opts = TranscribeOpts {
+            language: params.language.clone(),
+            model_id: Some(params.model_id.clone()),
+            backend: params.backend,
+        };
+        let on_progress = |done: usize, total: usize, message: &str| {
+            let percent = if total == 0 {
+                0.0
+            } else {
+                done as f64 * 100.0 / total as f64
+            };
+            steps.progress(app, &params.task_id, percent, message);
+        };
+
+        engine::transcribe(app, &params.task_id, audio.path(), &opts, &on_progress)
+            .await
+            .map_err(engine_failure)?
+    };
+
+    // Step 4: post-process and write every requested format.
+    steps.begin(app, &params.task_id, 4);
+    if let Some(parent) = params.output.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                TaskFailure::new(
+                    "could not create the output directory",
+                    "Could not create the output folder",
+                    format!("create {}: {}", parent.display(), e),
+                )
+            })?;
+        }
+    }
+
+    // An empty chunk list means "no speech": still write valid empty files.
+    let segments = subtitle::postprocess(&chunks, &PostProcessConfig::default());
+    for (index, format) in params.formats.iter().enumerate() {
+        let path = output_path_for(&params.output, index, *format);
+        subtitle::write(&segments, &path, *format).map_err(write_failure)?;
+        tracing::info!(
+            task_id = %params.task_id,
+            path = %path.display(),
+            format = %format.extension(),
+            "Subtitle written"
+        );
+    }
+
+    // Exactly one completion event, after every format landed.
+    params
+        .completed
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    let _ = app.emit(
+        "transcribe_complete",
+        TranscribeProgress {
+            task_id: params.task_id.clone(),
+            progress: 100.0,
+            status: format!("Completed: {}", params.output.display()),
+            step: None,
+            total_time: Some(steps.total_seconds()),
+        },
+    );
+    Ok(())
 }
 
-fn get_audio_cache_path(video_path: &Path) -> Option<PathBuf> {
-    let parent = video_path.parent()?;
-    let stem = video_path.file_stem()?.to_str()?;
+/// Emits the exported step transitions with real elapsed seconds.
+///
+/// The previous implementation fed `step_elapsed`/`total_elapsed` from the
+/// Python `STEP_ELAPSED:`/`ELAPSED:` protocol; they are measured here directly.
+struct Steps {
+    start: Instant,
+    step_start: Instant,
+    current: u32,
+}
+
+impl Steps {
+    fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            start: now,
+            step_start: now,
+            current: 0,
+        }
+    }
+
+    /// Enter `step` (1..=4) and emit its transition event.
+    fn begin(&mut self, app: &AppHandle, task_id: &str, step: u32) {
+        self.current = step;
+        self.step_start = Instant::now();
+        self.emit(app, task_id, 0.0, step_name(step));
+    }
+
+    /// In-step update; `status` carries the engine's progress message.
+    fn progress(&self, app: &AppHandle, task_id: &str, progress: f64, status: &str) {
+        self.emit(app, task_id, progress, status);
+    }
+
+    fn emit(&self, app: &AppHandle, task_id: &str, progress: f64, status: &str) {
+        let _ = app.emit(
+            "transcribe_progress",
+            TranscribeProgress {
+                task_id: task_id.to_string(),
+                progress,
+                status: status.to_string(),
+                step: Some(StepInfo {
+                    current_step: self.current,
+                    total_steps: TOTAL_STEPS,
+                    // Never taken from `status`: the i18n keys depend on it.
+                    step_name: step_name(self.current).to_string(),
+                    step_elapsed: self.step_start.elapsed().as_secs_f64(),
+                    total_elapsed: self.start.elapsed().as_secs_f64(),
+                }),
+                total_time: None,
+            },
+        );
+    }
+
+    fn total_seconds(&self) -> f64 {
+        self.start.elapsed().as_secs_f64()
+    }
+}
+
+fn step_name(step: u32) -> &'static str {
+    STEP_NAMES
+        .get(step.saturating_sub(1) as usize)
+        .copied()
+        .unwrap_or("Processing")
+}
+
+fn emit_queued(app: &AppHandle, task_id: &str) {
+    let _ = app.emit(
+        "transcribe_progress",
+        TranscribeProgress {
+            task_id: task_id.to_string(),
+            progress: 0.0,
+            status: "Pending in queue...".to_string(),
+            step: None,
+            total_time: None,
+        },
+    );
+}
+
+fn emit_error(app: &AppHandle, task_id: &str, status: &str) {
+    let _ = app.emit(
+        "transcribe_error",
+        TranscribeProgress {
+            task_id: task_id.to_string(),
+            progress: 0.0,
+            status: status.to_string(),
+            step: None,
+            total_time: None,
+        },
+    );
+}
+
+/// Short status text for a failed engine call (spec §5.3); the full detail
+/// (including `EngineError::Failed::stderr_tail`) goes to the log.
+fn engine_failure(err: EngineError) -> TaskFailure {
+    let status = match &err {
+        EngineError::Missing(_) => "Speech engine is missing",
+        EngineError::AudioExtractFailed(_) => "Audio extraction failed",
+        EngineError::Failed { .. } => "Transcription failed",
+        EngineError::Io(_) | EngineError::InvalidAudio(_) | EngineError::Protocol(_) => {
+            "Transcription failed"
+        }
+    };
+    TaskFailure::new("transcription failed", status, engine_error_detail(&err))
+}
+
+/// Full error text, including the CLI's stderr tail.
+fn engine_error_detail(err: &EngineError) -> String {
+    match err {
+        EngineError::Failed {
+            message,
+            stderr_tail,
+        } => format!("{} — stderr: {}", message, stderr_tail),
+        other => other.to_string(),
+    }
+}
+
+/// A writer failure is usually user-facing (e.g. `json` without word-level
+/// data), so surface the writer's own message; pure I/O failures only carry a
+/// path, which stays in the log.
+fn write_failure(err: EngineError) -> TaskFailure {
+    let status = match &err {
+        EngineError::Failed { message, .. } | EngineError::Protocol(message) => message.clone(),
+        _ => "Could not write the subtitle file".to_string(),
+    };
+    TaskFailure::new("writing the subtitle failed", status, engine_error_detail(&err))
+}
+
+// --- Step 1: ffmpeg ---------------------------------------------------------
+
+/// A WAV produced for one run.
+///
+/// The cached copy lives next to the media file and is kept (like the previous
+/// engine); when the input has no usable location it goes to the temp dir and
+/// is removed on drop, including when the task is cancelled.
+struct ExtractedAudio {
+    path: PathBuf,
+    temporary: bool,
+}
+
+impl ExtractedAudio {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for ExtractedAudio {
+    fn drop(&mut self) {
+        if self.temporary {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn get_audio_cache_path(media_path: &Path) -> Option<PathBuf> {
+    let parent = media_path.parent()?;
+    let stem = media_path.file_stem()?.to_str()?;
     Some(parent.join(format!("{}_audio.wav", stem)))
 }
 
@@ -109,822 +557,495 @@ fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
     cache_mtime >= source_mtime
 }
 
-/// Start transcription task using Tauri sidecar
-#[tauri::command]
-pub async fn start_transcription(
-    app: AppHandle,
-    request: TranscribeRequest,
-) -> Result<String, String> {
-    let task_id = request.id.clone();
-    let video_path = request.path.clone();
-    let output_path = request.output_path.clone();
-    let format = request.format.unwrap_or_else(|| "srt".to_string());
-    let language = request.language.unwrap_or_else(|| "zh".to_string());
-    let requested_device = request.device.unwrap_or_else(|| "auto".to_string());
-    let requested_device = requested_device.trim().to_lowercase();
-    let device = match requested_device.as_str() {
-        "cpu" | "cuda" | "mps" | "auto" => requested_device,
-        _ => "auto".to_string(),
+async fn extract_wav(app: &AppHandle, input: &Path) -> Result<ExtractedAudio, EngineError> {
+    let (cache, temporary) = match get_audio_cache_path(input) {
+        Some(path) => (path, false),
+        None => (
+            std::env::temp_dir().join(format!("monosub-extract-{}.wav", uuid::Uuid::new_v4())),
+            true,
+        ),
     };
-    let enable_diarization = request.enable_diarization.unwrap_or(false);
 
-    tracing::info!(
-        task_id = %task_id,
-        video_path = %video_path,
-        output_path = %output_path,
-        format = %format,
-        language = %language,
-        device = %device,
-        enable_diarization = %enable_diarization,
-        "Starting transcription task"
-    );
-
-    // Check if task already exists
-    let tasks = TASKS.lock().await;
-    if tasks.contains_key(&task_id) {
-        tracing::warn!(task_id = %task_id, "Task already running");
-        return Err("Task already running".to_string());
+    if is_cache_fresh(&cache, input) {
+        tracing::info!(
+            source = %input.display(),
+            wav = %cache.display(),
+            "reusing cached extracted audio"
+        );
+        return Ok(ExtractedAudio {
+            path: cache,
+            temporary,
+        });
     }
-    drop(tasks);
 
-    let task_id_for_map = task_id.clone();
-    let task_id_for_spawn = task_id.clone();
-
-    // Spawn async task for transcription
-    let handle = tokio::spawn(async move {
-        let task_id = task_id_for_spawn;
-
-        // Emit initial progress
-        let _ = app.emit(
-            "transcribe_progress",
-            TranscribeProgress {
-                task_id: task_id.clone(),
-                progress: 0.0,
-                status: "Pending in queue...".to_string(),
-                step: None,
-                total_time: None,
-            },
-        );
-
-        let input_path = Path::new(&video_path);
-        let is_audio = is_audio_input(input_path);
-
-        let (final_audio_path, keep_audio_cache) = if !is_audio {
-            // Wait for audio extraction permit
-            let _permit = AUDIO_SEMAPHORE.acquire().await;
-
-            let _ = app.emit(
-                "transcribe_progress",
-                TranscribeProgress {
-                    task_id: task_id.clone(),
-                    progress: 0.0,
-                    status: "Extracting audio...".to_string(),
-                    step: Some(StepInfo {
-                        current_step: 1,
-                        total_steps: 4,
-                        step_name: "Extracting audio".to_string(),
-                        step_elapsed: 0.0,
-                        total_elapsed: 0.0,
-                    }),
-                    total_time: None,
-                },
+    let ffmpeg = crate::commands::video::get_ffmpeg_path(Some(app));
+    match run_ffmpeg(&ffmpeg, input, &cache, Some(AUDIO_FILTER_CHAIN)).await {
+        Ok(()) => {
+            tracing::info!(
+                source = %input.display(),
+                wav = %cache.display(),
+                "audio extracted with the filter chain"
             );
-
-            let cache_path = get_audio_cache_path(input_path).unwrap_or_else(|| {
-                std::env::temp_dir().join(format!("extracted_{}.wav", uuid::Uuid::new_v4()))
-            });
-            let keep_cache = cache_path
-                .parent()
-                .map(|parent| parent != std::env::temp_dir())
-                .unwrap_or(false);
-
-            if is_cache_fresh(&cache_path, input_path) {
-                let cache_path_str = cache_path.to_string_lossy().to_string();
-                tracing::info!(
-                    task_id = %task_id,
-                    cached_audio = %cache_path_str,
-                    "Using cached extracted audio"
-                );
-                (cache_path_str, keep_cache)
-            } else {
-                let audio_path_str = cache_path.to_string_lossy().to_string();
-                let ffmpeg_path = crate::commands::video::get_ffmpeg_path(Some(&app));
-                let output = tokio::process::Command::new(&ffmpeg_path)
-                    .args(&[
-                        "-i",
-                        &video_path,
-                        "-vn",
-                        "-acodec",
-                        "pcm_s16le",
-                        "-ar",
-                        "16000",
-                        "-ac",
-                        "1",
-                        "-y",
-                        &audio_path_str,
-                    ])
-                    .output()
-                    .await;
-
-                match output {
-                    Ok(out) if out.status.success() => {
-                        tracing::info!(
-                            task_id = %task_id,
-                            cached_audio = %audio_path_str,
-                            "Audio extracted successfully"
-                        );
-                        (audio_path_str, keep_cache)
-                    }
-                    _ => {
-                        let _ = std::fs::remove_file(&cache_path);
-                        tracing::error!(task_id = %task_id, "Failed to extract audio natively, falling back to python extraction");
-                        (video_path.clone(), false)
-                    }
-                }
-            }
-        } else {
-            (video_path.clone(), false)
-        };
-
-        // Wait for transcription permit
-        let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
-
-        let _ = app.emit(
-            "transcribe_progress",
-            TranscribeProgress {
-                task_id: task_id.clone(),
-                progress: 0.0,
-                status: "Starting transcription...".to_string(),
-                step: Some(StepInfo {
-                    current_step: 2,
-                    total_steps: 4,
-                    step_name: "Loading model".to_string(),
-                    step_elapsed: 0.0,
-                    total_elapsed: 0.0,
-                }),
-                total_time: None,
-            },
-        );
-
-        // 开发模式：使用 Python 直接运行
-        // 生产模式：使用 sidecar 运行打包的可执行文件
-        let is_dev = is_dev_mode();
-        tracing::info!(task_id = %task_id, is_dev_mode = is_dev, "Running transcription");
-
-        let result = if is_dev {
-            run_dev_mode(
-                &app,
-                &task_id,
-                &final_audio_path,
-                &output_path,
-                &format,
-                &language,
-                &device,
-                enable_diarization,
-            )
-            .await
-        } else {
-            run_sidecar(
-                &app,
-                &task_id,
-                &final_audio_path,
-                &output_path,
-                &format,
-                &language,
-                &device,
-                enable_diarization,
-            )
-            .await
-        };
-
-        // Cleanup temporary audio file if we created one (keep media-directory cache)
-        if final_audio_path != video_path && !keep_audio_cache {
-            let _ = std::fs::remove_file(&final_audio_path);
+            Ok(ExtractedAudio {
+                path: cache,
+                temporary,
+            })
         }
-
-        if let Err(e) = result {
-            tracing::error!(task_id = %task_id, error = %e, "Transcription failed");
-            // 发送错误事件（不是 progress 事件）
-            let _ = app.emit(
-                "transcribe_error",
-                TranscribeProgress {
-                    task_id: task_id.clone(),
-                    progress: 0.0,
-                    status: format!("Error: {}", e),
-                    step: None,
-                    total_time: None,
-                },
+        Err(filtered) => {
+            // Mirrors the Python engine's `_extract_basic` fallback: an input
+            // ffmpeg cannot filter may still decode without `-af`. Only a
+            // genuine ffmpeg failure reaches here.
+            tracing::warn!(
+                source = %input.display(),
+                error = %filtered,
+                "filtered extraction failed; retrying without filters"
             );
-        } else {
-            tracing::info!(task_id = %task_id, "Transcription completed successfully");
+            let _ = std::fs::remove_file(&cache);
+            run_ffmpeg(&ffmpeg, input, &cache, None).await?;
+            Ok(ExtractedAudio {
+                path: cache,
+                temporary,
+            })
         }
-
-        // Remove task from map
-        TASKS.lock().await.remove(&task_id);
-    });
-
-    // Store task handle
-    TASKS.lock().await.insert(task_id_for_map, handle);
-
-    Ok(task_id)
+    }
 }
 
-/// Run in production mode using sidecar
-async fn run_sidecar(
-    app: &AppHandle,
-    task_id: &str,
-    video_path: &str,
-    output_path: &str,
-    format: &str,
-    language: &str,
-    device: &str,
-    enable_diarization: bool,
-) -> Result<(), String> {
-    tracing::info!(task_id = %task_id, "Starting sidecar process");
-    let shell = app.shell();
-
-    // Get ffmpeg path from video.rs helper
-    let ffmpeg_path = crate::commands::video::get_ffmpeg_path(Some(app));
-    let ffprobe_path = crate::commands::video::get_ffprobe_path(Some(app));
-
-    tracing::debug!(
-        task_id = %task_id,
-        ffmpeg_path = %ffmpeg_path,
-        ffprobe_path = %ffprobe_path,
-        "Setting ffmpeg paths for sidecar subprocess"
-    );
-
-    // 使用 sidecar 运行 monosub-engine
-    let sidecar_command = shell.sidecar("monosub-engine").map_err(|e| {
-        tracing::error!(task_id = %task_id, error = %e, "Failed to create sidecar command");
-        format!("Failed to create sidecar command: {}", e)
-    })?;
-
-    // 构建命令参数
-    let mut args = vec![
-        video_path.to_string(),
-        output_path.to_string(),
-        "--format".to_string(),
-        format.to_string(),
-        "--language".to_string(),
-        language.to_string(),
-        "--device".to_string(),
-        device.to_string(),
-    ];
-
-    // 如果启用了说话人分离，添加参数
-    if enable_diarization {
-        args.push("--diarization".to_string());
-        tracing::info!(task_id = %task_id, "Speaker diarization enabled");
+/// The exact ffmpeg argv, shared by the extraction and its no-filter fallback.
+fn ffmpeg_args(input: &Path, output: &Path, filters: Option<&str>) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = vec![std::ffi::OsString::from("-i")];
+    args.push(input.into());
+    args.push("-vn".into());
+    if let Some(filters) = filters {
+        args.push("-af".into());
+        args.push(filters.into());
     }
+    args.extend(
+        ["-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", "-y"]
+            .map(std::ffi::OsString::from),
+    );
+    args.push(output.into());
+    args
+}
 
-    let (mut rx, _child) = sidecar_command
-        .args(&args)
-        .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
-        .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
-        .env("MONOSUB_ASR_DEVICE", device)
-        .spawn()
+async fn run_ffmpeg(
+    ffmpeg: &str,
+    input: &Path,
+    output: &Path,
+    filters: Option<&str>,
+) -> Result<(), EngineError> {
+    let result = tokio::process::Command::new(ffmpeg)
+        .args(ffmpeg_args(input, output, filters))
+        .output()
+        .await
         .map_err(|e| {
-            tracing::error!(task_id = %task_id, error = %e, "Failed to spawn sidecar");
-            format!("Failed to spawn sidecar: {}", e)
+            EngineError::AudioExtractFailed(format!("failed to run ffmpeg: {}", e))
         })?;
 
-    tracing::debug!(task_id = %task_id, "Sidecar process spawned successfully");
-
-    // Read output
-    while let Some(event) = rx.recv().await {
-        match event {
-            tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                process_output_line(app, task_id, &line_str);
-            }
-            tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                tracing::warn!(task_id = %task_id, stderr = %line_str, "Sidecar stderr output");
-
-                // 如果是 Python 错误（ModuleNotFoundError, ImportError 等），发送错误事件
-                if line_str.contains("Error") || line_str.contains("Traceback") {
-                    let _ = app.emit(
-                        "transcribe_error",
-                        TranscribeProgress {
-                            task_id: task_id.to_string(),
-                            progress: 0.0,
-                            status: format!("Python Error: {}", line_str.trim()),
-                            step: None,
-                            total_time: None,
-                        },
-                    );
-                }
-            }
-            tauri_plugin_shell::process::CommandEvent::Error(err) => {
-                tracing::error!(task_id = %task_id, error = %err, "Sidecar process error");
-                return Err(format!("Process error: {}", err));
-            }
-            tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                tracing::info!(task_id = %task_id, exit_code = ?payload.code, "Sidecar process terminated");
-                if payload.code != Some(0) {
-                    let error_msg = format!("Process exited with code: {:?}", payload.code);
-                    let _ = app.emit(
-                        "transcribe_error",
-                        TranscribeProgress {
-                            task_id: task_id.to_string(),
-                            progress: 0.0,
-                            status: error_msg.clone(),
-                            step: None,
-                            total_time: None,
-                        },
-                    );
-                    return Err(error_msg);
-                }
-            }
-            _ => {}
-        }
+    if !result.status.success() {
+        return Err(EngineError::AudioExtractFailed(format!(
+            "ffmpeg exited with {:?}: {}",
+            result.status.code(),
+            stderr_tail(&result.stderr)
+        )));
     }
-
+    if !output.is_file() {
+        return Err(EngineError::AudioExtractFailed(format!(
+            "ffmpeg reported success but {} was not created",
+            output.display()
+        )));
+    }
     Ok(())
 }
 
-/// Run in development mode using Python directly
-async fn run_dev_mode(
-    app: &AppHandle,
-    task_id: &str,
-    video_path: &str,
-    output_path: &str,
-    format: &str,
-    language: &str,
-    device: &str,
-    enable_diarization: bool,
-) -> Result<(), String> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
-    use tokio::process::Command;
+/// Last few stderr lines: enough to identify a failure, without the banner.
+fn stderr_tail(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(3);
+    lines[start..].join(" | ")
+}
 
-    tracing::info!(task_id = %task_id, "Starting development mode with Python venv");
+// --- Format parsing and output paths (spec §3) ------------------------------
 
-    // 获取 Python 路径
-    let current_dir = std::env::current_dir().map_err(|e| e.to_string())?;
-    let parent = current_dir.parent().ok_or("No parent directory")?;
-    let venv_python = parent.join("core-engine/.venv/bin/python");
-    let main_py = parent.join("core-engine/main.py");
+/// Parse the comma-separated `format` field: trim, lowercase, drop empties,
+/// reject unknown values, deduplicate preserving order.
+fn parse_formats(value: &str) -> Result<Vec<Format>, String> {
+    let mut formats: Vec<Format> = Vec::new();
+    for raw in value.split(',') {
+        let token = raw.trim().to_lowercase();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(format) = Format::parse(&token) else {
+            return Err(format!("Unsupported subtitle format: {}", token));
+        };
+        if !formats.contains(&format) {
+            formats.push(format);
+        }
+    }
 
-    if !venv_python.exists() || !main_py.exists() {
-        tracing::error!(
-            task_id = %task_id,
-            venv_python = ?venv_python,
-            main_py = ?main_py,
-            "Development environment not found"
+    if formats.is_empty() {
+        return Err("No valid subtitle format specified".to_string());
+    }
+    Ok(formats)
+}
+
+/// The first format writes to `output_path` verbatim, each later one replaces
+/// only the extension (`os.path.splitext` semantics).
+fn output_path_for(output_path: &Path, index: usize, format: Format) -> PathBuf {
+    if index == 0 {
+        return output_path.to_path_buf();
+    }
+    let mut path = output_path.to_path_buf();
+    path.set_extension(format.extension());
+    path
+}
+
+fn derive_output_paths(output_path: &Path, formats: &[Format]) -> Vec<PathBuf> {
+    formats
+        .iter()
+        .enumerate()
+        .map(|(index, format)| output_path_for(output_path, index, *format))
+        .collect()
+}
+
+/// The frontend does not send `device` today; `auto`/absent means "the engine
+/// picks", which on macOS is Metal (engine retries CPU itself). Other platforms
+/// stay on CPU until the Phase 4 platform work.
+fn resolve_backend(device: Option<&str>) -> Backend {
+    match device.map(|value| value.trim().to_lowercase()) {
+        Some(value) if value == "cpu" => Backend::Cpu,
+        _ if cfg!(target_os = "macos") => Backend::Metal,
+        _ => Backend::Cpu,
+    }
+}
+
+/// Remove the subtitle files a cancelled run may have left behind.
+///
+/// A pre-existing file this run never opened (the cancel arrived before the
+/// write step) predates `started` and is left alone.
+fn remove_partial_outputs(outputs: &[PathBuf], started: SystemTime) {
+    for path in outputs {
+        let touched_by_this_run = std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .map(|modified| modified >= started)
+            .unwrap_or(false);
+        if !touched_by_this_run {
+            continue;
+        }
+        match std::fs::remove_file(path) {
+            Ok(()) => tracing::info!(
+                path = %path.display(),
+                "removed partially written subtitle after cancel"
+            ),
+            Err(e) => tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "could not remove partial subtitle"
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Creates a unique scratch directory (the crate has no `tempfile`).
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("monosub-transcribe-{}-{}", tag, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn touch(path: &Path, offset_secs: i64) {
+        let now = SystemTime::now();
+        let time = if offset_secs >= 0 {
+            now + Duration::from_secs(offset_secs as u64)
+        } else {
+            now - Duration::from_secs(offset_secs.unsigned_abs())
+        };
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
+    #[test]
+    fn parses_a_comma_separated_format_list_in_order() {
+        assert_eq!(
+            parse_formats("srt,vtt,txt").unwrap(),
+            vec![Format::Srt, Format::Vtt, Format::Txt]
         );
-        return Err("Development environment not found".to_string());
-    }
-
-    tracing::debug!(
-        task_id = %task_id,
-        venv_python = ?venv_python,
-        main_py = ?main_py,
-        "Using Python venv"
-    );
-
-    let cmd_str = format!(
-        "{} {} {} {} --format {} --language {} --device {}",
-        venv_python.display(),
-        main_py.display(),
-        video_path,
-        output_path,
-        format,
-        language,
-        device
-    );
-
-    tracing::info!(task_id = %task_id, command = %cmd_str, "Executing Python command");
-
-    let _ = app.emit(
-        "transcribe_progress",
-        TranscribeProgress {
-            task_id: task_id.to_string(),
-            progress: 0.0,
-            status: format!("CMD: {}", cmd_str),
-            step: None,
-            total_time: None,
-        },
-    );
-
-    // Get ffmpeg path from video.rs helper
-    let ffmpeg_path = crate::commands::video::get_ffmpeg_path(Some(app));
-    let ffprobe_path = crate::commands::video::get_ffprobe_path(Some(app));
-
-    tracing::debug!(
-        task_id = %task_id,
-        ffmpeg_path = %ffmpeg_path,
-        ffprobe_path = %ffprobe_path,
-        "Setting ffmpeg paths for Python subprocess"
-    );
-
-    // 构建命令
-    let mut command = Command::new(&venv_python);
-    command
-        .arg(&main_py)
-        .arg(video_path)
-        .arg(output_path)
-        .arg("--format")
-        .arg(format)
-        .arg("--language")
-        .arg(language)
-        .arg("--device")
-        .arg(device);
-
-    // 如果启用了说话人分离，添加参数
-    if enable_diarization {
-        command.arg("--diarization");
-        tracing::info!(task_id = %task_id, "Speaker diarization enabled (dev mode)");
-    }
-
-    let mut child = command
-        .env("MONOSUB_FFMPEG_PATH", ffmpeg_path)
-        .env("MONOSUB_FFPROBE_PATH", ffprobe_path)
-        .env("MONOSUB_ASR_DEVICE", device)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            tracing::error!(task_id = %task_id, error = %e, "Failed to spawn Python process");
-            format!("Failed to spawn process: {}", e)
-        })?;
-
-    tracing::debug!(task_id = %task_id, "Python process spawned successfully");
-
-    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
-    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
-
-    let mut stdout_reader = BufReader::new(stdout).lines();
-    let mut stderr_reader = BufReader::new(stderr).lines();
-
-    // Read stderr in background
-    let app_clone = app.clone();
-    let task_id_clone = task_id.to_string();
-    tokio::spawn(async move {
-        while let Ok(Some(line)) = stderr_reader.next_line().await {
-            tracing::warn!(task_id = %task_id_clone, stderr = %line, "Python stderr output");
-
-            // 如果是 Python 错误，发送错误事件
-            if line.contains("Error") || line.contains("Traceback") {
-                let _ = app_clone.emit(
-                    "transcribe_error",
-                    TranscribeProgress {
-                        task_id: task_id_clone.clone(),
-                        progress: 0.0,
-                        status: format!("Python Error: {}", line.trim()),
-                        step: None,
-                        total_time: None,
-                    },
-                );
-            }
-        }
-    });
-
-    // Read stdout
-    while let Ok(Some(line)) = stdout_reader.next_line().await {
-        tracing::debug!(task_id = %task_id, stdout = %line, "Python stdout output");
-        process_output_line(app, task_id, &line);
-    }
-
-    // Wait for process to complete
-    let status = child.wait().await.map_err(|e| {
-        tracing::error!(task_id = %task_id, error = %e, "Error waiting for Python process");
-        format!("Wait error: {}", e)
-    })?;
-
-    tracing::info!(task_id = %task_id, exit_code = ?status.code(), "Python process exited");
-
-    if !status.success() {
-        tracing::error!(task_id = %task_id, exit_code = ?status.code(), "Python process failed");
-        let error_msg = format!("Process exited with code: {:?}", status.code());
-        let _ = app.emit(
-            "transcribe_error",
-            TranscribeProgress {
-                task_id: task_id.to_string(),
-                progress: 0.0,
-                status: error_msg.clone(),
-                step: None,
-                total_time: None,
-            },
+        assert_eq!(
+            parse_formats("srt,vtt,txt,md,json").unwrap(),
+            vec![
+                Format::Srt,
+                Format::Vtt,
+                Format::Txt,
+                Format::Md,
+                Format::Json
+            ]
         );
-        return Err(error_msg);
+        assert_eq!(parse_formats("srt").unwrap(), vec![Format::Srt]);
     }
 
-    Ok(())
-}
-
-// Thread-local storage for current step info
-thread_local! {
-    static CURRENT_STEP: std::cell::RefCell<Option<StepInfo>> = std::cell::RefCell::new(None);
-    static TOTAL_TIME: std::cell::RefCell<Option<f64>> = std::cell::RefCell::new(None);
-    static COMPLETED: std::cell::RefCell<bool> = std::cell::RefCell::new(false);
-}
-
-/// Process output line from Python script
-fn process_output_line(app: &AppHandle, task_id: &str, line: &str) {
-    if line.starts_with("STEP:") {
-        // Format: STEP:1/4:step_name
-        let parts: Vec<&str> = line[5..].splitn(3, ':').collect();
-        if parts.len() >= 2 {
-            let step_parts: Vec<&str> = parts[0].split('/').collect();
-            if step_parts.len() == 2 {
-                if let (Ok(current), Ok(total)) =
-                    (step_parts[0].parse::<u32>(), step_parts[1].parse::<u32>())
-                {
-                    let step_name = if parts.len() >= 2 {
-                        parts[1].to_string()
-                    } else {
-                        "Processing".to_string()
-                    };
-
-                    let step_info = StepInfo {
-                        current_step: current,
-                        total_steps: total,
-                        step_name: step_name.clone(),
-                        step_elapsed: 0.0,
-                        total_elapsed: 0.0,
-                    };
-
-                    CURRENT_STEP.with(|s| {
-                        *s.borrow_mut() = Some(step_info.clone());
-                    });
-
-                    tracing::info!(task_id = %task_id, step = current, total = total, name = %step_name, "Step started");
-
-                    let _ = app.emit(
-                        "transcribe_progress",
-                        TranscribeProgress {
-                            task_id: task_id.to_string(),
-                            progress: 0.0,
-                            status: step_name,
-                            step: Some(step_info),
-                            total_time: None,
-                        },
-                    );
-                }
-            }
-        }
-    } else if line.starts_with("ELAPSED:") {
-        // Format: ELAPSED:12.5 (total elapsed seconds)
-        if let Ok(elapsed) = line[8..].trim().parse::<f64>() {
-            CURRENT_STEP.with(|s| {
-                if let Some(ref mut step) = *s.borrow_mut() {
-                    step.total_elapsed = elapsed;
-
-                    let _ = app.emit(
-                        "transcribe_progress",
-                        TranscribeProgress {
-                            task_id: task_id.to_string(),
-                            progress: 0.0,
-                            status: step.step_name.clone(),
-                            step: Some(step.clone()),
-                            total_time: None,
-                        },
-                    );
-                }
-            });
-        }
-    } else if line.starts_with("STEP_ELAPSED:") {
-        // Format: STEP_ELAPSED:3.2 (step elapsed seconds)
-        if let Ok(step_elapsed) = line[13..].trim().parse::<f64>() {
-            CURRENT_STEP.with(|s| {
-                if let Some(ref mut step) = *s.borrow_mut() {
-                    step.step_elapsed = step_elapsed;
-                }
-            });
-        }
-    } else if line.starts_with("TOTAL_TIME:") {
-        // Format: TOTAL_TIME:45.3
-        if let Ok(total) = line[11..].trim().parse::<f64>() {
-            TOTAL_TIME.with(|t| {
-                *t.borrow_mut() = Some(total);
-            });
-            tracing::info!(task_id = %task_id, total_time = total, "Total processing time");
-        }
-    } else if line.starts_with("PROGRESS:") {
-        // Legacy support - ignore PROGRESS messages now
-        tracing::debug!(task_id = %task_id, line = %line, "Ignoring legacy PROGRESS message");
-    } else if line.starts_with("MSG:") {
-        let message = &line[4..];
-        tracing::info!(task_id = %task_id, message = %message, "Transcription message");
-
-        let current_step = CURRENT_STEP.with(|s| s.borrow().clone());
-
-        let _ = app.emit(
-            "transcribe_progress",
-            TranscribeProgress {
-                task_id: task_id.to_string(),
-                progress: 0.0,
-                status: message.to_string(),
-                step: current_step,
-                total_time: None,
-            },
+    #[test]
+    fn format_list_is_trimmed_lowercased_and_deduplicated() {
+        assert_eq!(parse_formats("SRT, srt").unwrap(), vec![Format::Srt]);
+        assert_eq!(parse_formats(" srt , txt ").unwrap(), vec![Format::Srt, Format::Txt]);
+        assert_eq!(
+            parse_formats("vtt,srt,vtt,txt,Srt").unwrap(),
+            vec![Format::Vtt, Format::Srt, Format::Txt]
         );
-    } else if line.starts_with("SUCCESS:") {
-        let output_file = &line[8..];
-        tracing::info!(task_id = %task_id, output_file = %output_file, "Transcription output");
+        // Empty entries between separators are dropped, not rejected.
+        assert_eq!(parse_formats("srt,,vtt,").unwrap(), vec![Format::Srt, Format::Vtt]);
+    }
 
-        // Only emit transcribe_complete on the first SUCCESS line
-        // (multi-format outputs produce multiple SUCCESS lines)
-        let already_completed = COMPLETED.with(|c| c.replace(true));
-        if !already_completed {
-            let total_time = TOTAL_TIME.with(|t| *t.borrow());
-
-            let _ = app.emit(
-                "transcribe_complete",
-                TranscribeProgress {
-                    task_id: task_id.to_string(),
-                    progress: 100.0,
-                    status: format!("Completed: {}", output_file),
-                    step: None,
-                    total_time,
-                },
-            );
-
-            // Clear thread-local state
-            CURRENT_STEP.with(|s| *s.borrow_mut() = None);
-            TOTAL_TIME.with(|t| *t.borrow_mut() = None);
-        }
-    } else if line.starts_with("ERROR:") {
-        let error_msg = &line[6..];
-        tracing::error!(task_id = %task_id, error = %error_msg, "Transcription error");
-        // Python 脚本中的 ERROR: 消息，发送到 transcribe_error 事件
-        let _ = app.emit(
-            "transcribe_error",
-            TranscribeProgress {
-                task_id: task_id.to_string(),
-                progress: 0.0,
-                status: format!("Error: {}", error_msg),
-                step: None,
-                total_time: None,
-            },
+    #[test]
+    fn rejects_unknown_and_empty_format_lists() {
+        assert!(parse_formats("srt,bogus").is_err());
+        assert_eq!(
+            parse_formats("srt,bogus").unwrap_err(),
+            "Unsupported subtitle format: bogus"
         );
-
-        // Clear thread-local state
-        CURRENT_STEP.with(|s| *s.borrow_mut() = None);
-        TOTAL_TIME.with(|t| *t.borrow_mut() = None);
-    }
-}
-
-/// Cancel transcription task
-#[tauri::command]
-pub async fn cancel_transcription(task_id: String) -> Result<(), String> {
-    tracing::info!(task_id = %task_id, "Cancelling transcription task");
-    let mut tasks = TASKS.lock().await;
-
-    if let Some(handle) = tasks.remove(&task_id) {
-        handle.abort();
-        tracing::info!(task_id = %task_id, "Transcription task cancelled successfully");
-        Ok(())
-    } else {
-        tracing::warn!(task_id = %task_id, "Cannot cancel: task not found");
-        Err("Task not found".to_string())
-    }
-}
-
-/// Check if AI dependencies are correctly installed
-#[tauri::command]
-pub async fn check_dependencies(app: AppHandle) -> Result<bool, String> {
-    tracing::info!("Checking AI dependencies...");
-    let is_dev = is_dev_mode();
-
-    if is_dev {
-        let core_dir = get_core_engine_dir(&app)?;
-        let venv_python = core_dir.join(".venv/bin/python");
-        if !venv_python.exists() {
-            return Ok(false);
-        }
-
-        let output = tokio::process::Command::new(&venv_python)
-            .arg("-c")
-            .arg("import funasr; print('OK')")
-            .output()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        return Ok(output.status.success());
-    } else {
-        // sidecar mode
-        use tauri_plugin_shell::ShellExt;
-        let shell = app.shell();
-        let sidecar_command = shell
-            .sidecar("monosub-engine")
-            .map_err(|e| format!("Sidecar error: {}", e))?;
-
-        // We run with --help to check if it can start and import everything
-        let output = sidecar_command
-            .arg("--help")
-            .output()
-            .await
-            .map_err(|e| format!("Failed to run sidecar: {}", e))?;
-
-        // If it exits with 0, it means imports were successful
-        Ok(output.status.success())
-    }
-}
-
-/// Repair AI dependencies by deleting venv and re-installing
-#[tauri::command]
-pub async fn install_dependencies(app: AppHandle) -> Result<(), String> {
-    tracing::info!("Repairing AI dependencies...");
-
-    let core_dir = get_core_engine_dir(&app)?;
-    let venv_dir = core_dir.join(".venv");
-
-    if venv_dir.exists() {
-        tracing::info!("Removing existing venv: {:?}", venv_dir);
-        std::fs::remove_dir_all(&venv_dir).map_err(|e| format!("Failed to remove venv: {}", e))?;
+        assert!(parse_formats("").is_err());
+        assert!(parse_formats("   ").is_err());
+        assert!(parse_formats(",").is_err());
+        assert!(parse_formats(" , ,").is_err());
     }
 
-    // Emit initial progress
-    let _ = app.emit(
-        "install_progress",
-        TranscribeProgress {
-            task_id: "install".to_string(),
-            progress: 0.0,
-            status: "Starting installation...".to_string(),
-            step: None,
-            total_time: None,
-        },
-    );
-
-    // Run sidecar with a dummy task to trigger installation
-    // Actually, we can just run sidecar with --help, it will trigger the launcher's install logic
-    let is_dev = is_dev_mode();
-    if is_dev {
-        // In dev mode, we might need to manual run uv sync if we want to show it
-        // But for now, let's just use the sidecar approach if possible
-        // Actually dev mode sidecar is just running python.
-        return Err("Manual repair not supported in dev mode. Please run 'uv sync' in core-engine directory.".to_string());
+    #[test]
+    fn first_format_uses_the_requested_output_path_verbatim() {
+        let output = Path::new("/media/clip.srt");
+        assert_eq!(output_path_for(output, 0, Format::Srt), PathBuf::from("/media/clip.srt"));
+        // Even when the extension disagrees with the first format.
+        assert_eq!(output_path_for(output, 0, Format::Vtt), PathBuf::from("/media/clip.srt"));
     }
 
-    use tauri_plugin_shell::ShellExt;
-    let shell = app.shell();
-    let sidecar_command = shell
-        .sidecar("monosub-engine")
-        .map_err(|e| format!("Sidecar error: {}", e))?;
+    #[test]
+    fn later_formats_replace_only_the_extension() {
+        let output = Path::new("/media/clip.srt");
+        assert_eq!(output_path_for(output, 1, Format::Vtt), PathBuf::from("/media/clip.vtt"));
+        assert_eq!(output_path_for(output, 2, Format::Txt), PathBuf::from("/media/clip.txt"));
+        assert_eq!(output_path_for(output, 3, Format::Md), PathBuf::from("/media/clip.md"));
+        assert_eq!(output_path_for(output, 4, Format::Json), PathBuf::from("/media/clip.json"));
 
-    let (mut rx, _child) = sidecar_command
-        .arg("--help")
-        .spawn()
-        .map_err(|e| format!("Failed to spawn sidecar: {}", e))?;
-
-    while let Some(event) = rx.recv().await {
-        match event {
-            tauri_plugin_shell::process::CommandEvent::Stdout(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                process_install_output_line(&app, &line_str);
-            }
-            tauri_plugin_shell::process::CommandEvent::Stderr(line) => {
-                let line_str = String::from_utf8_lossy(&line);
-                process_install_output_line(&app, &line_str);
-            }
-            tauri_plugin_shell::process::CommandEvent::Terminated(payload) => {
-                if payload.code == Some(0) {
-                    let _ = app.emit("install_complete", ());
-                    return Ok(());
-                } else {
-                    return Err(format!("Installation failed with code {:?}", payload.code));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-
-fn process_install_output_line(app: &AppHandle, line: &str) {
-    if line.contains("MSG:") {
-        let msg = line.split("MSG:").last().unwrap_or("").trim();
-        let _ = app.emit(
-            "install_progress",
-            TranscribeProgress {
-                task_id: "install".to_string(),
-                progress: 0.0,
-                status: msg.to_string(),
-                step: None,
-                total_time: None,
-            },
+        // Multiple dots: only the last extension is replaced.
+        let dotted = Path::new("/media/a.b.c.mp4");
+        assert_eq!(
+            output_path_for(dotted, 1, Format::Srt),
+            PathBuf::from("/media/a.b.c.srt")
         );
-    } else if line.contains("PROGRESS:") {
-        if let Ok(p) = line
-            .split("PROGRESS:")
-            .last()
-            .unwrap_or("0")
-            .trim()
-            .parse::<f64>()
-        {
-            let _ = app.emit(
-                "install_progress",
-                TranscribeProgress {
-                    task_id: "install".to_string(),
-                    progress: p,
-                    status: "Installing...".to_string(),
-                    step: None,
-                    total_time: None,
-                },
+        assert_eq!(output_path_for(dotted, 0, Format::Srt), dotted.to_path_buf());
+
+        // No extension at all.
+        let bare = Path::new("/media/clip");
+        assert_eq!(output_path_for(bare, 0, Format::Srt), bare.to_path_buf());
+        assert_eq!(output_path_for(bare, 1, Format::Srt), PathBuf::from("/media/clip.srt"));
+
+        // A custom output directory, and a relative path.
+        assert_eq!(
+            output_path_for(Path::new("/custom/out/clip.srt"), 1, Format::Vtt),
+            PathBuf::from("/custom/out/clip.vtt")
+        );
+        assert_eq!(
+            output_path_for(Path::new("clip.srt"), 1, Format::Vtt),
+            PathBuf::from("clip.vtt")
+        );
+    }
+
+    #[test]
+    fn derives_one_output_path_per_requested_format() {
+        let formats = vec![Format::Srt, Format::Vtt, Format::Txt];
+        assert_eq!(
+            derive_output_paths(Path::new("/media/clip.srt"), &formats),
+            vec![
+                PathBuf::from("/media/clip.srt"),
+                PathBuf::from("/media/clip.vtt"),
+                PathBuf::from("/media/clip.txt"),
+            ]
+        );
+    }
+
+    #[test]
+    fn audio_cache_lives_next_to_the_media_file() {
+        assert_eq!(
+            get_audio_cache_path(Path::new("/media/clip.mov")).unwrap(),
+            PathBuf::from("/media/clip_audio.wav")
+        );
+        // An audio input is converted now, and uses the same rule.
+        assert_eq!(
+            get_audio_cache_path(Path::new("/media/song.mp3")).unwrap(),
+            PathBuf::from("/media/song_audio.wav")
+        );
+        assert_eq!(
+            get_audio_cache_path(Path::new("/media/a.b.c.mp4")).unwrap(),
+            PathBuf::from("/media/a.b.c_audio.wav")
+        );
+        assert!(get_audio_cache_path(Path::new("/")).is_none());
+    }
+
+    #[test]
+    fn audio_cache_is_fresh_when_not_older_than_the_source() {
+        let dir = scratch_dir("cache");
+        let source = dir.join("clip.mov");
+        let cache = dir.join("clip_audio.wav");
+        std::fs::write(&source, b"source").unwrap();
+        std::fs::write(&cache, b"cache").unwrap();
+
+        // Equal mtimes (the Python `>=` rule).
+        touch(&source, -100);
+        touch(&cache, -100);
+        assert!(is_cache_fresh(&cache, &source));
+
+        // Newer cache.
+        touch(&source, -200);
+        touch(&cache, -100);
+        assert!(is_cache_fresh(&cache, &source));
+
+        // Stale cache.
+        touch(&source, -100);
+        touch(&cache, -200);
+        assert!(!is_cache_fresh(&cache, &source));
+
+        // Missing cache / missing source.
+        assert!(!is_cache_fresh(&dir.join("absent_audio.wav"), &source));
+        assert!(!is_cache_fresh(&cache, &dir.join("absent.mov")));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extracts_wav_with_the_previous_engines_filter_chain() {
+        // PoC §7 / P0-9: dropping the filters would change the recognition
+        // input, so the exact chain is part of the ported behaviour.
+        let args = ffmpeg_args(
+            Path::new("/media/clip.mov"),
+            Path::new("/media/clip_audio.wav"),
+            Some(AUDIO_FILTER_CHAIN),
+        );
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(
+            args,
+            vec![
+                "-i",
+                "/media/clip.mov",
+                "-vn",
+                "-af",
+                "highpass=f=80,lowpass=f=8000,afftdn=nf=-25:nr=12:nt=w,loudnorm=I=-16:TP=-1.5:LRA=11",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-y",
+                "/media/clip_audio.wav",
+            ]
+        );
+    }
+
+    #[test]
+    fn basic_fallback_extraction_has_no_filter_argument() {
+        let args = ffmpeg_args(
+            Path::new("/media/clip.mp3"),
+            Path::new("/media/clip_audio.wav"),
+            None,
+        );
+        assert!(!args.iter().any(|arg| arg == "-af"));
+        // Everything else is unchanged, so the fallback output is still 16 kHz mono.
+        let args: Vec<String> = args
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.windows(2).any(|pair| pair == ["-ar", "16000"]));
+        assert!(args.windows(2).any(|pair| pair == ["-ac", "1"]));
+    }
+
+    #[test]
+    fn backend_defaults_to_metal_on_macos_and_honours_cpu() {
+        assert_eq!(resolve_backend(Some("cpu")), Backend::Cpu);
+        assert_eq!(resolve_backend(Some("CPU")), Backend::Cpu);
+        let expected = if cfg!(target_os = "macos") {
+            Backend::Metal
+        } else {
+            Backend::Cpu
+        };
+        assert_eq!(resolve_backend(None), expected);
+        assert_eq!(resolve_backend(Some("auto")), expected);
+        assert_eq!(resolve_backend(Some("cuda")), expected);
+    }
+
+    #[test]
+    fn all_silence_still_writes_one_empty_file_per_format() {
+        // `engine::transcribe` returns no chunks for an all-silent input (PoC
+        // §4.3); that must still produce valid, empty subtitle files.
+        let dir = scratch_dir("silence");
+        let output = dir.join("clip.srt");
+        let formats = vec![
+            Format::Srt,
+            Format::Vtt,
+            Format::Txt,
+            Format::Md,
+            Format::Json,
+        ];
+
+        let segments = subtitle::postprocess(&[], &PostProcessConfig::default());
+        assert!(segments.is_empty());
+
+        for (index, format) in formats.iter().enumerate() {
+            let path = output_path_for(&output, index, *format);
+            subtitle::write(&segments, &path, *format).expect("empty subtitle must still write");
+            assert!(path.is_file(), "{} must exist", path.display());
+            assert_eq!(path.extension().unwrap(), format.extension());
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn step_names_are_the_frozen_contract() {
+        for (index, name) in STEP_NAMES.iter().enumerate() {
+            assert_eq!(step_name(index as u32 + 1), *name);
+            // FileItem.tsx maps these to `steps.<snake_case>` i18n keys.
+            let key = name.to_lowercase().replace(' ', "_");
+            assert_eq!(
+                key,
+                ["extracting_audio", "loading_model", "transcribing", "writing_subtitle"][index]
             );
         }
+        assert_eq!(TOTAL_STEPS, STEP_NAMES.len() as u32);
+    }
+
+    #[test]
+    fn cancelled_runs_only_remove_files_they_touched() {
+        let dir = scratch_dir("cancel");
+        let started = SystemTime::now();
+
+        let untouched = dir.join("old.srt");
+        std::fs::write(&untouched, b"previous run").unwrap();
+        touch(&untouched, -600);
+
+        // Simulate a file this run wrote after it started.
+        let partial = dir.join("new.vtt");
+        std::fs::write(&partial, b"half").unwrap();
+        touch(&partial, 1);
+        let missing = dir.join("never.vtt");
+
+        remove_partial_outputs(&[untouched.clone(), partial.clone(), missing.clone()], started);
+
+        assert!(untouched.is_file(), "a pre-existing output must survive");
+        assert!(!partial.exists(), "a file written by this run must be removed");
+        assert!(!missing.exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

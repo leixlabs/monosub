@@ -21,6 +21,19 @@ sign_app() {
         log_info "发现 APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY, 开始签名应用..."
         APP_PATH=$(find "$BUILD_DIR" -name "*.app" -type d | head -1)
         if [ -n "$APP_PATH" ]; then
+            # audio.cpp 与 ffmpeg 以 adhoc/linker-signed 状态分发（PoC §2），必须在签 App 的
+            # 外壳之前对每个内嵌可执行文件单独重签，否则 hardened runtime 下公证会失败。
+            RESOURCE_BIN_DIR="$APP_PATH/Contents/Resources/resources/bin"
+            if [ -d "$RESOURCE_BIN_DIR" ]; then
+                for bundled_bin in "$RESOURCE_BIN_DIR"/*; do
+                    [ -f "$bundled_bin" ] || continue
+                    log_info "  签名 $(basename "$bundled_bin")"
+                    codesign --force --options runtime --timestamp \
+                        --sign "$APPLE_SIGNING_IDENTITY" "$bundled_bin"
+                done
+            else
+                log_warning "未找到内嵌二进制目录: $RESOURCE_BIN_DIR"
+            fi
             codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
             log_success "代码签名完成: $APP_PATH"
         else

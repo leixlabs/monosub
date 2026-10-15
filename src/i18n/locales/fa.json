@@ -14,7 +14,8 @@
     "pending": "در انتظار",
     "processing": "در حال پردازش",
     "completed": "تکمیل شده",
-    "clear": "پاک کردن"
+    "clear": "پاک کردن",
+    "startAll": "شروع همه"
   },
   "fileList": {
     "emptyTitle": "ایجاد زیرنویس",
@@ -33,7 +34,8 @@
     "cancel": "لغو",
     "open": "باز کردن",
     "delete": "حذف",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "رد شد"
   },
   "bottomBar": {
     "saveLocation": "ذخیره در",
@@ -46,8 +48,14 @@
     "english": "انگلیسی",
     "multiSpeaker": "Multi-speaker",
     "stop": "توقف",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "شاید بعداً",
+    "licensePromptMessage": "تشخیص چند گوینده به مجوز معتبر نیاز دارد. می‌توانید ابتدا آن را در تنظیمات فعال کنید یا صفحه خرید را در مرورگر باز کنید.",
+    "licensePromptTitle": "فعال‌سازی تشخیص چند گوینده (Pro)",
+    "licensePromptWithKeyMessage": "کلید مجوز شما قبلاً ذخیره شده است. ابتدا آن را در تنظیمات فعال کنید و سپس تشخیص چند گوینده را روشن کنید.",
+    "multiSpeakerComingBack": "تشخیص چند گوینده به‌زودی بازمی‌گردد",
+    "openInBrowser": "باز کردن در مرورگر",
+    "openSettings": "باز کردن تنظیمات"
   },
   "settings": {
     "title": "تنظیمات",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "پردازش",
-      "noiseReduction": "کاهش نویز",
-      "noiseReductionDesc": "کاهش نویز پس‌زمینه",
-      "volumeNormalization": "نرمال‌سازی صدا",
-      "volumeNormalizationDesc": "استانداردسازی سطوح صدا",
-      "autoQueue": "صف خودکار",
-      "autoQueueDesc": "پردازش خودکار فایل بعدی"
+      "skipExisting": "نادیده گرفتن زیرنویس‌های موجود",
+      "skipExistingDesc": "اگر فایل خروجی از قبل وجود دارد، پردازش را نادیده بگیر"
     },
     "notifications": {
       "title": "اعلان‌ها",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "در حال بررسی مجوز...",
+        "hint": "کلید مجوز را وارد کنید و برای فعال‌سازی روی «بررسی مجوز» بزنید.",
+        "notActivated": "مجوز فعال نشده است",
+        "valid": "مجوز فعال است"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "نسخه برنامه",
+      "checkFailed": "بررسی به‌روزرسانی ناموفق بود",
+      "checkUpdate": "بررسی به‌روزرسانی‌ها",
+      "checkingUpdate": "در حال بررسی...",
+      "hint": "برای دریافت آخرین نسخه از GitHub روی «بررسی به‌روزرسانی‌ها» بزنید.",
+      "latestVersion": "آخرین نسخه",
+      "newVersionAvailable": "نسخه جدید موجود است: {{version}}",
+      "openReleasePage": "باز کردن صفحه دانلود",
+      "publishedAt": "تاریخ انتشار",
+      "title": "درباره",
+      "unknownVersion": "نامشخص",
+      "upToDate": "شما آخرین نسخه را دارید"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "استخراج صدا از این فایل ممکن نشد.",
+    "engineFailed": "تشخیص گفتار ناموفق بود. برای جزئیات گزارش‌ها را ببینید.",
+    "engineMissing": "موتور گفتار موجود نیست یا قابل اجرا نیست. MonoSub را دوباره نصب کنید.",
+    "modelNotInstalled": "مدل تشخیص گفتار نصب نیست. برای دانلود آن تنظیمات ← مدل‌ها را باز کنید."
+  },
+  "models": {
+    "cancel": "لغو",
+    "credits": {
+      "audioCpp": "موتور گفتار: audio.cpp (Apache-2.0).",
+      "sensevoice": "مدل: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) تحت FunASR Model License v1.1.",
+      "title": "تقدیرها و مجوزها"
+    },
+    "description": "MonoSub کاملاً روی دستگاه شما اجرا می‌شود. مدل تشخیص گفتار را یک‌بار دانلود کنید تا همیشه آفلاین در دسترس باشد.",
+    "download": "دانلود",
+    "empty": "مدلی یافت نشد.",
+    "installed": "نصب‌شده",
+    "loadFailed": "بارگذاری مدل‌ها ناموفق بود",
+    "loading": "در حال بارگذاری مدل‌ها...",
+    "notInstalled": "نصب‌نشده",
+    "openFolder": "باز کردن پوشه مدل‌ها",
+    "remove": "حذف",
+    "retry": "تلاش مجدد",
+    "size": "حجم",
+    "title": "مدل‌ها"
   }
 }

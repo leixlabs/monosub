@@ -34,12 +34,8 @@ export interface AppSettings {
   // Output settings
   outputFormat: SubtitleFormat
   outputLanguage: OutputLanguage
-  enableBilingual: boolean
-  bilingualTargetLang: 'en' | 'zh'
 
   // Processing settings
-  enableNoiseReduction: boolean
-  enableVolumeNormalization: boolean
   skipExistingSubtitle: boolean
 
   // UI settings
@@ -52,9 +48,14 @@ export interface LicenseConfig {
   licenseDeviceId: string
 }
 
+const OUTPUT_LANGUAGES: OutputLanguage[] = ['auto', 'en', 'zh', 'es', 'ja', 'de', 'fr', 'pt', 'zh-tw', 'ko']
+
+const isOutputLanguage = (value: unknown): value is OutputLanguage =>
+  typeof value === 'string' && (OUTPUT_LANGUAGES as string[]).includes(value)
+
 // Detect system language
 const detectSystemLanguage = (): OutputLanguage => {
-  const lang = navigator.language || (navigator as any).userLanguage || 'auto'
+  const lang = navigator.language || (navigator as { userLanguage?: string }).userLanguage || 'auto'
   if (lang.startsWith('zh-TW') || lang.startsWith('zh-HK')) return 'zh-tw'
   if (lang.startsWith('zh')) return 'zh'
   if (lang.startsWith('en')) return 'en'
@@ -70,10 +71,6 @@ const detectSystemLanguage = (): OutputLanguage => {
 const defaultSettings: AppSettings = {
   outputFormat: 'srt',
   outputLanguage: detectSystemLanguage(),
-  enableBilingual: false,
-  bilingualTargetLang: 'en',
-  enableNoiseReduction: true,
-  enableVolumeNormalization: true,
   skipExistingSubtitle: false,
   showCompletedNotification: true,
 }
@@ -140,6 +137,49 @@ interface AppState {
   processedCount: number
   setProcessedCount: (count: number) => void
   incrementProcessedCount: () => void
+}
+
+// Persisted slice. Kept in sync with the `partialize` option below.
+type PersistedAppState = Pick<AppState, 'storageMode' | 'customStoragePath' | 'settings' | 'licenseConfig'>
+
+const PERSIST_VERSION = 2
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+// v0/v1 blobs still carry `enableNoiseReduction`, `enableVolumeNormalization`,
+// `enableBilingual` and `bilingualTargetLang`. PoC §7 (P0-9) proved all four are
+// dead engine-side settings, so migration rebuilds `settings` from the fields
+// that still exist and drops everything else.
+const normalizeSettings = (value: unknown): AppSettings => {
+  const persisted = isRecord(value) ? value : {}
+  return {
+    outputFormat: typeof persisted.outputFormat === 'string' ? persisted.outputFormat : defaultSettings.outputFormat,
+    outputLanguage: isOutputLanguage(persisted.outputLanguage) ? persisted.outputLanguage : defaultSettings.outputLanguage,
+    skipExistingSubtitle: typeof persisted.skipExistingSubtitle === 'boolean' ? persisted.skipExistingSubtitle : defaultSettings.skipExistingSubtitle,
+    showCompletedNotification: typeof persisted.showCompletedNotification === 'boolean' ? persisted.showCompletedNotification : defaultSettings.showCompletedNotification,
+  }
+}
+
+const normalizeLicenseConfig = (value: unknown): LicenseConfig => {
+  const persisted = isRecord(value) ? value : {}
+  return {
+    licenseKey: typeof persisted.licenseKey === 'string' ? persisted.licenseKey : '',
+    licenseActivationId: typeof persisted.licenseActivationId === 'string' ? persisted.licenseActivationId : '',
+    licenseDeviceId: typeof persisted.licenseDeviceId === 'string' ? persisted.licenseDeviceId : '',
+  }
+}
+
+// Called for every blob whose stored version differs from PERSIST_VERSION, so
+// an old localStorage blob can neither crash startup nor resurrect removed keys.
+const normalizePersistedState = (persistedState: unknown): PersistedAppState => {
+  const persisted = isRecord(persistedState) ? persistedState : {}
+  return {
+    storageMode: persisted.storageMode === 'custom' ? 'custom' : 'same',
+    customStoragePath: typeof persisted.customStoragePath === 'string' ? persisted.customStoragePath : '',
+    settings: normalizeSettings(persisted.settings),
+    licenseConfig: normalizeLicenseConfig(persisted.licenseConfig),
+  }
 }
 
 export const useStore = create<AppState>()(
@@ -241,7 +281,16 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'monosub-storage',
-      partialize: (state) => ({
+      version: PERSIST_VERSION,
+      migrate: normalizePersistedState,
+      // Also normalize on plain hydration: a blob written without a `version`
+      // field skips `migrate`, and the default shallow merge would otherwise
+      // keep the dropped toggles alive in memory.
+      merge: (persistedState, currentState) => ({
+        ...currentState,
+        ...normalizePersistedState(persistedState),
+      }),
+      partialize: (state): PersistedAppState => ({
         storageMode: state.storageMode,
         customStoragePath: state.customStoragePath,
         settings: state.settings,

@@ -1,0 +1,34 @@
+[
+  {
+    "start": 0.0,
+    "end": 2.5,
+    "text": "开放时间早上9点至下午5点。"
+  },
+  {
+    "start": 2.5,
+    "end": 6.0,
+    "text": "Yeah, u, I think people do that with almost everything in life."
+  },
+  {
+    "start": 6.0,
+    "end": 9.5,
+    "text": "你好，世界。今天天气不错。",
+    "speaker": "Speaker A"
+  },
+  {
+    "start": 9.5,
+    "end": 13.5,
+    "text": "真的吗？！太好了！——不过，等等；我们先确认一下。3.14 是圆周率！"
+  },
+  {
+    "start": 3600.0,
+    "end": 3618.0,
+    "text": "这是一条很长的字幕，用来验证写出器在处理超过一分钟时间轴与超长文本时是否稳定可靠。"
+  },
+  {
+    "start": 3618.0,
+    "end": 3620.0,
+    "text": "  前后带空格的文本 mixed with latin words 测试  ",
+    "speaker": "Speaker B"
+  }
+]

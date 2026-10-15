@@ -5,7 +5,9 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['dist'] },
+  // `src-tauri/target` holds cargo/tauri build output (including minified
+  // tauri-codegen-assets), which must never be linted as source.
+  { ignores: ['dist', 'src-tauri/target'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ['**/*.{ts,tsx}'],

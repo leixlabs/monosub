@@ -48,8 +48,14 @@
     "english": "EN",
     "multiSpeaker": "Multi-speaker",
     "stop": "停止",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "稍後再說",
+    "licensePromptMessage": "多人辨識需要有效 License。你可以先到設定填寫並啟用，或在瀏覽器開啟購買頁。",
+    "licensePromptTitle": "解鎖多人辨識（Pro）",
+    "licensePromptWithKeyMessage": "偵測到你已填寫 License Key。可先前往設定完成啟用，啟用後即可開啟多人辨識。",
+    "multiSpeakerComingBack": "多說話者辨識即將回歸",
+    "openInBrowser": "在系統瀏覽器開啟",
+    "openSettings": "前往設定啟用"
   },
   "settings": {
     "title": "設定",
@@ -63,10 +69,6 @@
     },
     "processing": {
       "title": "處理設定",
-      "noiseReduction": "音訊降噪",
-      "noiseReductionDesc": "減少背景噪音干擾",
-      "volumeNormalization": "音量標準化",
-      "volumeNormalizationDesc": "統一音量水準",
       "skipExisting": "跳過現有字幕",
       "skipExistingDesc": "如果輸出檔案已存在同名字幕，則跳過處理"
     },
@@ -103,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "無到期"
+      "unlimited": "無到期",
+      "summary": {
+        "checking": "正在驗證 License...",
+        "hint": "填寫 License Key 後點擊「驗證 License」即可完成啟用。",
+        "notActivated": "License 未啟用",
+        "valid": "License 已啟用"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "軟體版本",
+      "checkFailed": "檢查更新失敗",
+      "checkUpdate": "檢查更新",
+      "checkingUpdate": "檢查中...",
+      "hint": "點擊「檢查更新」後，將從 GitHub Releases 取得最新版本資訊。",
+      "latestVersion": "最新版本",
+      "newVersionAvailable": "發現新版本：{{version}}",
+      "openReleasePage": "開啟下載頁面",
+      "publishedAt": "發佈時間",
+      "title": "關於",
+      "unknownVersion": "未知",
+      "upToDate": "目前已是最新版本"
     }
   },
   "notification": {
@@ -139,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "無法從此檔案擷取音訊。",
+    "engineFailed": "語音辨識失敗，詳情請查看日誌。",
+    "engineMissing": "語音引擎缺失或無法執行。請重新安裝 MonoSub。",
+    "modelNotInstalled": "語音辨識模型尚未安裝。請開啟「設定 → 模型」下載。"
+  },
+  "models": {
+    "cancel": "取消",
+    "credits": {
+      "audioCpp": "語音引擎：audio.cpp（Apache-2.0）。",
+      "sensevoice": "模型：SenseVoice-Small（FunAudioLLM/SenseVoiceSmall），採用 FunASR Model License v1.1。",
+      "title": "致謝與授權"
+    },
+    "description": "MonoSub 完全在本機執行。語音辨識模型只需下載一次，之後即可離線使用。",
+    "download": "下載",
+    "empty": "找不到模型。",
+    "installed": "已安裝",
+    "loadFailed": "無法載入模型清單",
+    "loading": "正在載入模型...",
+    "notInstalled": "未安裝",
+    "openFolder": "開啟模型目錄",
+    "remove": "刪除",
+    "retry": "重試",
+    "size": "大小",
+    "title": "模型"
   }
 }

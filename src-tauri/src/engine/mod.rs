@@ -10,6 +10,8 @@ pub mod cli;
 pub mod vad;
 pub mod wav;
 
+use std::path::PathBuf;
+
 pub use cli::{Backend, CliInvocation, CliOutput, EngineError};
 
 /// One VAD segment or ASR transcript with absolute media-relative times.
@@ -44,13 +46,33 @@ impl Default for TranscribeOpts {
 /// Progress callback payload: `(done, total, message)`.
 pub type ProgressFn<'a> = dyn Fn(usize, usize, &str) + Send + Sync + 'a;
 
+/// audio.cpp task/family pair for SenseVoice ASR.
+const ASR_TASK: &str = "asr";
+const ASR_FAMILY: &str = "sense_asr";
+
+/// Per-request option written into `requests.json`.
+///
+/// PoC §4.1: v0.9.1 rejects `--request-option` together with `--request-sequence`
+/// (`unknown options`), so every per-request option has to travel inside the
+/// JSON document instead of on the command line.
+const REQUEST_CHUNK_MODE: &str = "none";
+
+/// Stem of the ASR `--text-out` path. The CLI appends `_<safe_id>` plus `.txt`
+/// and prints `text_out[<id>]=<path>`, which we prefer over guessing the name.
+const TEXT_OUT_STEM: &str = "seg.txt";
+
+/// How many chunks go into one `--request-sequence` invocation (spec §7 risk 9).
+const MAX_CHUNKS_PER_BATCH: usize = 200;
+
 /// Run the full pipeline for one file: VAD → slice → `requests.json` →
 /// `--request-sequence` ASR → per-chunk text.
 ///
 /// Temporary files live in `temp_dir()/monosub-<task_id>/` and are removed on
 /// all exits (success, failure, cancel) via a `Drop` guard.
 ///
-/// Tasks: P1-9 (orchestration), P1-8 (VAD), P1-7 (slicing).
+/// Task: P1-9. Cancellation is handled by the caller aborting the owning tokio
+/// task: `cli::spawn` marks the child `kill_on_drop`, so aborting drops the
+/// future and kills the child process.
 pub async fn transcribe(
     app: &tauri::AppHandle,
     task_id: &str,
@@ -58,6 +80,561 @@ pub async fn transcribe(
     opts: &TranscribeOpts,
     on_progress: &ProgressFn<'_>,
 ) -> Result<Vec<RawChunk>, EngineError> {
-    let _ = (app, task_id, wav_path, opts, on_progress);
-    unimplemented!("P1-9")
+    let work_dir = TempWorkDir::create(task_id)?;
+    let dir = work_dir.path();
+
+    // Resolve what to run: `--model` is the GGUF file for ASR, the VAD
+    // directory is passed through `--session-option`.
+    let model_id = opts
+        .model_id
+        .clone()
+        .unwrap_or_else(|| catalog::default_model_id().to_string());
+    let model_file = catalog::model_path(app, &model_id)?.ok_or_else(|| {
+        EngineError::Missing(format!("model '{}' is not in the catalogue", model_id))
+    })?;
+    let specs = catalog::catalog(Some(app))?;
+    let spec = specs
+        .iter()
+        .find(|m| m.id == model_id)
+        .ok_or_else(|| EngineError::Missing(format!("model '{}' is not in the catalogue", model_id)))?;
+    let language = catalog::map_language(spec, &opts.language);
+
+    // Step 2: VAD. Cheap (no model load) and decides everything downstream.
+    on_progress(0, 0, "Detecting speech");
+    let chunks = vad::detect(Some(app), wav_path, dir).await?;
+
+    // All-silent input: exit code 0 with zero chunks (PoC §4.3). Not an error —
+    // the caller writes an empty subtitle.
+    if chunks.is_empty() {
+        tracing::info!(task_id = %task_id, "VAD found no speech; writing an empty subtitle");
+        on_progress(0, 0, "No speech detected");
+        return Ok(Vec::new());
+    }
+
+    let total = chunks.len();
+    tracing::info!(task_id = %task_id, chunks = total, "VAD chunk plan ready");
+
+    // Step 3a: slice the 16 kHz mono WAV at the sample offsets VAD reported.
+    let audio = wav::read(wav_path)?;
+    on_progress(0, total, "Segmenting audio");
+    for chunk in &chunks {
+        let out_path = wav::chunk_path(dir, chunk.index);
+        wav::slice(&audio, chunk.start_sample, chunk.end_sample, &out_path)?;
+    }
+
+    // Step 3b: transcribe. Each batch is one session, so the model loads once.
+    let mut texts: Vec<String> = Vec::with_capacity(total);
+    let mut done = 0usize;
+    for batch in chunks.chunks(MAX_CHUNKS_PER_BATCH) {
+        let results = transcribe_batch(
+            app,
+            dir,
+            &model_file,
+            &language,
+            opts.backend,
+            batch,
+            total,
+            done,
+            on_progress,
+        )
+        .await?;
+
+        for chunk in batch {
+            texts.push(results.get(&chunk.index).cloned().unwrap_or_default());
+        }
+        done += batch.len();
+        on_progress(done, total, "Transcribing");
+    }
+
+    // Step 4 is `subtitle::postprocess`; keep the chunk times intact here so it
+    // can distribute each chunk's duration proportionally.
+    let out = chunks
+        .iter()
+        .zip(texts)
+        .map(|(chunk, text)| RawChunk {
+            start_s: chunk.start_s(),
+            end_s: chunk.end_s(),
+            text,
+        })
+        .collect();
+
+    Ok(out)
+}
+
+/// Transcribe one batch of chunks in a single CLI session.
+///
+/// Retries once on the CPU backend when a `metal` run fails with a backend-ish
+/// error (spec §5.3).
+#[allow(clippy::too_many_arguments)]
+async fn transcribe_batch(
+    app: &tauri::AppHandle,
+    dir: &std::path::Path,
+    model_file: &std::path::Path,
+    language: &str,
+    backend: Backend,
+    batch: &[vad::VadChunk],
+    total: usize,
+    done_before: usize,
+    on_progress: &ProgressFn<'_>,
+) -> Result<std::collections::HashMap<usize, String>, EngineError> {
+    let vad_dir = cli::resolve_vad_path(Some(app))?;
+    let requests_path = write_requests(dir, batch, language)?;
+
+    match run_sequence(
+        app, dir, model_file, &vad_dir, &requests_path, backend, batch, total, done_before,
+        on_progress,
+    )
+    .await
+    {
+        Ok(results) => Ok(results),
+        Err(err @ EngineError::Failed { .. }) if backend == Backend::Metal && is_backend_failure(&err) => {
+            tracing::warn!(
+                error = %err,
+                "metal backend failed; retrying once on cpu"
+            );
+            on_progress(done_before, total, "Metal unavailable, retrying on CPU");
+            run_sequence(
+                app, dir, model_file, &vad_dir, &requests_path, Backend::Cpu, batch, total,
+                done_before, on_progress,
+            )
+            .await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// One `--request-sequence` invocation plus its `text_out` files.
+#[allow(clippy::too_many_arguments)]
+async fn run_sequence(
+    app: &tauri::AppHandle,
+    dir: &std::path::Path,
+    model_file: &std::path::Path,
+    vad_dir: &std::path::Path,
+    requests_path: &std::path::Path,
+    backend: Backend,
+    batch: &[vad::VadChunk],
+    total: usize,
+    done_before: usize,
+    on_progress: &ProgressFn<'_>,
+) -> Result<std::collections::HashMap<usize, String>, EngineError> {
+    let out_dir = dir.join("out");
+    let text_out = out_dir.join(TEXT_OUT_STEM);
+
+    let invocation = CliInvocation {
+        task: ASR_TASK.to_string(),
+        family: ASR_FAMILY.to_string(),
+        model: model_file.to_path_buf(),
+        // Sequence mode names every chunk inside requests.json.
+        audio: None,
+        backend,
+        args: asr_args(requests_path, &text_out, vad_dir),
+    };
+
+    // Ids are `c0000`-style, so the CLI's `safe_output_name` leaves them alone.
+    let expected: std::collections::HashMap<String, usize> = batch
+        .iter()
+        .map(|chunk| (chunk_id(chunk.index), chunk.index))
+        .collect();
+
+    let mut reported: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
+    let mut metrics_seen = 0usize;
+    let mut last_reported_done = 0usize;
+
+    {
+        let mut on_line = |line: &str| {
+            // `text_out[<id>]=<path>` — the authoritative output path. It is
+            // absolute when `--text-out` was absolute (always the case here),
+            // but the CLI echoes whatever we passed, so resolve defensively
+            // against the process cwd the child inherited.
+            if let Some((id, path)) = parse_text_out(line) {
+                reported.insert(id, resolve_reported_path(&path));
+                return;
+            }
+            // `metrics[<id>].…` — one block per finished chunk, streamed live
+            // (PoC §4.2), which is what drives progress.
+            if let Some(id) = parse_metric_id(line) {
+                if let Some(&index) = expected.get(&id) {
+                    // Guard against counting a duplicate id twice.
+                    if !reported.contains_key(&format!("__metric__{}", index)) {
+                        reported.insert(format!("__metric__{}", index), PathBuf::new());
+                        metrics_seen += 1;
+                        let done = (done_before + metrics_seen).min(total);
+                        if done != last_reported_done {
+                            last_reported_done = done;
+                            on_progress(done, total, "Transcribing");
+                        }
+                    }
+                } else {
+                    tracing::debug!(line = %line, "metrics line for an unknown request id");
+                }
+            }
+        };
+
+        let output: CliOutput = cli::spawn(Some(app), invocation, &mut on_line).await?;
+        tracing::debug!(
+            stdout_lines = output.stdout.lines().count(),
+            stderr_tail = %output.stderr_tail,
+            "audiocpp_cli sequence finished"
+        );
+    }
+
+    // Read each chunk's text, preferring the path the CLI printed.
+    let mut results = std::collections::HashMap::with_capacity(batch.len());
+    let mut missing = Vec::new();
+    for chunk in batch {
+        let id = chunk_id(chunk.index);
+        let path = reported
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| default_text_out_path(&text_out, &id));
+
+        match std::fs::read_to_string(&path) {
+            Ok(text) => {
+                results.insert(chunk.index, text.trim().to_string());
+            }
+            Err(e) => {
+                tracing::warn!(
+                    chunk = chunk.index,
+                    path = %path.display(),
+                    error = %e,
+                    "no transcript written for chunk; treating as silent"
+                );
+                missing.push(chunk.index);
+            }
+        }
+    }
+
+    if missing.len() == batch.len() {
+        return Err(EngineError::Protocol(format!(
+            "audiocpp_cli reported success but wrote no transcript for any of the {} chunk(s)",
+            batch.len()
+        )));
+    }
+
+    Ok(results)
+}
+
+/// `--request-sequence` arguments. Deliberately contains no `--request-option`
+/// (PoC §4.1).
+fn asr_args(
+    requests_path: &std::path::Path,
+    text_out: &std::path::Path,
+    vad_dir: &std::path::Path,
+) -> Vec<String> {
+    vec![
+        "--request-sequence".to_string(),
+        requests_path.to_string_lossy().into_owned(),
+        "--text-out".to_string(),
+        text_out.to_string_lossy().into_owned(),
+        "--session-option".to_string(),
+        format!("sense_asr.vad_model_path={}", vad_dir.to_string_lossy()),
+        "--threads".to_string(),
+        thread_count().to_string(),
+        "--metrics".to_string(),
+    ]
+}
+
+/// Write `requests.json` for one batch.
+///
+/// Relative `audio` paths resolve against the document's directory (PoC §4.2),
+/// so the bare chunk file name is enough — everything lives in `dir`.
+fn write_requests(
+    dir: &std::path::Path,
+    batch: &[vad::VadChunk],
+    language: &str,
+) -> Result<PathBuf, EngineError> {
+    let requests: Vec<serde_json::Value> = batch
+        .iter()
+        .map(|chunk| {
+            serde_json::json!({
+                "id": chunk_id(chunk.index),
+                "audio": wav::chunk_file_name(chunk.index),
+                "language": language,
+                "options": { "audio_chunk_mode": REQUEST_CHUNK_MODE },
+            })
+        })
+        .collect();
+
+    let document = serde_json::json!({ "requests": requests });
+    let path = dir.join("requests.json");
+    let body = serde_json::to_string(&document)
+        .map_err(|e| EngineError::Protocol(format!("failed to serialize requests.json: {}", e)))?;
+    std::fs::write(&path, body)
+        .map_err(|e| EngineError::Io(format!("write {}: {}", path.display(), e)))?;
+    Ok(path)
+}
+
+/// Request id for one chunk; already `safe_output_name`-clean.
+fn chunk_id(index: usize) -> String {
+    format!("c{:04}", index)
+}
+
+/// Fallback path when the CLI did not print `text_out[<id>]`.
+///
+/// Mirrors `safe_output_name`: `<stem>_<safe_id><ext>`.
+fn default_text_out_path(text_out: &std::path::Path, id: &str) -> PathBuf {
+    unsafe_output_name(text_out, id)
+}
+
+fn unsafe_output_name(text_out: &std::path::Path, id: &str) -> PathBuf {
+    let stem = text_out
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "seg".to_string());
+    let safe_id: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let ext = text_out
+        .extension()
+        .map(|e| e.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "txt".to_string());
+    let name = format!("{}_{}.{}", stem, safe_id, ext);
+    match text_out.parent() {
+        Some(parent) => parent.join(name),
+        None => PathBuf::from(name),
+    }
+}
+
+/// Parse `text_out[<id>]=<path>`.
+fn parse_text_out(line: &str) -> Option<(String, String)> {
+    let rest = line.strip_prefix("text_out[")?;
+    let (id, path) = rest.split_once("]=")?;
+    Some((id.to_string(), path.trim().to_string()))
+}
+
+/// The CLI echoes the `--text-out` path it was given, so a relative path is
+/// relative to the cwd the child inherited from us.
+fn resolve_reported_path(path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        return path;
+    }
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(path),
+        Err(_) => path,
+    }
+}
+
+/// Parse the request id out of `metrics[<id>].<key>=<value>`.
+fn parse_metric_id(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("metrics[")?;
+    let (id, _) = rest.split_once(']')?;
+    Some(id.to_string())
+}
+
+/// A `metal` run that failed for backend reasons is worth one CPU retry.
+fn is_backend_failure(err: &EngineError) -> bool {
+    let EngineError::Failed { stderr_tail, message } = err else {
+        return false;
+    };
+    let haystack = format!("{}\n{}", message, stderr_tail).to_lowercase();
+    haystack.contains("metal") || haystack.contains("backend") || haystack.contains("gpu")
+}
+
+/// Physical cores, used for `--threads`.
+fn thread_count() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+}
+
+/// `temp_dir()/monosub-<task_id>/`, removed on drop for every exit path.
+struct TempWorkDir {
+    path: PathBuf,
+}
+
+impl TempWorkDir {
+    fn create(task_id: &str) -> Result<Self, EngineError> {
+        let safe: String = task_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = std::env::temp_dir().join(format!("monosub-{}", safe));
+
+        // A leftover directory from a crashed run would poison this one.
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+        std::fs::create_dir_all(&path)
+            .map_err(|e| EngineError::Io(format!("create {}: {}", path.display(), e)))?;
+
+        Ok(Self { path })
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for TempWorkDir {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_dir_all(&self.path) {
+            tracing::warn!(
+                path = %self.path.display(),
+                error = %e,
+                "failed to remove the transcription temp directory"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_text_out_line() {
+        assert_eq!(
+            parse_text_out("text_out[c0000]=/tmp/monosub-t1/out/seg_c0000.txt"),
+            Some((
+                "c0000".to_string(),
+                "/tmp/monosub-t1/out/seg_c0000.txt".to_string()
+            ))
+        );
+        assert_eq!(parse_text_out("text_output=hello"), None);
+        assert_eq!(parse_text_out("metrics[c0000].wall_ms=1.0"), None);
+    }
+
+    #[test]
+    fn resolves_a_relative_reported_path_against_the_cwd() {
+        // Observed live: `text_out[c0000]=out/seg_c0000.txt` when `--text-out`
+        // is relative, so the raw string is not always usable as-is.
+        let absolute = resolve_reported_path("/tmp/x/out/seg_c0000.txt");
+        assert_eq!(absolute, PathBuf::from("/tmp/x/out/seg_c0000.txt"));
+
+        let relative = resolve_reported_path("out/seg_c0000.txt");
+        assert!(relative.is_absolute(), "{relative:?}");
+        assert!(relative.ends_with("out/seg_c0000.txt"));
+        // It must not be interpreted as a bare cwd-relative name.
+        assert_ne!(relative, PathBuf::from("out/seg_c0000.txt"));
+    }
+
+    #[test]
+    fn parses_metric_ids() {
+        assert_eq!(
+            parse_metric_id("metrics[c0001].wall_ms=62.6556"),
+            Some("c0001".to_string())
+        );
+        assert_eq!(parse_metric_id("metrics[c0001].rtf=0.02"), Some("c0001".to_string()));
+        assert_eq!(parse_metric_id("text_out[c0001]=/x"), None);
+        assert_eq!(parse_metric_id("audiocpp_cli failed: nope"), None);
+    }
+
+    #[test]
+    fn chunk_ids_are_padded_and_safe() {
+        assert_eq!(chunk_id(0), "c0000");
+        assert_eq!(chunk_id(42), "c0042");
+        // Already `safe_output_name`-clean, so the CLI will not rewrite it.
+        assert!(chunk_id(7)
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'));
+    }
+
+    #[test]
+    fn default_text_out_path_matches_the_cli_convention() {
+        let path = default_text_out_path(std::path::Path::new("/w/out/seg.txt"), "c0000");
+        assert_eq!(path, PathBuf::from("/w/out/seg_c0000.txt"));
+    }
+
+    #[test]
+    fn sequence_args_never_pass_request_option() {
+        // PoC §4.1: `--request-option` + `--request-sequence` is rejected.
+        let args = asr_args(
+            std::path::Path::new("/w/requests.json"),
+            std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/res/models/silero_vad"),
+        );
+
+        assert!(args.iter().any(|a| a == "--request-sequence"));
+        assert!(args.iter().any(|a| a == "--metrics"));
+        assert!(
+            !args.iter().any(|a| a.starts_with("--request-option")),
+            "{args:?}"
+        );
+        // The VAD path must be spelled out; the CLI ships a relative default.
+        assert!(args
+            .iter()
+            .any(|a| a == "sense_asr.vad_model_path=/res/models/silero_vad"));
+    }
+
+    #[test]
+    fn requests_json_carries_per_request_options() {
+        let dir = std::env::temp_dir().join(format!("monosub-req-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let batch = vec![
+            vad::VadChunk { index: 0, start_sample: 0, end_sample: 16000 },
+            vad::VadChunk { index: 7, start_sample: 80000, end_sample: 240000 },
+        ];
+        let path = write_requests(&dir, &batch, "zh").expect("write requests.json");
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        let requests = written["requests"].as_array().expect("requests array");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0]["id"], "c0000");
+        // Relative to requests.json, which lives in `dir`.
+        assert_eq!(requests[0]["audio"], "chunk_0000.wav");
+        assert_eq!(requests[0]["language"], "zh");
+        assert_eq!(requests[0]["options"]["audio_chunk_mode"], "none");
+        assert_eq!(requests[1]["id"], "c0007");
+        assert_eq!(requests[1]["audio"], "chunk_0007.wav");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn backend_failure_detection_matches_metal_errors_only() {
+        assert!(is_backend_failure(&EngineError::Failed {
+            message: "audiocpp_cli exited with code 1".to_string(),
+            stderr_tail: "ggml_metal_init: failed to create command queue".to_string(),
+        }));
+        assert!(is_backend_failure(&EngineError::Failed {
+            message: "unsupported backend".to_string(),
+            stderr_tail: String::new(),
+        }));
+        // An unrelated failure must not trigger the CPU retry.
+        assert!(!is_backend_failure(&EngineError::Failed {
+            message: "could not open WAV input".to_string(),
+            stderr_tail: "could not open WAV input: /tmp/x.wav".to_string(),
+        }));
+        assert!(!is_backend_failure(&EngineError::Protocol("bad json".to_string())));
+    }
+
+    #[test]
+    fn temp_work_dir_is_removed_on_drop() {
+        let path = {
+            let dir = TempWorkDir::create("unit-drop").expect("create");
+            std::fs::write(dir.path().join("scratch"), b"x").unwrap();
+            assert!(dir.path().is_dir());
+            dir.path().to_path_buf()
+        };
+        assert!(!path.exists(), "temp dir must be gone after drop");
+    }
+
+    #[test]
+    fn temp_work_dir_replaces_a_stale_directory() {
+        let first = TempWorkDir::create("unit-stale").expect("create");
+        let path = first.path().to_path_buf();
+        std::fs::write(path.join("leftover"), b"x").unwrap();
+        // Leak the guard so the directory survives, simulating a crashed run.
+        std::mem::forget(first);
+
+        let second = TempWorkDir::create("unit-stale").expect("create over stale dir");
+        assert_eq!(second.path(), path);
+        assert!(!path.join("leftover").exists(), "stale files must be cleared");
+    }
 }

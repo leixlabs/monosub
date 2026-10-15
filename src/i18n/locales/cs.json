@@ -14,7 +14,8 @@
     "pending": "Čeká",
     "processing": "Zpracování",
     "completed": "Dokončeno",
-    "clear": "Vymazat"
+    "clear": "Vymazat",
+    "startAll": "Spustit vše"
   },
   "fileList": {
     "emptyTitle": "Vytvořit Titulky",
@@ -33,7 +34,8 @@
     "cancel": "Zrušit",
     "open": "Otevřít",
     "delete": "Smazat",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Přeskočeno"
   },
   "bottomBar": {
     "saveLocation": "Uložit do",
@@ -46,8 +48,14 @@
     "english": "Angličtina",
     "multiSpeaker": "Multi-speaker",
     "stop": "Stop",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Možná později",
+    "licensePromptMessage": "Rozpoznávání více mluvčích vyžaduje platnou licenci. Můžete ji nejprve aktivovat v nastavení, nebo otevřít nákupní stránku v prohlížeči.",
+    "licensePromptTitle": "Odemknout rozpoznávání mluvčích (Pro)",
+    "licensePromptWithKeyMessage": "Licenční klíč už máte uložený. Nejdříve jej aktivujte v nastavení a poté zapněte rozpoznávání mluvčích.",
+    "multiSpeakerComingBack": "Rozpoznávání mluvčích se brzy vrátí",
+    "openInBrowser": "Otevřít v prohlížeči",
+    "openSettings": "Otevřít nastavení"
   },
   "settings": {
     "title": "Nastavení",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "Zpracování",
-      "noiseReduction": "Redukce Šumu",
-      "noiseReductionDesc": "Snížit šum pozadí",
-      "volumeNormalization": "Normalizace Hlasitosti",
-      "volumeNormalizationDesc": "Standardizovat úrovně zvuku",
-      "autoQueue": "Auto Fronta",
-      "autoQueueDesc": "Automaticky zpracovat další soubor"
+      "skipExisting": "Přeskočit existující titulky",
+      "skipExistingDesc": "Přeskočit zpracování, pokud výstupní soubor již existuje"
     },
     "notifications": {
       "title": "Oznámení",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Kontrola licence...",
+        "hint": "Zadejte licenční klíč a kliknutím na „Ověřit licenci“ ji aktivujete.",
+        "notActivated": "Licence není aktivována",
+        "valid": "Licence je aktivována"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "Verze aplikace",
+      "checkFailed": "Kontrola aktualizací se nezdařila",
+      "checkUpdate": "Zkontrolovat aktualizace",
+      "checkingUpdate": "Kontrola...",
+      "hint": "Kliknutím na „Zkontrolovat aktualizace“ načtete nejnovější vydání z GitHubu.",
+      "latestVersion": "Nejnovější verze",
+      "newVersionAvailable": "Je dostupná nová verze: {{version}}",
+      "openReleasePage": "Otevřít stránku ke stažení",
+      "publishedAt": "Datum vydání",
+      "title": "O aplikaci",
+      "unknownVersion": "Neznámá",
+      "upToDate": "Máte nejnovější verzi"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Z tohoto souboru se nepodařilo extrahovat zvuk.",
+    "engineFailed": "Rozpoznávání řeči se nezdařilo. Podrobnosti najdete v protokolech.",
+    "engineMissing": "Řečový engine chybí nebo není spustitelný. Přeinstalujte MonoSub.",
+    "modelNotInstalled": "Model rozpoznávání řeči není nainstalován. Otevřete Nastavení → Modely a stáhněte jej."
+  },
+  "models": {
+    "cancel": "Zrušit",
+    "credits": {
+      "audioCpp": "Řečový engine: audio.cpp (Apache-2.0).",
+      "sensevoice": "Model: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) pod licencí FunASR Model License v1.1.",
+      "title": "Poděkování a licence"
+    },
+    "description": "MonoSub běží zcela na vašem počítači. Stáhněte model rozpoznávání řeči jednou a zůstane dostupný offline.",
+    "download": "Stáhnout",
+    "empty": "Nebyly nalezeny žádné modely.",
+    "installed": "Nainstalováno",
+    "loadFailed": "Modely se nepodařilo načíst",
+    "loading": "Načítání modelů...",
+    "notInstalled": "Nenainstalováno",
+    "openFolder": "Otevřít složku modelů",
+    "remove": "Smazat",
+    "retry": "Zkusit znovu",
+    "size": "Velikost",
+    "title": "Modely"
   }
 }

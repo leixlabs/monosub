@@ -14,7 +14,8 @@
     "pending": "Chờ xử lý",
     "processing": "Đang xử lý",
     "completed": "Hoàn thành",
-    "clear": "Xóa"
+    "clear": "Xóa",
+    "startAll": "Bắt đầu tất cả"
   },
   "fileList": {
     "emptyTitle": "Tạo Phụ Đề",
@@ -33,7 +34,8 @@
     "cancel": "Hủy",
     "open": "Mở",
     "delete": "Xóa",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Đã bỏ qua"
   },
   "bottomBar": {
     "saveLocation": "Lưu vào",
@@ -46,8 +48,14 @@
     "english": "Tiếng Anh",
     "multiSpeaker": "Multi-speaker",
     "stop": "Dừng",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Có lẽ để sau",
+    "licensePromptMessage": "Nhận diện nhiều người nói cần giấy phép hợp lệ. Bạn có thể kích hoạt trong Cài đặt trước, hoặc mở trang mua trong trình duyệt.",
+    "licensePromptTitle": "Mở khóa nhận diện nhiều người nói (Pro)",
+    "licensePromptWithKeyMessage": "Bạn đã lưu khóa giấy phép. Hãy kích hoạt trong Cài đặt trước, sau đó bật nhận diện nhiều người nói.",
+    "multiSpeakerComingBack": "Nhận diện người nói sẽ sớm trở lại",
+    "openInBrowser": "Mở trong trình duyệt",
+    "openSettings": "Mở Cài đặt"
   },
   "settings": {
     "title": "Cài đặt",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "Xử lý",
-      "noiseReduction": "Giảm Tiếng Ồn",
-      "noiseReductionDesc": "Giảm tiếng ồn nền",
-      "volumeNormalization": "Chuẩn Hóa Âm Lượng",
-      "volumeNormalizationDesc": "Chuẩn hóa mức âm thanh",
-      "autoQueue": "Hàng Đợi Tự Động",
-      "autoQueueDesc": "Tự động xử lý tệp tiếp theo"
+      "skipExisting": "Bỏ qua phụ đề đã có",
+      "skipExistingDesc": "Bỏ qua xử lý nếu tệp đầu ra đã tồn tại"
     },
     "notifications": {
       "title": "Thông báo",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Đang kiểm tra giấy phép...",
+        "hint": "Nhập khóa giấy phép và bấm “Xác thực giấy phép” để kích hoạt.",
+        "notActivated": "Giấy phép chưa được kích hoạt",
+        "valid": "Giấy phép đã được kích hoạt"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "Phiên bản ứng dụng",
+      "checkFailed": "Kiểm tra cập nhật thất bại",
+      "checkUpdate": "Kiểm tra cập nhật",
+      "checkingUpdate": "Đang kiểm tra...",
+      "hint": "Bấm “Kiểm tra cập nhật” để lấy bản phát hành mới nhất từ GitHub.",
+      "latestVersion": "Phiên bản mới nhất",
+      "newVersionAvailable": "Đã có phiên bản mới: {{version}}",
+      "openReleasePage": "Mở trang tải xuống",
+      "publishedAt": "Ngày phát hành",
+      "title": "Giới thiệu",
+      "unknownVersion": "Không rõ",
+      "upToDate": "Bạn đang dùng bản mới nhất"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Không trích xuất được âm thanh từ tệp này.",
+    "engineFailed": "Nhận dạng giọng nói thất bại. Xem nhật ký để biết chi tiết.",
+    "engineMissing": "Thiếu bộ máy nhận dạng giọng nói hoặc không thể chạy. Hãy cài lại MonoSub.",
+    "modelNotInstalled": "Mô hình nhận dạng giọng nói chưa được cài đặt. Mở Cài đặt → Mô hình để tải xuống."
+  },
+  "models": {
+    "cancel": "Hủy",
+    "credits": {
+      "audioCpp": "Bộ máy nhận dạng giọng nói: audio.cpp (Apache-2.0).",
+      "sensevoice": "Mô hình: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) theo FunASR Model License v1.1.",
+      "title": "Ghi công và giấy phép"
+    },
+    "description": "MonoSub chạy hoàn toàn trên máy của bạn. Tải mô hình nhận dạng giọng nói một lần, sau đó dùng được cả khi ngoại tuyến.",
+    "download": "Tải xuống",
+    "empty": "Không tìm thấy mô hình nào.",
+    "installed": "Đã cài đặt",
+    "loadFailed": "Không tải được mô hình",
+    "loading": "Đang tải mô hình...",
+    "notInstalled": "Chưa cài đặt",
+    "openFolder": "Mở thư mục mô hình",
+    "remove": "Xóa",
+    "retry": "Thử lại",
+    "size": "Kích thước",
+    "title": "Mô hình"
   }
 }

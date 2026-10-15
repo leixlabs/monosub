@@ -1,0 +1,6 @@
+开放时间早上9点至下午5点。
+Yeah, u, I think people do that with almost everything in life.
+Speaker A: 你好，世界。今天天气不错。
+真的吗？！太好了！——不过，等等；我们先确认一下。3.14 是圆周率！
+这是一条很长的字幕，用来验证写出器在处理超过一分钟时间轴与超长文本时是否稳定可靠。
+Speaker B: 前后带空格的文本 mixed with latin words 测试

@@ -53,7 +53,6 @@
     "chinese": "中文",
     "english": "EN",
     "multiSpeaker": "多人识别",
-    "multiSpeakerHint": "需要有效的 Polar License",
     "proRequired": "需要 PRO 授权",
     "licensePromptTitle": "解锁多人识别（Pro）",
     "licensePromptMessage": "多人识别需要有效 License。你可以先去设置填写并激活，或在浏览器打开购买页。",
@@ -61,7 +60,8 @@
     "openInBrowser": "在系统浏览器打开",
     "openSettings": "去设置激活",
     "later": "稍后再说",
-    "stop": "停止"
+    "stop": "停止",
+    "multiSpeakerComingBack": "多说话人识别即将回归"
   },
   "settings": {
     "title": "设置",
@@ -75,10 +75,6 @@
     },
     "processing": {
       "title": "处理设置",
-      "noiseReduction": "音频降噪",
-      "noiseReductionDesc": "减少背景噪音干扰",
-      "volumeNormalization": "音量标准化",
-      "volumeNormalizationDesc": "统一音量水平",
       "skipExisting": "跳过已有字幕",
       "skipExistingDesc": "如果输出文件已存在，则跳过处理"
     },
@@ -116,21 +112,6 @@
       },
       "unlimited": "无过期"
     },
-    "environment": {
-      "title": "AI 运行环境",
-      "check": "检测状态",
-      "repair": "修复依赖",
-      "repairDesc": "如果转录一直失败，尝试重新安装 AI 依赖",
-      "status": {
-        "checking": "正在检测...",
-        "healthy": "运行环境正常",
-        "broken": "依赖受损或缺失",
-        "error": "检测失败"
-      },
-      "repairing": "正在修复 AI 依赖... (通常 3-5 分钟)",
-      "repairSuccess": "修复成功",
-      "repairFailed": "修复失败"
-    },
     "notifications": {
       "title": "通知设置",
       "showCompleted": "完成通知",
@@ -165,5 +146,31 @@
     "auto": "自动检测",
     "zh": "中文",
     "en": "English"
+  },
+  "errors": {
+    "audioExtractFailed": "无法从该文件提取音频。",
+    "engineFailed": "语音识别失败，详情请查看日志。",
+    "engineMissing": "语音引擎缺失或无法执行。请重新安装 MonoSub。",
+    "modelNotInstalled": "语音识别模型尚未安装。请打开「设置 → 模型」下载。"
+  },
+  "models": {
+    "cancel": "取消",
+    "credits": {
+      "audioCpp": "语音引擎：audio.cpp（Apache-2.0）。",
+      "sensevoice": "模型：SenseVoice-Small（FunAudioLLM/SenseVoiceSmall），采用 FunASR Model License v1.1。",
+      "title": "致谢与许可"
+    },
+    "description": "MonoSub 完全在本机运行。语音识别模型只需下载一次，之后即可离线使用。",
+    "download": "下载",
+    "empty": "未找到模型。",
+    "installed": "已安装",
+    "loadFailed": "无法加载模型列表",
+    "loading": "正在加载模型...",
+    "notInstalled": "未安装",
+    "openFolder": "打开模型目录",
+    "remove": "删除",
+    "retry": "重试",
+    "size": "大小",
+    "title": "模型"
   }
 }

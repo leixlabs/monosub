@@ -4,10 +4,8 @@
 
 ## 目录结构
 
-我们在重构后主要划分为四大领域的单一职责脚本：
-
-- `build/`：涵盖构建（下载 Python 二进制、FFmpeg 等）、混淆代码与核心 dmg 打包等操作。
-- `release/`：涵盖代码签名（Mac）、推平 GitHub 发布流等。
+- `build/`：构建资源准备（audio.cpp CLI、Silero VAD、FFmpeg）与核心 dmg 打包。
+- `release/`：代码签名（Mac）、推平 GitHub 发布流等。
 - `setup/`：搭建或清理开发环境，一键安装工具等。
 - `utils/`：通用的常量检测、版本计算助手等。
 
@@ -17,31 +15,24 @@
 
 ### 1. 📦 构建打包 macOS 应用（DMG）
 
-我们支持两种架构模式的构建：
-* **Lite（默认/推荐）**：带轻量的独立 Python，代码压缩体积约 100MB。第一次在用户端运行的时候走 `uv` 动态拉取。
-* **Full（稳定）**：把环境直接整个复制打包进入客户端里，体积约 500-800M。
+自 v2.0 起，推理引擎为随包分发的 `audiocpp_cli` 单文件二进制 + 内置 Silero VAD 模型，
+不再有 Python/uv 运行时，因此也**不再区分 Lite / Full 构建模式**。
 
-#### 命令行执行构建：
-可以在项目的最根目录下通过 `npm` / `bun` 运行，或者直接调用脚本文件：
+可以在项目的最根目录下通过 `bun` / `npm` 运行，或者直接调用脚本文件：
 
-**构建 Lite 版本（轻便）**
 ```bash
 # 方式一：使用 package.json 的快捷命令（推荐）
-bun run build:dmg:lite
-# (等同于 bun run build:dmg)
+bun run build:dmg
 
 # 方式二：直接执行脚本
-./scripts/build/build-macos-app.sh lite
+./scripts/build/build-macos-app.sh
 ```
 
-**构建 Full 版本（全量）**
-```bash
-# 方式一：
-bun run build:dmg:full
+构建流程：准备资源 → 前端构建 → Tauri 打包 → 签名/公证 → 收集 DMG。
 
-# 方式二：直接执行脚本
-./scripts/build/build-macos-app.sh full
-```
+`prepare-resources.sh` 是构建前唯一的资源准备入口，它会清理已废弃的
+Python/uv 目录、准备 FFmpeg，再调用 `fetch-audiocpp.sh` 拉取并校验
+`audiocpp_cli` 与 `silero_vad_16k.safetensors`。脚本可重复运行。
 
 ✨ *构建成功后的 DMG 文件会被输出到根目录的 `dist/` 文件夹下。*
 
@@ -52,11 +43,8 @@ bun run build:dmg:full
 若打算将打包好的代码直接作为新 Release 一键发布至 Github 仓库：
 
 ```bash
-# 发布 Lite 版本（默认）
+# 构建并发布
 ./scripts/release/release.sh
-
-# 发布 Full 版本
-./scripts/release/release.sh --type=full
 
 # 如果你已经执行过上面构建的内容拿到了文件，跳过重新构建，仅做信息提取与上传：
 ./scripts/release/release.sh --skip-package
@@ -78,4 +66,4 @@ bun run clean        # (或者直接 rm -rf dist/* target/*)
 ```bash
 ./scripts/setup/verify-setup.sh
 ```
-该脚本会智能识别你是否漏装了某些必要依赖环境（例如 Rust，uv, FFmpeg）。
+该脚本会智能识别你是否漏装了某些必要依赖环境（例如 Rust，FFmpeg）。

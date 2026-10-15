@@ -67,8 +67,32 @@ pub struct DeactivateLicenseResult {
 
 fn license_state_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    let dir = std::path::Path::new(&home).join(".monosub");
-    Some(dir.join("license_state.json"))
+    Some(license_state_path_in(std::path::Path::new(&home)))
+}
+
+fn license_state_path_in(home: &std::path::Path) -> std::path::PathBuf {
+    home.join(".monosub").join("license_state.json")
+}
+
+/// Decode a hex string the way Python's `bytes.fromhex` does: ASCII hex digits
+/// only, with any ASCII whitespace ignored, and an even number of digits.
+fn decode_hex(input: &str) -> Option<Vec<u8>> {
+    let mut nibbles = Vec::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch.is_ascii_whitespace() {
+            continue;
+        }
+        nibbles.push(ch.to_digit(16)? as u8);
+    }
+    if nibbles.len() % 2 != 0 {
+        return None;
+    }
+    Some(
+        nibbles
+            .chunks(2)
+            .map(|pair| (pair[0] << 4) | pair[1])
+            .collect(),
+    )
 }
 
 fn hmac_hex(payload: &str) -> String {
@@ -101,6 +125,32 @@ fn xor_crypt(data: &[u8]) -> Vec<u8> {
 
 fn write_license_state(valid: bool, expires_at: Option<&str>, activation_id: Option<&str>) {
     let Some(path) = license_state_path() else { return };
+    write_license_state_at(&path, valid, expires_at, activation_id);
+}
+
+/// Writes the state into an explicit `$HOME`, so the unit test can point at a
+/// temporary directory instead of the developer's real licence.
+#[cfg(test)]
+fn write_license_state_in(
+    home: &std::path::Path,
+    valid: bool,
+    expires_at: Option<&str>,
+    activation_id: Option<&str>,
+) {
+    write_license_state_at(
+        &license_state_path_in(home),
+        valid,
+        expires_at,
+        activation_id,
+    );
+}
+
+fn write_license_state_at(
+    path: &std::path::Path,
+    valid: bool,
+    expires_at: Option<&str>,
+    activation_id: Option<&str>,
+) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -122,7 +172,7 @@ fn write_license_state(valid: bool, expires_at: Option<&str>, activation_id: Opt
     // Encrypt the JSON and store as hex — not human-readable
     let encrypted = xor_crypt(state.to_string().as_bytes());
     let hex: String = encrypted.iter().map(|b| format!("{:02x}", b)).collect();
-    let _ = std::fs::write(&path, hex);
+    let _ = std::fs::write(path, hex);
 }
 
 fn clear_license_state() {
@@ -134,12 +184,16 @@ fn clear_license_state() {
 /// True when a previously validated Pro license is still trustworthy.
 ///
 /// Decrypts `~/.monosub/license_state.json`, verifies the HMAC signature over
-/// `1|validated_at|expires_at|activation_id`, and requires `valid == true`.
+/// `1|validated_at|expires_at|activation_id`, requires `valid == true`, and
+/// rejects a licence whose `expires_at` is in the past (spec §5.7).
 ///
 /// Task: P1-13.
 #[allow(dead_code)]
 pub fn is_pro_licensed() -> bool {
-    unimplemented!("P1-13")
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() => is_pro_licensed_in(std::path::Path::new(&home)),
+        _ => false,
+    }
 }
 
 /// Same check against an explicit `$HOME`, so the unit test can point at a
@@ -148,7 +202,284 @@ pub fn is_pro_licensed() -> bool {
 /// Task: P1-13.
 #[allow(dead_code, unused_variables)]
 pub fn is_pro_licensed_in(home: &std::path::Path) -> bool {
-    unimplemented!("P1-13")
+    let Ok(raw) = std::fs::read_to_string(license_state_path_in(home)) else {
+        return false;
+    };
+    let raw = raw.trim();
+    // Legacy plaintext state is rejected — the user must re-validate.
+    if raw.starts_with('{') {
+        return false;
+    }
+    let Some(encrypted) = decode_hex(raw) else {
+        return false;
+    };
+    let Ok(state) = serde_json::from_slice::<Value>(&xor_crypt(&encrypted)) else {
+        return false;
+    };
+    if state.get("valid").and_then(Value::as_bool) != Some(true) {
+        return false;
+    }
+
+    let validated_at = state
+        .get("validated_at")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let expires_at_str = state
+        .get("expires_at")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let activation_id_str = state
+        .get("activation_id")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let stored_sig = state.get("sig").and_then(Value::as_str).unwrap_or("");
+    let Some(stored_sig) = decode_hex(stored_sig) else {
+        return false;
+    };
+
+    let payload = format!(
+        "1|{}|{}|{}",
+        validated_at, expires_at_str, activation_id_str
+    );
+    type HmacSha256 = Hmac<Sha256>;
+    let Ok(mut mac) = HmacSha256::new_from_slice(LICENSE_HMAC_KEY) else {
+        return false;
+    };
+    mac.update(payload.as_bytes());
+    // Constant-time comparison of the stored signature (never `==`).
+    if mac.verify_slice(&stored_sig).is_err() {
+        return false;
+    }
+
+    // Only now is `expires_at_str` authenticated, so it may drive control flow
+    // (spec §5.7). An empty value is a perpetual licence, matching
+    // `write_license_state`'s `unwrap_or("")`. Anything unparseable is treated
+    // as expired rather than as perpetual, so a corrupt date cannot grant Pro.
+    if !expires_at_str.is_empty() {
+        match chrono::DateTime::parse_from_rfc3339(expires_at_str) {
+            Ok(expires) if expires.with_timezone(&chrono::Utc) > chrono::Utc::now() => {}
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A throwaway `$HOME` under the system temp dir, removed on drop.
+    struct TempHome(std::path::PathBuf);
+
+    impl TempHome {
+        fn new() -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("monosub-license-test-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).expect("create temp home");
+            Self(dir)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+
+        /// Encrypt an arbitrary state JSON exactly like `write_license_state_at`.
+        fn write_state_json(&self, state_json: &str) {
+            let path = license_state_path_in(self.path());
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("create .monosub dir");
+            }
+            let hex: String = xor_crypt(state_json.as_bytes())
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect();
+            std::fs::write(path, hex).expect("write state");
+        }
+    }
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn accepts_state_written_by_write_license_state() {
+        let home = TempHome::new();
+        // Far-future expiry: this test asserts acceptance, so it must not start
+        // failing as wall-clock time advances past a near-future date.
+        write_license_state_in(
+            home.path(),
+            true,
+            Some("2099-01-01T00:00:00+00:00"),
+            Some("act-1"),
+        );
+        assert!(is_pro_licensed_in(home.path()));
+    }
+
+    /// Spec §5.7 requires the expiry to be honoured, not merely signed.
+    #[test]
+    fn rejects_expired_license() {
+        let home = TempHome::new();
+        // Correctly signed, `valid: true`, but the expiry has already passed.
+        write_license_state_in(
+            home.path(),
+            true,
+            Some("2020-01-01T00:00:00+00:00"),
+            Some("act-1"),
+        );
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    /// An unparseable expiry must not be treated as perpetual.
+    #[test]
+    fn rejects_unparseable_expiry() {
+        let home = TempHome::new();
+        write_license_state_in(home.path(), true, Some("not-a-date"), Some("act-1"));
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn accepts_state_without_optional_fields() {
+        let home = TempHome::new();
+        write_license_state_in(home.path(), true, None, None);
+        assert!(is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_tampered_signature() {
+        let home = TempHome::new();
+        let validated_at = "2026-01-01T00:00:00+00:00";
+        // Signature is genuine, but for the *old* expiry; the stored expiry was
+        // changed afterwards, so the recomputed signature cannot match.
+        let sig = hmac_hex(&format!(
+            "1|{}|2027-01-01T00:00:00+00:00|act-1",
+            validated_at
+        ));
+        home.write_state_json(
+            &json!({
+                "valid": true,
+                "validated_at": validated_at,
+                "expires_at": "2028-01-01T00:00:00+00:00",
+                "activation_id": "act-1",
+                "sig": sig,
+            })
+            .to_string(),
+        );
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_sig_of_the_right_length_but_wrong_value() {
+        let home = TempHome::new();
+        let validated_at = "2026-01-01T00:00:00+00:00";
+        let sig = hmac_hex(&format!("1|{}||", validated_at));
+        let flipped = format!("{}{}", if &sig[..1] == "0" { "1" } else { "0" }, &sig[1..]);
+        home.write_state_json(
+            &json!({
+                "valid": true,
+                "validated_at": validated_at,
+                "expires_at": null,
+                "activation_id": null,
+                "sig": flipped,
+            })
+            .to_string(),
+        );
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_valid_false() {
+        let home = TempHome::new();
+        write_license_state_in(home.path(), false, None, None);
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_missing_file() {
+        let home = TempHome::new();
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_legacy_plaintext_state() {
+        let home = TempHome::new();
+        let path = license_state_path_in(home.path());
+        std::fs::create_dir_all(path.parent().expect("parent dir")).expect("create .monosub dir");
+        std::fs::write(
+            &path,
+            r#"{"valid":true,"validated_at":"","expires_at":null,"activation_id":null,"sig":""}"#,
+        )
+        .expect("write legacy state");
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_malformed_state() {
+        let home = TempHome::new();
+        let path = license_state_path_in(home.path());
+        std::fs::create_dir_all(path.parent().expect("parent dir")).expect("create .monosub dir");
+
+        // Bad hex (odd length).
+        std::fs::write(&path, "abc").expect("write");
+        assert!(!is_pro_licensed_in(home.path()));
+
+        // Valid hex, but not JSON once decrypted.
+        let hex: String = xor_crypt(b"not json")
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect();
+        std::fs::write(&path, hex).expect("write");
+        assert!(!is_pro_licensed_in(home.path()));
+
+        // Valid JSON, but the `valid` field is missing.
+        home.write_state_json(r#"{"validated_at":"x"}"#);
+        assert!(!is_pro_licensed_in(home.path()));
+    }
+
+    #[test]
+    fn rejects_missing_state_dir() {
+        // A path that does not exist under the temp dir — no `.monosub` created.
+        let dir =
+            std::env::temp_dir().join(format!("monosub-license-absent-{}", uuid::Uuid::new_v4()));
+        assert!(!is_pro_licensed_in(&dir));
+    }
+
+    /// Cross-language contract pin (review item R2).
+    ///
+    /// The round-trip tests above write with `write_license_state_in` and read
+    /// with `is_pro_licensed_in`, so they cannot detect a divergence in the
+    /// payload string or the keystream layout — both sides would move together.
+    /// These constants were produced by the ORIGINAL Python implementation
+    /// (`core-engine/main.py::_hmac_hex` / `_xor_crypt`, key
+    /// `ms_lic_v1_7f3a9c2e5b8d4f1a6e0c3b9d2f5a8e1c`), so if the Rust payload or
+    /// cipher drifts, real v1 licence files stop verifying.
+    #[test]
+    fn matches_python_golden_signature_vector() {
+        // python: _hmac_hex("1|2026-01-01T00:00:00+00:00||act-1")
+        assert_eq!(
+            license_signature("1|2026-01-01T00:00:00+00:00||act-1"),
+            "8d66e9f06eca4092ca78ded2c8507214e673e9e5a1e4f7a43bff0dd8366bcbc7"
+        );
+    }
+
+    #[test]
+    fn accepts_python_produced_state_blob() {
+        let home = TempHome::new();
+        // Emitted by the Python writer for the state
+        // {"valid":true,"validated_at":"2026-01-01T00:00:00+00:00",
+        //  "expires_at":"2099-01-01T00:00:00+00:00",
+        //  "activation_id":"act-1","sig":"16063678…b2f2"}
+        // It is written verbatim (no Rust re-encryption), so this fails if the
+        // Rust reader's cipher or signed payload ever diverges from Python's.
+        const PYTHON_BLOB: &str = "51c75f8fa3595499778000aba3131aa6510cf109d4b6a3d79ff56893d762babdafa33af9c6c7d4eb22c8b39142bb95e50b1db43bb87b6ce4b05cd0480919959d8bf028fb91035678e255f0e61a356fac915220c426f8f3eb84f1216ea40354f2a0fa053ef3f72a6c46e4defef40c21ead6ad75261e502e06cfe4a3a235f10c5b775f312100ce2d4dcd5117fd0430d233fdb00e38038d422161ef52bef18ec600e23fe9d0f89a149bc93bc3cf1f135a7c75386e9aeade890baae6b3c5f8c285b8eefd9f";
+        let path = license_state_path_in(home.path());
+        std::fs::create_dir_all(path.parent().expect("parent dir")).expect("create .monosub dir");
+        std::fs::write(&path, PYTHON_BLOB).expect("write python blob");
+
+        assert!(is_pro_licensed_in(home.path()));
+    }
 }
 
 /// Compiled-in signature key, exposed for the P1-13 unit test fixture.

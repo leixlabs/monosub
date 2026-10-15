@@ -14,7 +14,8 @@
     "pending": "Ожидание",
     "processing": "Обработка",
     "completed": "Завершено",
-    "clear": "Очистить"
+    "clear": "Очистить",
+    "startAll": "Запустить все"
   },
   "fileList": {
     "emptyTitle": "Создать субтитры",
@@ -33,7 +34,8 @@
     "cancel": "Отмена",
     "open": "Открыть",
     "delete": "Удалить",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Пропущено"
   },
   "bottomBar": {
     "saveLocation": "Сохранить в",
@@ -46,8 +48,14 @@
     "english": "Английский",
     "multiSpeaker": "Multi-speaker",
     "stop": "Стоп",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Может, позже",
+    "licensePromptMessage": "Для распознавания нескольких говорящих нужна действующая лицензия. Активируйте её в настройках или откройте страницу покупки в браузере.",
+    "licensePromptTitle": "Разблокировать распознавание говорящих (Pro)",
+    "licensePromptWithKeyMessage": "Ключ лицензии уже сохранён. Сначала активируйте его в настройках, затем включите распознавание говорящих.",
+    "multiSpeakerComingBack": "Распознавание говорящих скоро вернётся",
+    "openInBrowser": "Открыть в браузере",
+    "openSettings": "Открыть настройки"
   },
   "settings": {
     "title": "Настройки",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "Обработка",
-      "noiseReduction": "Шумоподавление",
-      "noiseReductionDesc": "Уменьшить фоновый шум",
-      "volumeNormalization": "Нормализация громкости",
-      "volumeNormalizationDesc": "Стандартизировать уровни звука",
-      "autoQueue": "Авто-очередь",
-      "autoQueueDesc": "Автоматически обрабатывать следующий файл"
+      "skipExisting": "Пропускать существующие субтитры",
+      "skipExistingDesc": "Пропускать обработку, если выходной файл уже существует"
     },
     "notifications": {
       "title": "Уведомления",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Проверка лицензии...",
+        "hint": "Введите ключ лицензии и нажмите «Проверить лицензию», чтобы активировать.",
+        "notActivated": "Лицензия не активирована",
+        "valid": "Лицензия активирована"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "Версия приложения",
+      "checkFailed": "Не удалось проверить обновления",
+      "checkUpdate": "Проверить обновления",
+      "checkingUpdate": "Проверка...",
+      "hint": "Нажмите «Проверить обновления», чтобы получить последний выпуск с GitHub.",
+      "latestVersion": "Последняя версия",
+      "newVersionAvailable": "Доступна новая версия: {{version}}",
+      "openReleasePage": "Открыть страницу загрузки",
+      "publishedAt": "Дата публикации",
+      "title": "О программе",
+      "unknownVersion": "Неизвестно",
+      "upToDate": "У вас последняя версия"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Не удалось извлечь звук из этого файла.",
+    "engineFailed": "Распознавание речи не удалось. Подробности смотрите в журналах.",
+    "engineMissing": "Речевой движок отсутствует или не запускается. Переустановите MonoSub.",
+    "modelNotInstalled": "Модель распознавания речи не установлена. Откройте «Настройки → Модели», чтобы скачать её."
+  },
+  "models": {
+    "cancel": "Отмена",
+    "credits": {
+      "audioCpp": "Речевой движок: audio.cpp (Apache-2.0).",
+      "sensevoice": "Модель: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) по лицензии FunASR Model License v1.1.",
+      "title": "Благодарности и лицензии"
+    },
+    "description": "MonoSub работает полностью на вашем компьютере. Скачайте модель распознавания речи один раз — она останется доступной офлайн.",
+    "download": "Скачать",
+    "empty": "Модели не найдены.",
+    "installed": "Установлена",
+    "loadFailed": "Не удалось загрузить модели",
+    "loading": "Загрузка моделей...",
+    "notInstalled": "Не установлена",
+    "openFolder": "Открыть папку моделей",
+    "remove": "Удалить",
+    "retry": "Повторить",
+    "size": "Размер",
+    "title": "Модели"
   }
 }

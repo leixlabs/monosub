@@ -1,14 +1,8 @@
-import { Folder, FolderOpen, HardDrive, Users, Loader2, ExternalLink } from 'lucide-react';
+import { Folder, FolderOpen, HardDrive, Users, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
-import { useState } from 'react';
-import {
-  ensureMultiSpeakerLicense,
-  openLicenseCheckout,
-  openLicenseSettings,
-  promptLicenseFailureAction,
-} from '@/lib/license';
+import { openLicenseCheckout } from '@/lib/license';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 
@@ -18,12 +12,8 @@ export function BottomBar() {
   const setStorageMode = useStore((state) => state.setStorageMode);
   const customStoragePath = useStore((state) => state.customStoragePath);
   const setCustomStoragePath = useStore((state) => state.setCustomStoragePath);
-  const isProcessing = useStore((state) => state.isProcessing);
   const settings = useStore((state) => state.settings);
-  const enableSpeakerDiarization = useStore((state) => state.enableSpeakerDiarization);
-  const setEnableSpeakerDiarization = useStore((state) => state.setEnableSpeakerDiarization);
   const licenseStatus = useStore((state) => state.licenseStatus);
-  const [isCheckingLicense, setIsCheckingLicense] = useState(false);
 
   const handleSelectCustomPath = async () => {
     try {
@@ -64,48 +54,6 @@ export function BottomBar() {
       'ko': 'KR',
     };
     return labels[settings.outputLanguage] || settings.outputLanguage;
-  };
-
-  const handleToggleSpeakerDiarization = async () => {
-    if (isProcessing || isCheckingLicense) return;
-
-    if (enableSpeakerDiarization) {
-      setEnableSpeakerDiarization(false);
-      return;
-    }
-
-    setIsCheckingLicense(true);
-    try {
-      const licensed = await ensureMultiSpeakerLicense({
-        openCheckoutOnFailure: false,
-      });
-      if (licensed) {
-        setEnableSpeakerDiarization(true);
-        return;
-      }
-
-      const latestLicenseConfig = useStore.getState().licenseConfig;
-      const hasLicenseKey = typeof latestLicenseConfig?.licenseKey === 'string'
-        && latestLicenseConfig.licenseKey.trim().length > 0;
-
-      const action = await promptLicenseFailureAction({
-        title: t('bottomBar.licensePromptTitle'),
-        message: hasLicenseKey
-          ? t('bottomBar.licensePromptWithKeyMessage')
-          : t('bottomBar.licensePromptMessage'),
-        openCheckoutLabel: t('bottomBar.openInBrowser'),
-        openSettingsLabel: t('bottomBar.openSettings'),
-        cancelLabel: t('bottomBar.later'),
-      });
-
-      if (action === 'settings') {
-        openLicenseSettings();
-      } else if (action === 'checkout') {
-        await openLicenseCheckout();
-      }
-    } finally {
-      setIsCheckingLicense(false);
-    }
   };
 
   return (
@@ -156,25 +104,28 @@ export function BottomBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        {/* Multi-speaker toggle */}
+        {/* Multi-speaker toggle — diarization is offline for v2.0 (spec §5.7) */}
         <div className="flex items-center gap-2">
           <Users className="w-4 h-4 text-text-tertiary dark:text-gray-500" />
           <span className="text-xs text-text-tertiary dark:text-gray-500">
             {t('bottomBar.multiSpeaker')}
           </span>
-          <div className="relative flex items-center">
-            {isCheckingLicense && (
-              <Loader2 className="absolute inset-0 m-auto w-3 h-3 text-white animate-spin z-10 pointer-events-none" />
-            )}
+          <div className="relative flex items-center opacity-60">
             {/* GlassSwitch 在亮色下也有足够对比 - 背景已固定 */}
             <GlassSwitch
-              checked={enableSpeakerDiarization}
-              onCheckedChange={() => void handleToggleSpeakerDiarization()}
-              disabled={isProcessing || isCheckingLicense}
-              title={t('bottomBar.multiSpeakerHint')}
+              checked={false}
+              disabled={true}
+              title={t('bottomBar.multiSpeakerComingBack')}
+              aria-label={t('bottomBar.multiSpeakerComingBack')}
               className="border border-divider dark:border-transparent"
             />
           </div>
+          <span
+            className="text-xxs text-text-tertiary dark:text-gray-500 max-w-[9rem] leading-tight"
+            title={t('bottomBar.multiSpeakerComingBack')}
+          >
+            {t('bottomBar.multiSpeakerComingBack')}
+          </span>
           {licenseStatus !== 'valid' && (
             <GlassButton
               variant="ghost"

@@ -58,9 +58,6 @@
           "y": 170
         }
       }
-    },
-    "externalBin": [
-      "resources/bin/monosub-engine"
-    ]
+    }
   }
 }

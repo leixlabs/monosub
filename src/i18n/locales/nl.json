@@ -14,7 +14,8 @@
     "pending": "Wachtend",
     "processing": "Verwerken",
     "completed": "Voltooid",
-    "clear": "Wissen"
+    "clear": "Wissen",
+    "startAll": "Alles starten"
   },
   "fileList": {
     "emptyTitle": "Ondertitels Genereren",
@@ -33,7 +34,8 @@
     "cancel": "Annuleren",
     "open": "Openen",
     "delete": "Verwijderen",
-    "starting": "Starting..."
+    "starting": "Starting...",
+    "skipped": "Overgeslagen"
   },
   "bottomBar": {
     "saveLocation": "Opslaan in",
@@ -46,8 +48,14 @@
     "english": "Engels",
     "multiSpeaker": "Multi-speaker",
     "stop": "Stop",
-    "multiSpeakerHint": "Requires a valid Polar license",
-    "proRequired": "PRO license required"
+    "proRequired": "PRO license required",
+    "later": "Misschien later",
+    "licensePromptMessage": "Multi-speaker vereist een geldige licentie. Je kunt die eerst in Instellingen activeren of de aankooppagina in de browser openen.",
+    "licensePromptTitle": "Multi-speaker ontgrendelen (Pro)",
+    "licensePromptWithKeyMessage": "Er is al een licentiesleutel opgeslagen. Activeer die eerst in Instellingen en schakel daarna multi-speaker in.",
+    "multiSpeakerComingBack": "Sprekerherkenning komt binnenkort terug",
+    "openInBrowser": "Openen in browser",
+    "openSettings": "Instellingen openen"
   },
   "settings": {
     "title": "Instellingen",
@@ -61,12 +69,8 @@
     },
     "processing": {
       "title": "Verwerking",
-      "noiseReduction": "Ruisonderdrukking",
-      "noiseReductionDesc": "Verminder achtergrondgeluid",
-      "volumeNormalization": "Volume Normalisatie",
-      "volumeNormalizationDesc": "Standaardiseer audioniveaus",
-      "autoQueue": "Auto Wachtrij",
-      "autoQueueDesc": "Volgende bestand automatisch verwerken"
+      "skipExisting": "Bestaande ondertitels overslaan",
+      "skipExistingDesc": "Verwerking overslaan als het uitvoerbestand al bestaat"
     },
     "notifications": {
       "title": "Meldingen",
@@ -101,22 +105,27 @@
       "deactivate": "Deactivate This Device",
       "deviceId": "Device ID",
       "activationId": "Activation ID",
-      "unlimited": "No expiration"
+      "unlimited": "No expiration",
+      "summary": {
+        "checking": "Licentie controleren...",
+        "hint": "Voer je licentiesleutel in en klik op “Licentie valideren” om te activeren.",
+        "notActivated": "Licentie is niet geactiveerd",
+        "valid": "Licentie is geactiveerd"
+      }
     },
-    "environment": {
-      "title": "AI Environment",
-      "check": "Check Status",
-      "repair": "Repair Dependencies",
-      "repairDesc": "Re-install AI dependencies if transcription fails",
-      "status": {
-        "checking": "Checking...",
-        "healthy": "Environment Ready",
-        "broken": "Dependencies Missing or Broken",
-        "error": "Check Failed"
-      },
-      "repairing": "Repairing AI dependencies... (3-5 mins)",
-      "repairSuccess": "Repair successful",
-      "repairFailed": "Repair failed"
+    "about": {
+      "appVersion": "App-versie",
+      "checkFailed": "Updatecontrole mislukt",
+      "checkUpdate": "Controleren op updates",
+      "checkingUpdate": "Controleren...",
+      "hint": "Klik op “Controleren op updates” om de nieuwste release van GitHub op te halen.",
+      "latestVersion": "Nieuwste versie",
+      "newVersionAvailable": "Nieuwe versie beschikbaar: {{version}}",
+      "openReleasePage": "Downloadpagina openen",
+      "publishedAt": "Gepubliceerd op",
+      "title": "Over",
+      "unknownVersion": "Onbekend",
+      "upToDate": "Je bent up-to-date"
     }
   },
   "notification": {
@@ -137,5 +146,31 @@
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle"
+  },
+  "errors": {
+    "audioExtractFailed": "Kan geen audio uit dit bestand halen.",
+    "engineFailed": "Spraakherkenning is mislukt. Zie de logboeken voor details.",
+    "engineMissing": "De spraakengine ontbreekt of is niet uitvoerbaar. Herinstalleer MonoSub.",
+    "modelNotInstalled": "Het spraakmodel is niet geïnstalleerd. Open Instellingen → Modellen om het te downloaden."
+  },
+  "models": {
+    "cancel": "Annuleren",
+    "credits": {
+      "audioCpp": "Spraakengine: audio.cpp (Apache-2.0).",
+      "sensevoice": "Model: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) onder de FunASR Model License v1.1.",
+      "title": "Credits en licenties"
+    },
+    "description": "MonoSub werkt volledig op je eigen apparaat. Download het spraakmodel één keer en het blijft offline beschikbaar.",
+    "download": "Downloaden",
+    "empty": "Geen modellen gevonden.",
+    "installed": "Geïnstalleerd",
+    "loadFailed": "Modellen konden niet worden geladen",
+    "loading": "Modellen laden...",
+    "notInstalled": "Niet geïnstalleerd",
+    "openFolder": "Modelmap openen",
+    "remove": "Verwijderen",
+    "retry": "Opnieuw proberen",
+    "size": "Grootte",
+    "title": "Modellen"
   }
 }
