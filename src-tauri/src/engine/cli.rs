@@ -722,3 +722,162 @@ mod tests {
         std::fs::remove_dir_all(&empty_dir).unwrap();
     }
 }
+
+#[cfg(test)]
+mod spawn_tests {
+    use super::*;
+    use std::path::{Path as P, PathBuf};
+    use std::sync::Mutex;
+
+    /// `spawn` resolves the binary through a process-global env override, so
+    /// these probes serialise themselves and restore the previous value.
+    static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &P) -> Self {
+            let previous = std::env::var_os(key);
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(v) => std::env::set_var(self.key, v),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    fn repo_root() -> PathBuf {
+        P::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("crate lives in <repo>/src-tauri")
+            .to_path_buf()
+    }
+
+    fn resources() -> PathBuf {
+        repo_root().join("src-tauri").join("resources")
+    }
+
+    fn vad_dir() -> PathBuf {
+        resources().join("models").join("silero_vad")
+    }
+
+    /// The bundled binary and model are gitignored, so skip with a reason elsewhere.
+    fn bundled_cli() -> Option<PathBuf> {
+        let cli = find_executable(&resources().join("bin"), &binary_candidates(CLI_BINARY));
+        let vad_ok = vad_dir().join(VAD_MODEL_FILE).is_file();
+        match (cli, vad_ok) {
+            (Some(cli), true) => Some(cli),
+            _ => {
+                eprintln!("skip: bundled audiocpp_cli / silero VAD not present");
+                None
+            }
+        }
+    }
+
+    fn silence_wav(path: &P, seconds: usize) {
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate: 16_000,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).expect("create wav");
+        for _ in 0..16_000 * seconds {
+            writer.write_sample(0i16).expect("sample");
+        }
+        writer.finalize().expect("finalize wav");
+    }
+
+    fn vad_invocation(audio: PathBuf, dir: &P) -> CliInvocation {
+        CliInvocation {
+            task: "vad".to_string(),
+            family: "silero_vad".to_string(),
+            model: vad_dir(),
+            audio: Some(audio),
+            backend: Backend::Cpu,
+            args: vec![
+                "--vad-chunks-out".to_string(),
+                dir.join("c.json").to_string_lossy().into_owned(),
+                "--vad-chunk-max-seconds".to_string(),
+                "15".to_string(),
+            ],
+        }
+    }
+
+    /// Regression cover for the half of [`spawn`] that had no executable
+    /// evidence: stdout must be forwarded line-by-line, in order, while also
+    /// being collected, and a clean run must return `Ok`.
+    #[tokio::test]
+    async fn spawn_forwards_stdout_in_order_and_reports_success() {
+        let Some(cli) = bundled_cli() else { return };
+        let _guard = SPAWN_LOCK.lock().unwrap();
+        let _env = EnvGuard::set(CLI_PATH_ENV, &cli);
+
+        let dir = std::env::temp_dir().join(format!("monosub-spawn-ok-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+        let wav = dir.join("silence.wav");
+        silence_wav(&wav, 3);
+
+        let mut lines: Vec<String> = Vec::new();
+        let output = spawn(None, vad_invocation(wav, &dir), |line| lines.push(line.to_string()))
+            .await
+            .expect("VAD on digital silence must succeed");
+
+        assert!(output.status.success(), "status: {:?}", output.status);
+        assert!(!lines.is_empty(), "stdout must reach on_line");
+        // Exactly the collected lines, in the same order.
+        assert_eq!(
+            lines,
+            output.stdout.lines().collect::<Vec<_>>(),
+            "on_line order must match stdout"
+        );
+        assert!(
+            output.stdout.contains("vad_chunks_out"),
+            "unexpected stdout: {}",
+            output.stdout
+        );
+
+        let parsed = crate::engine::vad::parse_chunks(
+            &std::fs::read_to_string(dir.join("c.json")).expect("chunk plan"),
+        )
+        .expect("parse chunks");
+        assert_eq!(parsed, Vec::new(), "silence yields no chunks with exit 0");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The other half: a non-zero exit becomes [`EngineError::Failed`] and keeps
+    /// the captured stderr tail for the error report.
+    #[tokio::test]
+    async fn spawn_maps_nonzero_exit_to_failed_with_stderr_tail() {
+        let Some(cli) = bundled_cli() else { return };
+        let _guard = SPAWN_LOCK.lock().unwrap();
+        let _env = EnvGuard::set(CLI_PATH_ENV, &cli);
+
+        let dir = std::env::temp_dir().join(format!("monosub-spawn-bad-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("create dir");
+
+        // A WAV path that does not exist: the CLI cannot open the input.
+        let error = spawn(None, vad_invocation(dir.join("nope.wav"), &dir), |_| {})
+            .await
+            .expect_err("a missing WAV must fail");
+
+        match error {
+            EngineError::Failed { stderr_tail, .. } => {
+                assert!(!stderr_tail.is_empty(), "stderr tail must be captured");
+            }
+            other => panic!("expected EngineError::Failed, got {other:?}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
