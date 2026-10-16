@@ -1,11 +1,18 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate, redirect } from 'react-router-dom';
 import App from './App';
-import { detectBrowserLanguage, translations } from './i18n';
+import { detectBrowserLanguage, DEFAULT_LANGUAGE, translations } from './i18n';
 import './styles/index.css';
 
 const validLangs = Object.keys(translations);
+
+/** Old hreflang URLs (`/zh-tw/`, `/ja/`, …) are still indexed; send them home. */
+const resolveLanguage = (lang: string): string => {
+  const lower = lang.toLowerCase();
+  if (lower === 'zh' || lower.startsWith('zh-')) return 'zh';
+  return DEFAULT_LANGUAGE;
+};
 
 const router = createBrowserRouter([
   {
@@ -16,10 +23,17 @@ const router = createBrowserRouter([
     path: '/:lang',
     element: <App />,
     loader: ({ params }) => {
-      if (!validLangs.includes(params.lang!)) {
-        throw new Response('Not Found', { status: 404 });
+      const lang = params.lang!;
+      if (!validLangs.includes(lang)) {
+        throw redirect(`/${resolveLanguage(lang)}`);
       }
       return null;
+    }
+  },
+  {
+    path: '*',
+    loader: () => {
+      throw redirect(`/${detectBrowserLanguage()}`);
     }
   }
 ]);

@@ -3,13 +3,20 @@
   "private": true,
   "version": "2.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "dev": "export PATH=\"$HOME/.cargo/bin:$PATH\" && bunx @tauri-apps/cli dev",
-    "dev:servers": "vite dev",
+    "dev": "vite",
     "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
     "build:dmg": "./scripts/build/build-macos-app.sh",
-    "lint": "eslint .",
     "check": "tsc -b --noEmit",
+    "check:i18n": "node scripts/utils/check-i18n-keys.mjs",
+    "lint": "eslint .",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "clean": "rm -rf dist src-tauri/target"
   },
   "dependencies": {
@@ -17,10 +24,10 @@
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-switch": "^1.2.6",
-    "@tauri-apps/api": "^2.0.0",
-    "@tauri-apps/plugin-dialog": "^2.0.0",
-    "@tauri-apps/plugin-fs": "~2",
-    "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-fs": "^2",
+    "@tauri-apps/plugin-notification": "^2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.29.2",
@@ -35,7 +42,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "^2",
     "@types/node": "^22.15.30",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

@@ -17,7 +17,7 @@ distributed as a single prebuilt binary. There is **no Python** in the runtime.
 - ⚡ **Local AI processing** - audio.cpp + SenseVoice for speech recognition, Metal accelerated
 - 📦 **In-app model management** - Download/remove models on demand; nothing large is bundled
 - 📝 **Multiple output formats** - SRT, VTT, TXT, MD (and JSON)
-- 🌐 **Multi-language UI** - Supports 24 languages
+- 🌐 **Bilingual UI** - Simplified Chinese and English (`zh-CN`, `en`)
 - 💾 **Flexible storage** - Save to same directory or custom location
 - 🎨 **Modern UI** - Apple-inspired design system with dark/light mode
 
@@ -33,7 +33,7 @@ distributed as a single prebuilt binary. There is **no Python** in the runtime.
 │  ├── React 18 + TypeScript                                      │
 │  ├── TailwindCSS (Apple design system)                          │
 │  ├── Zustand (state management)                                 │
-│  ├── i18next (24 languages)                                     │
+│  ├── i18next (zh-CN + en)                                        │
 │  └── Framer Motion (animations)                                 │
 ├─────────────────────────────────────────────────────────────────┤
 │  App (src-tauri/)  — everything below happens in Rust           │
@@ -75,7 +75,7 @@ monosub/
 │   │   └── useStore.ts          # Zustand state + persist v2 migration
 │   ├── i18n/
 │   │   ├── index.ts
-│   │   └── locales/             # 24 translation files (kept at parity)
+│   │   └── locales/             # en.json + zh-CN.json (kept at parity)
 │   ├── contexts/ThemeContext.tsx
 │   ├── hooks/useTheme.ts
 │   ├── lib/
@@ -129,7 +129,7 @@ monosub/
 │   │   └── release.sh
 │   └── utils/
 │       ├── version-utils.sh
-│       ├── check-i18n-keys.mjs  # Asserts all 24 locales match en.json
+│       ├── check-i18n-keys.mjs  # Asserts both locales match en.json
 │       └── clean-temp-files.sh
 │
 ├── docs/tech-spec/              # Refactor spec, PoC, task list, accuracy report
@@ -165,8 +165,8 @@ bun install
 ### Development Workflow
 
 ```bash
-bun run dev          # Tauri dev server (frontend + Rust)
-bun run dev:servers  # Vite only (frontend only)
+bun run tauri dev    # Tauri app: Rust + webview (Vite is started by Tauri)
+bun run dev          # Vite only (frontend in a browser; no Tauri APIs)
 bun run check        # TypeScript type check
 bun run lint         # ESLint
 ```
@@ -174,9 +174,9 @@ bun run lint         # ESLint
 ### Tests
 
 ```bash
-cd src-tauri && cargo test     # Rust unit + integration tests
-cargo clippy                   # Lints
-node scripts/utils/check-i18n-keys.mjs   # Locale parity
+bun run test:rust     # Rust unit + integration tests
+bun run lint:rust     # cargo clippy
+bun run check:i18n    # Locale parity
 ```
 
 Tests that need the bundled binary/model print a `skip:` reason and pass when those
@@ -185,8 +185,9 @@ gitignored artifacts are absent, so a fresh clone still has a green suite.
 ### Production Builds
 
 ```bash
-bun run build         # Frontend only
-bun run build:dmg     # macOS DMG (scripts/build/build-macos-app.sh)
+bun run build         # Frontend only (tsc -b && vite build)
+bun run tauri build   # Full native bundle (runs `build` via beforeBuildCommand)
+bun run build:dmg     # macOS DMG + signing (scripts/build/build-macos-app.sh)
 ```
 
 There is a single build flow — the old `lite`/`full` split is gone, because there is
@@ -312,7 +313,7 @@ line-parsing subprocess.
 - Import order: React → Third-party → Local → Types
 - `@/` alias for imports from `src/`
 - Zustand with persistence for settings
-- Keep all 24 locales in sync (see `scripts/utils/check-i18n-keys.mjs`)
+- Keep both locales (`en.json`, `zh-CN.json`) in sync (see `scripts/utils/check-i18n-keys.mjs`)
 
 ### Rust
 
@@ -486,8 +487,8 @@ cd src-tauri && cargo clean && cargo build
 
 1. Follow existing code style and patterns
 2. Update this file if you change architecture or build process
-3. Run `cargo test`, `bun run check`, `bun run lint`, and the i18n check before committing
-4. Ensure i18n strings are added to **all 24** locales
+3. Run `bun run test:rust`, `bun run check`, `bun run lint`, and `bun run check:i18n` before committing
+4. Ensure i18n strings are added to **both** locales (`en.json` and `zh-CN.json`)
 5. Log important events using `tracing` (Rust) or `console.log` (Frontend)
 6. Tests that need the bundled binary or model must skip with a reason, not fail
 

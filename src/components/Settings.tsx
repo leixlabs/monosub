@@ -22,7 +22,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
-import { supportedLanguages } from '@/i18n';
+import { supportedLanguages, toSupportedLanguage, UI_LANGUAGE_STORAGE_KEY } from '@/i18n';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
@@ -380,16 +380,14 @@ export function Settings() {
 
   const handleUILanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
-    localStorage.setItem('monosub-language', lang);
+    localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, lang);
   };
 
   const currentLang = useMemo(() => {
-    const currentLanguage = i18n.language;
-    return (
-      supportedLanguages.find(
-        (lang) => currentLanguage === lang.code || currentLanguage?.startsWith(lang.code.split('-')[0])
-      ) || supportedLanguages[1]
-    );
+    // `i18n.language` is already normalised by `toSupportedLanguage`, but a
+    // stale value read before `init()` resolves would otherwise match nothing.
+    const normalized = toSupportedLanguage(i18n.language || '');
+    return supportedLanguages.find((lang) => lang.code === normalized) ?? supportedLanguages[1];
   }, [i18n.language]);
   const uiLanguageLabel = t('bottomBar.language').replace(/[:：]\s*$/, '');
   const hasActivationId = safeTrim(licenseConfig?.licenseActivationId).length > 0;

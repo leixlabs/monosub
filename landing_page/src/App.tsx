@@ -29,31 +29,10 @@ function App() {
         {/* Canonical */}
         <link rel="canonical" href={`https://monosub.com/${lang}/`} />
         
-        {/* Hreflang tags */}
+        {/* Hreflang tags — only the two shipped locales are advertised */}
         <link rel="alternate" hrefLang="zh-CN" href="https://monosub.com/zh/" />
+        <link rel="alternate" hrefLang="zh" href="https://monosub.com/zh/" />
         <link rel="alternate" hrefLang="en" href="https://monosub.com/en/" />
-        <link rel="alternate" hrefLang="es" href="https://monosub.com/es/" />
-        <link rel="alternate" hrefLang="ru" href="https://monosub.com/ru/" />
-        <link rel="alternate" hrefLang="pt-BR" href="https://monosub.com/pt-br/" />
-        <link rel="alternate" hrefLang="ja" href="https://monosub.com/ja/" />
-        <link rel="alternate" hrefLang="ko" href="https://monosub.com/ko/" />
-        <link rel="alternate" hrefLang="de" href="https://monosub.com/de/" />
-        <link rel="alternate" hrefLang="fr" href="https://monosub.com/fr/" />
-        <link rel="alternate" hrefLang="zh-TW" href="https://monosub.com/zh-tw/" />
-        <link rel="alternate" hrefLang="es-419" href="https://monosub.com/es-419/" />
-        <link rel="alternate" hrefLang="id" href="https://monosub.com/id/" />
-        <link rel="alternate" hrefLang="cs" href="https://monosub.com/cs/" />
-        <link rel="alternate" hrefLang="it" href="https://monosub.com/it/" />
-        <link rel="alternate" hrefLang="nl" href="https://monosub.com/nl/" />
-        <link rel="alternate" hrefLang="pt-PT" href="https://monosub.com/pt-pt/" />
-        <link rel="alternate" hrefLang="pl" href="https://monosub.com/pl/" />
-        <link rel="alternate" hrefLang="vi" href="https://monosub.com/vi/" />
-        <link rel="alternate" hrefLang="tr" href="https://monosub.com/tr/" />
-        <link rel="alternate" hrefLang="uk" href="https://monosub.com/uk/" />
-        <link rel="alternate" hrefLang="ar" href="https://monosub.com/ar/" />
-        <link rel="alternate" hrefLang="fa" href="https://monosub.com/fa/" />
-        <link rel="alternate" hrefLang="th" href="https://monosub.com/th/" />
-        <link rel="alternate" hrefLang="hi" href="https://monosub.com/hi/" />
         <link rel="alternate" hrefLang="x-default" href="https://monosub.com/en/" />
         
         {/* Open Graph */}

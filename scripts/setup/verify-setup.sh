@@ -81,7 +81,8 @@ if [ $errors -eq 0 ]; then
     echo -e "${GREEN}✅ All checks passed!${NC}"
     echo ""
     echo "You're ready to start development:"
-    echo "  bun run dev"
+    echo "  bun run tauri dev    # Tauri app (starts Vite via beforeDevCommand)"
+    echo "  bun run dev          # Vite only, in a browser"
     exit 0
 else
     echo -e "${RED}❌ Found $errors issue(s)${NC}"

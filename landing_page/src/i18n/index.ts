@@ -137,84 +137,23 @@ export interface Translation {
   footer_contact: string;
 }
 
+// Only two locales ship: Simplified Chinese and English. `/zh/` keeps the
+// historic short path, `/en/` is the default and therefore the fallback for
+// every unlisted language.
 import zhCN from './locales/zh-CN';
 import en from './locales/en';
-import es from './locales/es';
-import ru from './locales/ru';
-import ptBR from './locales/pt-BR';
-import ja from './locales/ja';
-import ko from './locales/ko';
-import de from './locales/de';
-import fr from './locales/fr';
-import zhTW from './locales/zh-TW';
-import es419 from './locales/es-419';
-import id from './locales/id';
-import cs from './locales/cs';
-import it from './locales/it';
-import nl from './locales/nl';
-import ptPT from './locales/pt-PT';
-import pl from './locales/pl';
-import vi from './locales/vi';
-import tr from './locales/tr';
-import uk from './locales/uk';
-import ar from './locales/ar';
-import fa from './locales/fa';
-import th from './locales/th';
-import hi from './locales/hi';
 
 export const languageConfigs: LanguageConfig[] = [
   { code: 'zh', name: '中文（简体）', flag: '🇨🇳', price: '¥299', monthly: '¥149' },
-  { code: 'en', name: 'English', flag: '🇺🇸', price: '$39', monthly: '$19' },
-  { code: 'es', name: 'Español', flag: '🇪🇸', price: '€35', monthly: '€15' },
-  { code: 'ru', name: 'Русский', flag: '🇷🇺', price: '₽3,500', monthly: '₽1,500' },
-  { code: 'pt-br', name: 'Português (BR)', flag: '🇧🇷', price: 'R$ 199', monthly: 'R$ 89' },
-  { code: 'ja', name: '日本語', flag: '🇯🇵', price: '¥5,900', monthly: '¥2,900' },
-  { code: 'ko', name: '한국어', flag: '🇰🇷', price: '₩59,000', monthly: '₩29,000' },
-  { code: 'de', name: 'Deutsch', flag: '🇩🇪', price: '€35', monthly: '€15' },
-  { code: 'fr', name: 'Français', flag: '🇫🇷', price: '€35', monthly: '€15' },
-  { code: 'zh-tw', name: '繁體中文', flag: '🇹🇼', price: 'NT$ 1,299', monthly: 'NT$ 599' },
-  { code: 'es-419', name: 'Español (LATAM)', flag: '🇲🇽', price: '$39', monthly: '$19' },
-  { code: 'id', name: 'Bahasa Indonesia', flag: '🇮🇩', price: 'Rp 599,000', monthly: 'Rp 299,000' },
-  { code: 'cs', name: 'Čeština', flag: '🇨🇿', price: 'Kč 899', monthly: 'Kč 449' },
-  { code: 'it', name: 'Italiano', flag: '🇮🇹', price: '€35', monthly: '€15' },
-  { code: 'nl', name: 'Nederlands', flag: '🇳🇱', price: '€35', monthly: '€15' },
-  { code: 'pt-pt', name: 'Português (PT)', flag: '🇵🇹', price: '€35', monthly: '€15' },
-  { code: 'pl', name: 'Polski', flag: '🇵🇱', price: 'zł 159', monthly: 'zł 79' },
-  { code: 'vi', name: 'Tiếng Việt', flag: '🇻🇳', price: '₫999,000', monthly: '₫499,000' },
-  { code: 'tr', name: 'Türkçe', flag: '🇹🇷', price: '₺1,399', monthly: '₺699' },
-  { code: 'uk', name: 'Українська', flag: '🇺🇦', price: '₴1,599', monthly: '₴799' },
-  { code: 'ar', name: 'العربية', flag: '🇸🇦', price: 'ر.س 149', monthly: 'ر.س 75', rtl: true },
-  { code: 'fa', name: 'فارسی', flag: '🇮🇷', price: '﷼1,699,000', monthly: '﷼849,000', rtl: true },
-  { code: 'th', name: 'ภาษาไทย', flag: '🇹🇭', price: '฿1,399', monthly: '฿699' },
-  { code: 'hi', name: 'हिन्दी', flag: '🇮🇳', price: '₹3,299', monthly: '₹1,599' }
+  { code: 'en', name: 'English', flag: '🇺🇸', price: '$39', monthly: '$19' }
 ];
 
 export const translations: Record<string, Translation> = {
   'zh': zhCN,
-  'en': en,
-  'es': es,
-  'ru': ru,
-  'pt-br': ptBR,
-  'ja': ja,
-  'ko': ko,
-  'de': de,
-  'fr': fr,
-  'zh-tw': zhTW,
-  'es-419': es419,
-  'id': id,
-  'cs': cs,
-  'it': it,
-  'nl': nl,
-  'pt-pt': ptPT,
-  'pl': pl,
-  'vi': vi,
-  'tr': tr,
-  'uk': uk,
-  'ar': ar,
-  'fa': fa,
-  'th': th,
-  'hi': hi
+  'en': en
 };
+
+export const DEFAULT_LANGUAGE = 'en';
 
 export const detectBrowserLanguage = (): string => {
   const saved = localStorage.getItem('monosub_language');
@@ -222,38 +161,7 @@ export const detectBrowserLanguage = (): string => {
     return saved;
   }
 
-  const browserLang = navigator.language || 'en';
-  const langMap: Record<string, string> = {
-    'zh-CN': 'zh', 'zh-Hans': 'zh', 'zh': 'zh', 'zh-SG': 'zh',
-    'zh-TW': 'zh-tw', 'zh-Hant': 'zh-tw', 'zh-HK': 'zh-tw', 'zh-MO': 'zh-tw',
-    'en': 'en', 'en-US': 'en', 'en-GB': 'en', 'en-AU': 'en', 'en-CA': 'en',
-    'es': 'es', 'es-ES': 'es',
-    'es-MX': 'es-419', 'es-AR': 'es-419', 'es-CL': 'es-419', 'es-CO': 'es-419',
-    'pt': 'pt-br', 'pt-BR': 'pt-br',
-    'pt-PT': 'pt-pt',
-    'ja': 'ja', 'ja-JP': 'ja',
-    'ko': 'ko', 'ko-KR': 'ko',
-    'ru': 'ru', 'ru-RU': 'ru',
-    'de': 'de', 'de-DE': 'de', 'de-AT': 'de', 'de-CH': 'de',
-    'fr': 'fr', 'fr-FR': 'fr', 'fr-CA': 'fr', 'fr-BE': 'fr',
-    'id': 'id', 'id-ID': 'id',
-    'cs': 'cs', 'cs-CZ': 'cs',
-    'it': 'it', 'it-IT': 'it',
-    'nl': 'nl', 'nl-NL': 'nl', 'nl-BE': 'nl',
-    'pl': 'pl', 'pl-PL': 'pl',
-    'vi': 'vi', 'vi-VN': 'vi',
-    'tr': 'tr', 'tr-TR': 'tr',
-    'uk': 'uk', 'uk-UA': 'uk',
-    'ar': 'ar', 'ar-SA': 'ar', 'ar-EG': 'ar', 'ar-AE': 'ar',
-    'fa': 'fa', 'fa-IR': 'fa',
-    'th': 'th', 'th-TH': 'th',
-    'hi': 'hi', 'hi-IN': 'hi'
-  };
-
-  if (langMap[browserLang]) {
-    return langMap[browserLang];
-  }
-
-  const baseLang = browserLang.split('-')[0];
-  return langMap[baseLang] || 'en';
+  // Everything that is not Chinese resolves to English.
+  const browserLang = (navigator.language || DEFAULT_LANGUAGE).toLowerCase();
+  return browserLang.startsWith('zh') ? 'zh' : DEFAULT_LANGUAGE;
 };
