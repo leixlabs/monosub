@@ -17,7 +17,6 @@ import { useStore } from './store/useStore';
 import { processQueueBatch, isModelNotInstalledError } from './lib/transcription';
 import { openModelsSettings } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
-import { validateLicenseOnStartup } from './lib/license';
 
 interface StepInfoPayload {
   current_step: number;
@@ -64,10 +63,6 @@ function App() {
       settingsRef.current = state.settings;
     });
     return unsubscribe;
-  }, []);
-
-  useEffect(() => {
-    void validateLicenseOnStartup();
   }, []);
 
   // Bring window to front when user clicks a system notification

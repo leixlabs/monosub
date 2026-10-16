@@ -93,6 +93,7 @@ pub fn distribute_times(
     texts: &[String],
     start_s: f64,
     end_s: f64,
+    speaker: Option<&str>,
     config: &PostProcessConfig,
 ) -> Vec<Segment> {
     if texts.is_empty() {
@@ -129,7 +130,7 @@ pub fn distribute_times(
             start: cursor,
             end,
             text: text.clone(),
-            speaker: None,
+            speaker: speaker.map(str::to_string),
         });
         cursor = end;
     }
@@ -159,7 +160,15 @@ pub fn merge_short(segments: Vec<Segment>, config: &PostProcessConfig) -> Vec<Se
             let combined_duration = next.end - current.start;
             let combined_chars = current_chars + char_count(&next.text);
 
-            if gap < config.gap_threshold
+            // Speaker-aware merge (design §6.5 / §13 risk 8): only fuse cues
+            // that belong to the same speaker. `None == None` is true, so the
+            // no-speaker path behaves exactly as before and every existing
+            // golden is unaffected; behaviour only changes when at least one
+            // side carries a label.
+            let same_speaker = current.speaker == next.speaker;
+
+            if same_speaker
+                && gap < config.gap_threshold
                 && combined_duration <= config.max_duration
                 && combined_chars <= config.max_chars
             {
@@ -361,6 +370,7 @@ fn tokenize_units(text: &str) -> Vec<Unit> {
 mod tests {
     use super::*;
     use crate::engine::RawChunk;
+    use crate::subtitle::postprocess as compose;
     use crate::subtitle::{postprocess as run_pipeline, PostProcessConfig};
 
     fn config() -> PostProcessConfig {
@@ -372,6 +382,7 @@ mod tests {
             start_s,
             end_s,
             text: text.to_string(),
+            speaker: None,
         }
     }
 
@@ -535,6 +546,104 @@ mod tests {
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].text, "嗯我们继续。");
         assert_eq!(merged[0].end, 2.0);
+    }
+
+    /// Same speaker: the label-aware precondition must still allow a merge
+    /// (otherwise turning on diarization would fragment every cue).
+    #[test]
+    fn merge_short_still_joins_same_speaker_cues() {
+        let segments = vec![
+            Segment {
+                start: 0.0,
+                end: 0.1,
+                text: "嗯".to_string(),
+                speaker: Some("Speaker A".to_string()),
+            },
+            Segment {
+                start: 0.2,
+                end: 2.0,
+                text: "我们继续。".to_string(),
+                speaker: Some("Speaker A".to_string()),
+            },
+        ];
+        let merged = merge_short(segments, &config());
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].text, "嗯我们继续。");
+        assert_eq!(merged[0].speaker.as_deref(), Some("Speaker A"));
+    }
+
+    /// Different speakers: the adjacent short cues must NOT be fused, or the
+    /// second speaker's words would be attributed to the first (design §6.5).
+    #[test]
+    fn merge_short_never_joins_across_speakers() {
+        let segments = vec![
+            Segment {
+                start: 0.0,
+                end: 0.1,
+                text: "嗯".to_string(),
+                speaker: Some("Speaker A".to_string()),
+            },
+            Segment {
+                start: 0.2,
+                end: 2.0,
+                text: "该你了。".to_string(),
+                speaker: Some("Speaker B".to_string()),
+            },
+        ];
+        let merged = merge_short(segments, &config());
+        assert_eq!(merged.len(), 2, "cues from different speakers must stay apart");
+        assert_eq!(merged[0].speaker.as_deref(), Some("Speaker A"));
+        assert_eq!(merged[1].speaker.as_deref(), Some("Speaker B"));
+    }
+
+    /// A labelled cue must not absorb an unlabelled one either: the two are not
+    /// known to share a speaker.
+    #[test]
+    fn merge_short_does_not_join_labelled_with_unlabelled() {
+        let segments = vec![
+            Segment {
+                start: 0.0,
+                end: 0.1,
+                text: "嗯".to_string(),
+                speaker: Some("Speaker A".to_string()),
+            },
+            Segment {
+                start: 0.2,
+                end: 2.0,
+                text: "没有标签。".to_string(),
+                speaker: None,
+            },
+        ];
+        let merged = merge_short(segments, &config());
+        assert_eq!(merged.len(), 2);
+    }
+
+    /// The composer must propagate a chunk's label into every cue it produces.
+    #[test]
+    fn postprocess_propagates_chunk_speaker_to_segments() {
+        let chunks = vec![
+            RawChunk {
+                start_s: 0.0,
+                end_s: 2.0,
+                text: "第一句。第二句。".to_string(),
+                speaker: Some("Speaker B".to_string()),
+            },
+            RawChunk {
+                start_s: 2.0,
+                end_s: 4.0,
+                text: "第三句。".to_string(),
+                speaker: None,
+            },
+        ];
+        let segments = compose(&chunks, &config());
+
+        assert!(!segments.is_empty());
+        assert!(
+            segments
+                .iter()
+                .any(|segment| segment.speaker.as_deref() == Some("Speaker B")),
+            "the labelled chunk's cues must carry its speaker: {segments:?}"
+        );
     }
 
     #[test]

@@ -20,6 +20,11 @@ export interface ModelFileManifest {
   sha256: string | null;
 }
 
+export interface ModelLicense {
+  name: string;
+  url: string | null;
+}
+
 export interface ModelStatus {
   id: string;
   /** audio.cpp family, e.g. `sense_asr`. */
@@ -29,8 +34,20 @@ export interface ModelStatus {
   model_file: string;
   files: ModelFileManifest[];
   languages: string[];
+  /** Deprecated single-licence string, kept for back-compat. */
   license: string;
+  /** Structured licences from `models.json` `licenses[]`. */
+  licenses: ModelLicense[];
   attribution: string | null;
+  /** Declared roles; empty means the v1 fallback `['asr']`. */
+  roles: string[];
+  /** Effective timestamps grade: `none` | `turns` | `segment` | `word`. */
+  timestamps: string;
+  /** Effective diarization grade: `none` | `turns` | `turns_with_text`. */
+  diarization: string;
+  produces_text: boolean;
+  source: string | null;
+  tier: string | null;
   installed: boolean;
   size_on_disk: number;
 }
@@ -103,11 +120,38 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
     files: Array.isArray(manifest.files) ? manifest.files.map(normalizeFile) : [],
     languages: asStringArray(manifest.languages),
     license: asString(manifest.license),
+    licenses: Array.isArray(manifest.licenses)
+      ? manifest.licenses.map((raw) => {
+          const entry = isRecord(raw) ? raw : {};
+          return {
+            name: asString(entry.name),
+            url: typeof entry.url === 'string' ? entry.url : null,
+          };
+        })
+      : [],
     attribution: typeof manifest.attribution === 'string' ? manifest.attribution : null,
+    roles: asStringArray(manifest.roles),
+    timestamps: asString(manifest.timestamps, 'none'),
+    diarization: asString(manifest.diarization, 'none'),
+    produces_text: manifest.produces_text !== false,
+    source: typeof manifest.source === 'string' ? manifest.source : null,
+    tier: typeof manifest.tier === 'string' ? manifest.tier : null,
     installed: status.installed === true,
     size_on_disk: asNumber(status.size_on_disk),
   };
 };
+
+/**
+ * True when some INSTALLED model can produce speaker information, either as a
+ * diar-only model (`turns`) or as a passthrough model that emits labels with
+ * text (`turns_with_text`). Drives the BottomBar multi-speaker toggle.
+ */
+export const hasInstalledDiarizationModel = (models: ModelStatus[]): boolean =>
+  models.some((model) => model.installed && model.diarization !== 'none');
+
+/** True when some installed model can fill `role` (design §8.2). */
+export const hasInstalledRole = (models: ModelStatus[], role: string): boolean =>
+  models.some((model) => model.installed && model.roles.includes(role));
 
 export const listModels = async (): Promise<ModelStatus[]> => {
   const raw = await invoke<unknown>('list_models');
@@ -125,6 +169,33 @@ export const removeModel = (id: string): Promise<void> =>
 
 export const openModelsDir = (): Promise<void> =>
   invoke<void>('open_models_dir');
+
+/** Where models are stored, and whether that location is the user's own. */
+export interface ModelsDirInfo {
+  path: string;
+  isCustom: boolean;
+  defaultPath: string;
+  /** `env` | `settings` | null — which override is in effect. */
+  source: string | null;
+}
+
+/**
+ * Read the effective models directory.
+ *
+ * Models are large, so the user can point the app at a directory that already
+ * contains them instead of downloading everything again.
+ */
+export const getModelsDir = (): Promise<ModelsDirInfo> =>
+  invoke<ModelsDirInfo>('get_models_dir');
+
+/**
+ * Point model storage at `path`, or reset to the default when `path` is null.
+ *
+ * Rust validates that the directory exists and is writable; an invalid path
+ * rejects with a user-showable message. Existing models are not moved.
+ */
+export const setModelsDir = (path: string | null): Promise<ModelsDirInfo> =>
+  invoke<ModelsDirInfo>('set_models_dir', { path });
 
 /** Download size declared by the manifest (independent of what is on disk). */
 export const modelManifestSize = (model: ModelStatus): number =>

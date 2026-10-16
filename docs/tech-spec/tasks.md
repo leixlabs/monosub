@@ -134,7 +134,7 @@
 |----|------|------|------|------|
 | P4-1 | 精确时间戳模型：清单加 `qwen3_asr_0_6b_q8_0` + forced aligner；`engine` 增加 words 路径（跳过 VAD，`--words-out`）；词→句组装 | L | P1-15 | spec §5.5 |
 | P4-2 | `--raw` Scribe 兼容词级 JSON 输出（仅 P4-1 模型可用），对齐外部 `pack_transcripts.py` | M | P4-1 | |
-| P4-3 | 多说话人回归：评估 `moss_transcribe_diarize` vs `sortformer_diar` + 重叠归属，选型后实现，恢复开关 | L | P1-15 | spec §5.7 |
+| P4-3 | **已重写为 M1–M10**（需求 → ModelPlan 求解器，含直出与多阶段组合） | — | — | [model-selection-design.md](./model-selection-design.md) §12 |
 | P4-4 | 断点续传（HTTP Range） | S | P1-14 | |
 | P4-5 | `zh-tw` 繁体转换（若 P0-8 显示需要） | S | P0-8 | |
 | P4-6 | 冷启动优化：跨文件 sequence 或 `audiocpp_server` 常驻（若 P1-23 实测加载占比 > 30%） | L | P1-23 | |

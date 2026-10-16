@@ -22,7 +22,7 @@
 ### 目标
 
 1. 用 **audio.cpp** 替换 FunASR 推理，默认模型仍为 **SenseVoice-Small**（`sense_asr`），保证中文效果不回退。
-2. `audiocpp_cli` 随 App 分发；Rust 负责**模型下载、VAD 切段、进程编排、字幕生成**。
+2. `audiocpp_cli` 随 App 分发；Rust 负责**模型下载、调用 VAD 取切段计划并切片、进程编排、字幕生成**。
 3. 架构从三层变两层，去掉 Python 全家桶。
 
 ### 非目标
@@ -40,7 +40,7 @@
 | 预编译产物 | Release 提供 `audio-v0.9.1-bin-macos-arm64-metal.tar.gz`（30MB），内含 `audiocpp_cli`（31MB）、`audiocpp_server`、`model_specs/` | **直接使用预编译二进制**，不自建 C++ 构建链 |
 | 动态依赖 | `otool -L`：仅 Metal/Accelerate/Foundation 等系统 framework + libc++，**无第三方 dylib**；Metal shader 已内嵌 | 打包只需单文件 |
 | SenseVoice | `sense_asr` = SenseVoice-Small 原生移植，官方包 `FunAudioLLM/SenseVoiceSmall-GGUF-audiocpp` / `sensevoice-small-q8-audiocpp-v1.gguf`（revision `5c3fcfe7…`） | 默认模型，与现网同源 |
-| SenseVoice 时间戳 | capabilities 仅 `vad_chunking`、`partial_results`；**无 word/segment 时间戳**，长音频内部 VAD 切块后**拼接成一段文本** | 必须由 Rust 先 VAD 切段，再逐段转写（§5.3） |
+| SenseVoice 时间戳 | capabilities 仅 `vad_chunking`、`partial_results`；**无 word/segment 时间戳**，长音频内部 VAD 切块后**拼接成一段文本** | 必须先用 `--task vad --family silero_vad` 得到切段计划，Rust 再按采样点切片并逐段转写（§5.3） |
 | SenseVoice 语言 | 只有 `zh/en/yue/ja/ko/nospeech` 会硬编码语言 token，其余语言回落 `auto` | 语言映射见 §5.6 |
 | SenseVoice 选项 | `language`、`enable_itn`(默认 true)、`keep_tags`(默认 false)、`audio_chunk_mode`、`audio_chunk_duration_sec`；session `vad_model_path` 默认相对路径 `assets/framework/models/silero_vad` | 必须显式传 VAD 路径 |
 | Silero VAD | `--task vad --family silero_vad`，`--vad-chunks-out` 输出切块计划，参数 `--vad-chunk-max-seconds/-merge-gap-seconds/-padding-seconds`；模型文件 `silero_vad_16k.safetensors`（1.2MB）**不在 release 包里** | 随 App 内置该文件 |
@@ -193,16 +193,17 @@ src-tauri/src/
 
 **Step 1 提取音频**：沿用现有 ffmpeg 抽取与缓存；音频文件也走转换（命中缓存则跳过）。产物 16kHz / mono / s16le WAV。
 
-**Step 2 VAD 切段**（模型加载前，耗时极短）：
+**Step 2 取 VAD 切段计划**（在 `audiocpp_cli` 内跑 Silero VAD 推理，耗时极短）：
 
 ```bash
 audiocpp_cli --task vad --family silero_vad \
   --model <res>/models/silero_vad --backend cpu \
   --audio audio.wav --vad-chunks-out vad_chunks.json \
-  --vad-chunk-max-seconds 15 --vad-chunk-merge-gap-seconds 0.5 --vad-chunk-padding-seconds 0.25
+  --vad-chunk-max-seconds 15 --vad-chunk-merge-gap-seconds 0.2 --vad-chunk-padding-seconds 0.1
 ```
 
-- `max 15s` 让每段文本足够短，后处理估时误差可控；参数做成常量，Phase 0 调优。
+- **VAD 算法在 CLI 里（Silero 模型），不在 Rust 里**；Rust 只拼命令、解析 `vad_chunks.json` 的采样点。
+- `max 15s` 让每段文本足够短，后处理估时误差可控；merge-gap / padding 已在 P1-23 实测重调（见 [audiocpp-accuracy-p1-23.md](./audiocpp-accuracy-p1-23.md) §3.3/§3.4），**不是**设计初稿的 0.5 / 0.25。
 - 空结果（全静音）→ 直接写空字幕并完成，不报错。
 
 **Step 3 切片 + 转写**（模型加载一次）：
@@ -267,7 +268,7 @@ audiocpp_cli --task asr --family sense_asr --model <gguf> --backend metal \
 ### 5.5 精确时间戳模型（可选）与 `--raw`
 
 - 清单中增加 `qwen3_asr_0_6b_q8_0` + `qwen3_forced_aligner_0_6b_q8_0`（标为"精确时间戳 / 较大"），`capabilities.timestamps = "word"`。
-- 走该模型时跳过 Rust VAD，直接：
+- 走该模型时**跳过 VAD 与切片两步**，直接：
 
 ```bash
 audiocpp_cli --task asr --family qwen3_asr --model <dir> --backend metal --audio audio.wav \
@@ -295,11 +296,17 @@ audiocpp_cli --task asr --family qwen3_asr --model <dir> --backend metal --audio
 
 ### 5.7 说话人分离与授权
 
-- 授权：`license.rs` 新增 `pub fn is_pro_licensed() -> bool`（解密 `license_state.json`，校验 `valid`、签名、`expires_at` 未过期）。`start_transcription` 中 `enable_diarization && !is_pro_licensed()` 直接返回错误，替代 Python 二次校验。
-- v2.0 首版：**多说话人功能暂时下线**（Settings 中开关置灰并提示"即将回归"），避免阻塞主线。
-- Phase 4 评估两条路径，择一：
-  1. `moss_transcribe_diarize`（单模型出 turns+text，Apache-2.0；模型较大，需测中文与速度）；
-  2. `sortformer_diar` 出 turns → 按时间重叠把 §5.3 的 VAD 段文本归到说话人（复用 SenseVoice，模型小）。
+> ⚠️ **本节已由 [model-selection-design.md](./model-selection-design.md) 取代**。
+> 下面保留为历史记录；实现请以新文档的「需求 → ModelPlan 求解器」为准。
+
+- 授权：`license.rs` 新增 `pub fn is_pro_licensed() -> bool`（解密 `license_state.json`，校验 `valid`、签名、`expires_at` 未过期）。
+- v2.0 首版曾计划**多说话人暂时下线**（开关置灰）——**已废弃**，改为可选的模型方案。
+- 原始设想的两条路径存在事实错误，更正如下：
+  1. `moss_transcribe_diarize`（单模型出 turns+text，Apache-2.0；模型较大，需测中文与速度）—— 成立，且**推荐**（见新文档 §6）。
+  2. `sortformer_diar` 出 turns → 重叠归属 —— **v1 是 CC-BY-NC-4.0**（新文档 §2.2 已澄清；个人学习项目可用，但需显式标注）。
+- **不存在第三条路**：audio.cpp v0.9.1 的 114 个 family 里没有 `spk`/`sv` 任务，也没有 CAM++ loader，旧 Python 方案无法复现。
+- 更小的 diar-only 备选：`nemotron_3_diar`（107 MB，OpenMDW 1.1，≤8 人），体积比 sortformer 小。
+- 另外 `fun_asr_nano` **不提供**说话人分离（其 `Timestamps: Not exposed`，FunASR 的 “+CAM++” 是 Python 侧编排）。
 
 ### 5.8 并发与冷启动
 
@@ -343,7 +350,7 @@ audiocpp_cli --task asr --family qwen3_asr --model <dir> --backend metal --audio
 | 6 | 上游迭代快、接口变化 | 锁定 v0.9.1 + SHA256；升级单独评估并跑 Phase 0 脚本回归 |
 | 7 | ~~`zh-tw` 输出简繁不符预期~~ | **Phase 0 已关闭**：现状 FunASR 同样输出简体，无回归 |
 | 10 | **中文准确率未充分对照**（Phase 0 唯一缺口） | 已实测速度/内存大幅优于现状，但准确率仅单样例、且对 VAD `padding` 敏感。**发版前必须用真实素材补测**；若不达标，评估默认切换 `qwen3_asr`（P4-1） |
-| 8 | 多说话人下线影响 Pro 用户 | 发版说明告知；Phase 4 优先 |
+| 8 | ~~多说话人下线影响 Pro 用户~~ | **已关闭**：改为需求驱动的 ModelPlan，见 [model-selection-design.md](./model-selection-design.md) |
 | 9 | 长音频（≥2h）切片数量多、临时文件大 | 切片总大小 ≈ 原 WAV；必要时分批 sequence（每批 200 段） |
 
 ---

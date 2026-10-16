@@ -21,6 +21,160 @@ pub struct ModelFile {
     pub sha256: Option<String>,
 }
 
+/// Granularity of timestamps a model can produce.
+///
+/// Ordered from coarsest to finest so `>=` comparisons read naturally; the
+/// solver (design §3.2) uses this to answer "does this cover a word-level
+/// requirement?".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TimestampGrade {
+    None,
+    Turns,
+    Segment,
+    Word,
+}
+
+/// Whether a model emits speaker information, and whether it also emits text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiarizationGrade {
+    None,
+    Turns,
+    TurnsWithText,
+}
+
+impl TimestampGrade {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TimestampGrade::None => "none",
+            TimestampGrade::Turns => "turns",
+            TimestampGrade::Segment => "segment",
+            TimestampGrade::Word => "word",
+        }
+    }
+}
+
+impl DiarizationGrade {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DiarizationGrade::None => "none",
+            DiarizationGrade::Turns => "turns",
+            DiarizationGrade::TurnsWithText => "turns_with_text",
+        }
+    }
+}
+
+/// What a model actually provides (design §3.2). Capabilities live in
+/// `models.json`, never in Rust, so adding a model is a JSON change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Capabilities {
+    pub timestamps: TimestampGrade,
+    pub diarization: DiarizationGrade,
+    /// False for diar-only models (they emit turns but no transcript).
+    pub produces_text: bool,
+}
+
+impl Default for Capabilities {
+    /// The v1 back-compat fallback: a plain segment-less ASR model.
+    fn default() -> Self {
+        Self {
+            timestamps: TimestampGrade::Segment,
+            diarization: DiarizationGrade::None,
+            produces_text: true,
+        }
+    }
+}
+
+/// Role a model can fill in a plan (`engine/plan.rs` step kinds).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Asr,
+    Vad,
+    Align,
+    Diar,
+    Passthrough,
+}
+
+impl Role {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Asr => "asr",
+            Role::Vad => "vad",
+            Role::Align => "align",
+            Role::Diar => "diar",
+            Role::Passthrough => "passthrough",
+        }
+    }
+}
+
+/// Speed class, used only for same-capability ranking (design §5.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Speed {
+    Fast,
+    Balanced,
+    Accurate,
+}
+
+/// Upstream provenance, used for the "Tongyi first" tie-break (design §5.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    Tongyi,
+    Nvidia,
+    Openmoss,
+    Qwen,
+    Other,
+}
+
+impl Source {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Source::Tongyi => "tongyi",
+            Source::Nvidia => "nvidia",
+            Source::Openmoss => "openmoss",
+            Source::Qwen => "qwen",
+            Source::Other => "other",
+        }
+    }
+}
+
+/// UI grouping / default visibility (design §4.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Tier {
+    Default,
+    Recommended,
+    Optional,
+    Experimental,
+}
+
+impl Tier {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Tier::Default => "default",
+            Tier::Recommended => "recommended",
+            Tier::Optional => "optional",
+            Tier::Experimental => "experimental",
+        }
+    }
+}
+
+/// One licence attached to a model. `licenses[]` supersedes the single
+/// `license` string, which is retained for back-compat.
+#[derive(Debug, Clone)]
+pub struct License {
+    pub name: String,
+    pub url: Option<String>,
+}
+
 /// One model entry from `models.json`.
 #[derive(Debug, Clone)]
 pub struct ModelSpec {
@@ -37,6 +191,36 @@ pub struct ModelSpec {
     pub languages: Vec<String>,
     pub license: String,
     pub attribution: Option<String>,
+    /// v2 fields. `None` means the entry predates v2 (see [`ModelSpec::capabilities`]).
+    pub capabilities_raw: Option<Capabilities>,
+    pub roles: Vec<Role>,
+    pub speed: Option<Speed>,
+    pub source: Option<Source>,
+    pub tier: Option<Tier>,
+    pub licenses: Vec<License>,
+}
+
+impl ModelSpec {
+    /// Effective capabilities, applying the v1 fallback when the entry did not
+    /// declare any (design §4.2).
+    pub fn capabilities(&self) -> Capabilities {
+        self.capabilities_raw.unwrap_or_default()
+    }
+
+    /// True when the model can fill `role`; a v1 entry with no `roles` defaults
+    /// to `["asr"]`.
+    pub fn has_role(&self, role: Role) -> bool {
+        let roles = self.effective_roles();
+        roles.contains(&role)
+    }
+
+    fn effective_roles(&self) -> Vec<Role> {
+        if self.roles.is_empty() {
+            vec![Role::Asr]
+        } else {
+            self.roles.clone()
+        }
+    }
 }
 
 /// Catalogue plus install state.
@@ -58,6 +242,25 @@ struct CatalogWire {
     models: Vec<ModelWire>,
 }
 
+/// `capabilities` as written in JSON; converted into the public `Capabilities`.
+#[derive(Deserialize)]
+struct CapabilitiesWire {
+    timestamps: TimestampGrade,
+    diarization: DiarizationGrade,
+    #[serde(default = "default_true")]
+    produces_text: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Deserialize)]
+struct LicenseWire {
+    name: String,
+    url: Option<String>,
+}
+
 #[derive(Deserialize)]
 struct ModelWire {
     id: String,
@@ -69,6 +272,19 @@ struct ModelWire {
     languages: Vec<String>,
     license: String,
     attribution: Option<String>,
+    // v2 fields. `serde(default)` keeps a v1 catalogue loadable.
+    #[serde(default)]
+    capabilities: Option<CapabilitiesWire>,
+    #[serde(default)]
+    roles: Vec<Role>,
+    #[serde(default)]
+    speed: Option<Speed>,
+    #[serde(default)]
+    source: Option<Source>,
+    #[serde(default)]
+    tier: Option<Tier>,
+    #[serde(default)]
+    licenses: Vec<LicenseWire>,
 }
 
 #[derive(Deserialize)]
@@ -120,6 +336,23 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
             languages: model.languages,
             license: model.license,
             attribution: model.attribution,
+            capabilities_raw: model.capabilities.map(|caps| Capabilities {
+                timestamps: caps.timestamps,
+                diarization: caps.diarization,
+                produces_text: caps.produces_text,
+            }),
+            roles: model.roles,
+            speed: model.speed,
+            source: model.source,
+            tier: model.tier,
+            licenses: model
+                .licenses
+                .into_iter()
+                .map(|license| License {
+                    name: license.name,
+                    url: license.url,
+                })
+                .collect(),
         });
     }
 
@@ -240,13 +473,12 @@ fn normalize_language_tag(app_lang: &str) -> String {
 }
 
 /// `<app_data_dir>/models`.
+/// `<app_data_dir>/models`, or the user's configured directory.
 fn models_root(app: &tauri::AppHandle) -> Result<PathBuf, EngineError> {
-    use tauri::Manager;
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| EngineError::Io(format!("app data directory unavailable: {}", e)))?;
-    Ok(data_dir.join("models"))
+    // Single source of truth: `model_dir` owns the precedence (env → persisted
+    // setting → default), so the catalogue and the downloader can never
+    // disagree about where models live.
+    crate::model_dir::configured_root(app).map_err(EngineError::Io)
 }
 
 fn lookup(app: &tauri::AppHandle, id: &str) -> Result<Option<ModelSpec>, EngineError> {
@@ -321,6 +553,117 @@ mod tests {
         );
     }
 
+    /// v2 fields parse on a real committed entry, including the derived helpers.
+    #[test]
+    fn load_catalog_parses_v2_capability_fields() {
+        let specs = committed_catalog();
+        let moss = specs
+            .iter()
+            .find(|spec| spec.id == "moss_transcribe_diarize_q8_0")
+            .expect("models.json declares moss_transcribe_diarize_q8_0");
+
+        let caps = moss.capabilities();
+        assert_eq!(caps.timestamps, TimestampGrade::Segment);
+        assert_eq!(caps.diarization, DiarizationGrade::TurnsWithText);
+        assert!(caps.produces_text);
+        assert!(moss.has_role(Role::Passthrough));
+        assert!(moss.has_role(Role::Asr));
+        assert!(!moss.has_role(Role::Diar));
+        assert_eq!(moss.speed, Some(Speed::Balanced));
+        assert_eq!(moss.source, Some(Source::Openmoss));
+        assert_eq!(moss.tier, Some(Tier::Recommended));
+        assert_eq!(moss.licenses.len(), 1);
+        assert_eq!(moss.licenses[0].name, "Apache-2.0");
+
+        // The existing entry must keep its exact download data (regression guard).
+        let sense = sensevoice_spec();
+        assert_eq!(sense.capabilities().timestamps, TimestampGrade::None);
+        assert_eq!(sense.capabilities().diarization, DiarizationGrade::None);
+        assert_eq!(sense.source, Some(Source::Tongyi));
+        assert_eq!(sense.tier, Some(Tier::Default));
+    }
+
+    /// A diar-only model must not claim text, and the aligner must not either.
+    #[test]
+    fn load_catalog_distinguishes_diar_only_models() {
+        let specs = committed_catalog();
+        let sortformer = specs
+            .iter()
+            .find(|spec| spec.id == "sortformer_diar_4spk_q8_0")
+            .expect("sortformer entry present");
+        assert_eq!(sortformer.capabilities().diarization, DiarizationGrade::Turns);
+        assert!(!sortformer.capabilities().produces_text);
+        assert!(sortformer.has_role(Role::Diar));
+    }
+
+    /// The catalogue must not offer a model MonoSub cannot drive: the `align`
+    /// task aligns an EXISTING transcript to audio, and this app only ever
+    /// produces transcripts. Keeping the entry would let the solver plan a step
+    /// that never runs.
+    #[test]
+    fn catalogue_has_no_align_only_model() {
+        let specs = committed_catalog();
+        assert!(
+            specs.iter().all(|spec| !spec.has_role(Role::Align)),
+            "no catalogue entry may require the unsupported `align` task"
+        );
+        assert!(
+            specs.iter().all(|spec| spec.family != "qwen3_forced_aligner"),
+            "the forced-aligner entry was removed deliberately"
+        );
+    }
+
+    /// `fun_asr_nano` does not support ko/yue; the catalogue must reflect that.
+    #[test]
+    fn fun_asr_nano_languages_exclude_ko_and_yue() {
+        let specs = committed_catalog();
+        let nano = specs
+            .iter()
+            .find(|spec| spec.id == "fun_asr_nano_2512_q8_0")
+            .expect("fun_asr_nano entry present");
+        assert!(!nano.languages.iter().any(|lang| lang == "ko"));
+        assert!(!nano.languages.iter().any(|lang| lang == "yue"));
+        assert!(nano.languages.iter().any(|lang| lang == "zh"));
+    }
+
+    /// A v1-shaped entry (no `capabilities`, no `roles`) still loads and gets the
+    /// documented fallback: a plain segment-less ASR model.
+    #[test]
+    fn v1_entry_without_v2_fields_falls_back() {
+        let temp = std::env::temp_dir().join(format!(
+            "monosub-catalog-v1-{}.json",
+            std::process::id()
+        ));
+        std::fs::write(
+            &temp,
+            r#"{
+              "version": 1,
+              "models": [
+                {
+                  "id": "legacy",
+                  "family": "sense_asr",
+                  "display_name": "Legacy",
+                  "target_directory": "legacy",
+                  "model_file": "legacy.gguf",
+                  "files": [],
+                  "languages": ["auto"],
+                  "license": "MIT"
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let specs = load_catalog(&temp).expect("v1 catalogue loads");
+        std::fs::remove_file(&temp).unwrap();
+
+        let legacy = &specs[0];
+        assert_eq!(legacy.capabilities(), Capabilities::default());
+        assert!(legacy.has_role(Role::Asr), "missing roles defaults to asr");
+        assert!(legacy.licenses.is_empty());
+        assert_eq!(legacy.speed, None);
+    }
+
     #[test]
     fn load_catalog_rejects_unreadable_or_malformed_files() {
         let missing = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/does-not-exist.json"));
@@ -375,6 +718,12 @@ mod tests {
             languages: vec!["zh".to_string(), "en".to_string(), "es".to_string()],
             license: "Apache-2.0".to_string(),
             attribution: None,
+            capabilities_raw: None,
+            roles: Vec::new(),
+            speed: None,
+            source: None,
+            tier: None,
+            licenses: Vec::new(),
         };
 
         assert_eq!(map_language(&model, "es"), "es");

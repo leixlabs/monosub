@@ -1,6 +1,7 @@
 mod commands;
 mod engine;
 mod logging;
+mod model_dir;
 mod subtitle;
 mod tray;
 
@@ -15,11 +16,17 @@ fn main() {
 
     tracing::info!("MonoSub application starting...");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_notification::init());
+
+    // Debug-only UI automation bridge (tauri-pilot). Compiled out of release builds.
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(tauri_plugin_pilot::init());
+
+    builder
         .setup(|app| {
             // 获取主窗口
             let window = app.get_webview_window("main").unwrap();
@@ -48,16 +55,16 @@ fn main() {
             cancel_transcription,
             open_in_finder,
             resolve_paths,
-            activate_license,
-            validate_license,
-            deactivate_license,
             open_external_url,
             check_github_release_update,
             list_models,
+            resolve_model_plan,
             download_model,
             cancel_model_download,
             remove_model,
             open_models_dir,
+            get_models_dir,
+            set_models_dir,
             update_tray_menu,
         ])
         .build(tauri::generate_context!())

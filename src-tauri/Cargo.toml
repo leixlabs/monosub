@@ -9,7 +9,7 @@ edition = "2021"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
+tauri = { version = "2.12", features = ["macos-private-api", "tray-icon"] }
 window-vibrancy = "0.6"
 tauri-plugin-dialog = { version = "2" }
 tauri-plugin-shell = { version = "2" }
@@ -21,15 +21,16 @@ lazy_static = "1.4"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
-chrono = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 semver = "1"
 tauri-plugin-fs = "2"
-hmac = "0.12"
 sha2 = "0.10"
 tauri-plugin-notification = "2"
 hound = "3.5"
 futures-util = "0.3"
+
+# Debug-only UI testing/automation bridge (tauri-pilot). Inert in release builds.
+tauri-plugin-pilot = { git = "https://github.com/mpiton/tauri-pilot", tag = "v0.8.1" }
 
 [profile.dev]
 incremental = true

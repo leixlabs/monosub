@@ -1,4 +1,4 @@
-import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock } from 'lucide-react';
+import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
@@ -8,6 +8,7 @@ import { useEffect, useState, useRef } from 'react';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
+import { GlassSwitch } from '@/components/ui/glass-switch';
 
 interface FileItemProps {
   file: VideoFile;
@@ -18,6 +19,7 @@ export function FileItem({ file }: FileItemProps) {
   const removeFile = useStore((state) => state.removeFile);
   const isProcessing = useStore((state) => state.isProcessing);
   const settings = useStore((state) => state.settings);
+  const setFileDiarization = useStore((state) => state.setFileDiarization);
 
   // Live elapsed time counter
   const [liveElapsed, setLiveElapsed] = useState(0);
@@ -213,6 +215,25 @@ export function FileItem({ file }: FileItemProps) {
               <span>{formatFileSize(file.size)}</span>
               <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
               <span>{settings.outputFormat.toUpperCase()}</span>
+              {/* Per-file speaker separation. Editable only while the run has
+                  not started: changing it mid-flight would not affect the
+                  request already sent to the engine. */}
+              {file.status === 'pending' && (
+                <>
+                  <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-3 h-3" />
+                    {t('fileItem.multiSpeaker')}
+                    <GlassSwitch
+                      checked={file.diarization}
+                      onCheckedChange={(checked) => setFileDiarization(file.id, checked)}
+                      aria-label={t('fileItem.multiSpeaker')}
+                      title={t('fileItem.multiSpeakerHint')}
+                      className="scale-[0.7] origin-left"
+                    />
+                  </span>
+                </>
+              )}
             </div>
           </div>
           <div className="mt-2">

@@ -1,10 +1,8 @@
-import { Folder, FolderOpen, HardDrive, Users, ExternalLink } from 'lucide-react';
+import { Folder, FolderOpen, HardDrive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
-import { openLicenseCheckout } from '@/lib/license';
 import { GlassButton } from '@/components/ui/glass-button';
-import { GlassSwitch } from '@/components/ui/glass-switch';
 
 export function BottomBar() {
   const { t } = useTranslation();
@@ -13,7 +11,6 @@ export function BottomBar() {
   const customStoragePath = useStore((state) => state.customStoragePath);
   const setCustomStoragePath = useStore((state) => state.setCustomStoragePath);
   const settings = useStore((state) => state.settings);
-  const licenseStatus = useStore((state) => state.licenseStatus);
 
   const handleSelectCustomPath = async () => {
     try {
@@ -101,46 +98,6 @@ export function BottomBar() {
         <span className="text-xs text-text-tertiary dark:text-gray-500">
           {t('bottomBar.language')} <span className="text-text-secondary dark:text-gray-300 font-medium">{getLanguageLabel()}</span>
         </span>
-      </div>
-
-      <div className="flex items-center gap-3">
-        {/* Multi-speaker toggle — diarization is offline for v2.0 (spec §5.7) */}
-        <div className="flex items-center gap-2">
-          <Users className="w-4 h-4 text-text-tertiary dark:text-gray-500" />
-          <span className="text-xs text-text-tertiary dark:text-gray-500">
-            {t('bottomBar.multiSpeaker')}
-          </span>
-          <div className="relative flex items-center opacity-60">
-            {/* GlassSwitch 在亮色下也有足够对比 - 背景已固定 */}
-            <GlassSwitch
-              checked={false}
-              disabled={true}
-              title={t('bottomBar.multiSpeakerComingBack')}
-              aria-label={t('bottomBar.multiSpeakerComingBack')}
-              className="border border-divider dark:border-transparent"
-            />
-          </div>
-          <span
-            className="text-xxs text-text-tertiary dark:text-gray-500 max-w-[9rem] leading-tight"
-            title={t('bottomBar.multiSpeakerComingBack')}
-          >
-            {t('bottomBar.multiSpeakerComingBack')}
-          </span>
-          {licenseStatus !== 'valid' && (
-            <GlassButton
-              variant="ghost"
-              size="sm"
-              onClick={() => void openLicenseCheckout()}
-              title={t('bottomBar.proRequired')}
-              className="h-5 px-2 text-[10px] font-semibold text-warning hover:text-warning bg-warning/10 hover:bg-warning/20 hover:scale-100 rounded-full"
-            >
-              PRO
-              <ExternalLink className="w-2.5 h-2.5" />
-            </GlassButton>
-          )}
-        </div>
-
-        <span className="w-px h-4 bg-divider dark:bg-zinc-700" />
       </div>
     </div>
   );

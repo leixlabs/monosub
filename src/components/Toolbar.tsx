@@ -7,6 +7,7 @@ import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
 import { processQueueBatch } from '@/lib/transcription';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
+import { BatchDiarizationToggle } from '@/components/BatchDiarizationToggle';
 
 export function Toolbar() {
   const { t } = useTranslation();
@@ -141,6 +142,8 @@ export function Toolbar() {
       </div>
 
       <div className="flex items-center gap-3">
+        <BatchDiarizationToggle />
+
         {files.length > 0 && (pendingCount > 0 || isBatchProcessing) && (
           <GlassButton
             variant={isBatchProcessing ? 'destructive' : 'default'}

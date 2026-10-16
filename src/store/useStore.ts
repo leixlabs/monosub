@@ -5,7 +5,10 @@ export type VideoStatus = 'pending' | 'processing' | 'completed' | 'skipped' | '
 export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt' | 'md' | string  // string allows multi-format like "srt,txt"
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
-export type LicenseStatus = 'unknown' | 'checking' | 'valid' | 'invalid' | 'error'
+/** Speed preference used only to rank same-capability models (design §5.3). */
+export type SpeedPreference = 'fast' | 'balanced' | 'accurate'
+/** Step roles a user may pin to a specific model id (design §8.1). */
+export type ModelOverrideSlot = 'asr' | 'vad' | 'align' | 'diar'
 
 export interface StepProgress {
   currentStep: number
@@ -28,6 +31,13 @@ export interface VideoFile {
   totalTime?: number  // total processing time in seconds (set on completion)
   error?: string
   subtitlePath?: string
+  /**
+   * Per-file speaker separation. Diarization is a property of the recording,
+   * not of the app: a single-narrator file can skip it, which also avoids
+   * loading the diar / passthrough model at all (much faster).
+   * Seeded from `settings.defaultDiarization` when the file is queued.
+   */
+  diarization: boolean
 }
 
 export interface AppSettings {
@@ -40,12 +50,17 @@ export interface AppSettings {
 
   // UI settings
   showCompletedNotification: boolean
-}
 
-export interface LicenseConfig {
-  licenseKey: string
-  licenseActivationId: string
-  licenseDeviceId: string
+  // Recognition plan requirements (v3; design §10.1)
+  requireWordTimestamps: boolean
+  speedPreference: SpeedPreference
+
+  /**
+   * Default speaker separation for newly queued files. Each file keeps its own
+   * toggle afterwards (see `VideoFile.diarization`), so one narrator-only file
+   * can skip the diar model without changing the app-wide default.
+   */
+  defaultDiarization: boolean
 }
 
 const OUTPUT_LANGUAGES: OutputLanguage[] = ['auto', 'en', 'zh', 'es', 'ja', 'de', 'fr', 'pt', 'zh-tw', 'ko']
@@ -73,13 +88,16 @@ const defaultSettings: AppSettings = {
   outputLanguage: detectSystemLanguage(),
   skipExistingSubtitle: false,
   showCompletedNotification: true,
+  requireWordTimestamps: false,
+  speedPreference: 'balanced',
+  defaultDiarization: true,
 }
 
-const defaultLicenseConfig: LicenseConfig = {
-  licenseKey: '',
-  licenseActivationId: '',
-  licenseDeviceId: '',
-}
+const SPEED_PREFERENCES: SpeedPreference[] = ['fast', 'balanced', 'accurate']
+const MODEL_OVERRIDE_SLOTS: ModelOverrideSlot[] = ['asr', 'vad', 'align', 'diar']
+
+const isSpeedPreference = (value: unknown): value is SpeedPreference =>
+  typeof value === 'string' && (SPEED_PREFERENCES as string[]).includes(value)
 
 interface AppState {
   // File queue management
@@ -88,6 +106,10 @@ interface AppState {
   removeFile: (id: string) => void
   clearFiles: () => void
   updateFile: (id: string, updates: Partial<VideoFile>) => void
+  /** Toggle speaker separation for one queued file. */
+  setFileDiarization: (id: string, enabled: boolean) => void
+  /** Apply `settings.defaultDiarization` to every pending file. */
+  applyDiarizationToAll: (enabled: boolean) => void
 
   // Processing settings
   storageMode: StorageMode
@@ -95,28 +117,10 @@ interface AppState {
   customStoragePath: string
   setCustomStoragePath: (path: string) => void
 
-  // Speaker diarization (multi-speaker recognition)
-  enableSpeakerDiarization: boolean
-  setEnableSpeakerDiarization: (enabled: boolean) => void
-
-  // License / Polar
-  licenseConfig: LicenseConfig
-  updateLicenseConfig: (updates: Partial<LicenseConfig>) => void
-  setLicenseKey: (licenseKey: string) => void
-  setLicenseActivationId: (activationId: string) => void
-  setLicenseDeviceId: (deviceId: string) => void
-  licenseStatus: LicenseStatus
-  licenseMessage: string
-  licenseExpiresAt: string | null
-  licenseLastCheckedAt: string | null
-  setLicenseStatus: (status: LicenseStatus) => void
-  setLicenseValidation: (updates: {
-    status: LicenseStatus
-    message: string
-    expiresAt?: string | null
-    checkedAt?: string
-  }) => void
-  clearLicenseValidation: () => void
+  // Manual model overrides: role -> model id (design §10.2)
+  modelOverrides: Partial<Record<ModelOverrideSlot, string>>
+  setModelOverride: (slot: ModelOverrideSlot, modelId: string) => void
+  clearModelOverrides: () => void
 
   // Global state
   isProcessing: boolean
@@ -140,9 +144,14 @@ interface AppState {
 }
 
 // Persisted slice. Kept in sync with the `partialize` option below.
-type PersistedAppState = Pick<AppState, 'storageMode' | 'customStoragePath' | 'settings' | 'licenseConfig'>
+type PersistedAppState = Pick<
+  AppState,
+  'storageMode' | 'customStoragePath' | 'settings' | 'modelOverrides'
+>
 
-const PERSIST_VERSION = 2
+// v3 adds the recognition-plan requirements and `modelOverrides` (design §10.3).
+// Unlike v1→v2 it must not drop anything.
+const PERSIST_VERSION = 3
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -158,16 +167,25 @@ const normalizeSettings = (value: unknown): AppSettings => {
     outputLanguage: isOutputLanguage(persisted.outputLanguage) ? persisted.outputLanguage : defaultSettings.outputLanguage,
     skipExistingSubtitle: typeof persisted.skipExistingSubtitle === 'boolean' ? persisted.skipExistingSubtitle : defaultSettings.skipExistingSubtitle,
     showCompletedNotification: typeof persisted.showCompletedNotification === 'boolean' ? persisted.showCompletedNotification : defaultSettings.showCompletedNotification,
+    // v2 blobs have none of these; defaults are applied, nothing is dropped.
+    requireWordTimestamps: typeof persisted.requireWordTimestamps === 'boolean' ? persisted.requireWordTimestamps : defaultSettings.requireWordTimestamps,
+    speedPreference: isSpeedPreference(persisted.speedPreference) ? persisted.speedPreference : defaultSettings.speedPreference,
+    defaultDiarization: typeof persisted.defaultDiarization === 'boolean' ? persisted.defaultDiarization : defaultSettings.defaultDiarization,
   }
 }
 
-const normalizeLicenseConfig = (value: unknown): LicenseConfig => {
+// Unknown slots and non-string ids are discarded so a hand-edited blob cannot
+// inject a bogus role or model id.
+const normalizeModelOverrides = (value: unknown): Partial<Record<ModelOverrideSlot, string>> => {
   const persisted = isRecord(value) ? value : {}
-  return {
-    licenseKey: typeof persisted.licenseKey === 'string' ? persisted.licenseKey : '',
-    licenseActivationId: typeof persisted.licenseActivationId === 'string' ? persisted.licenseActivationId : '',
-    licenseDeviceId: typeof persisted.licenseDeviceId === 'string' ? persisted.licenseDeviceId : '',
+  const result: Partial<Record<ModelOverrideSlot, string>> = {}
+  for (const slot of MODEL_OVERRIDE_SLOTS) {
+    const modelId = persisted[slot]
+    if (typeof modelId === 'string' && modelId.trim().length > 0) {
+      result[slot] = modelId
+    }
   }
+  return result
 }
 
 // Called for every blob whose stored version differs from PERSIST_VERSION, so
@@ -178,7 +196,7 @@ const normalizePersistedState = (persistedState: unknown): PersistedAppState => 
     storageMode: persisted.storageMode === 'custom' ? 'custom' : 'same',
     customStoragePath: typeof persisted.customStoragePath === 'string' ? persisted.customStoragePath : '',
     settings: normalizeSettings(persisted.settings),
-    licenseConfig: normalizeLicenseConfig(persisted.licenseConfig),
+    modelOverrides: normalizeModelOverrides(persisted.modelOverrides),
   }
 }
 
@@ -197,6 +215,13 @@ export const useStore = create<AppState>()(
       updateFile: (id, updates) => set((state) => ({
         files: state.files.map(f => f.id === id ? { ...f, ...updates } : f)
       })),
+      setFileDiarization: (id, enabled) => set((state) => ({
+        files: state.files.map(f => f.id === id ? { ...f, diarization: enabled } : f)
+      })),
+      applyDiarizationToAll: (enabled) => set((state) => ({
+        // Only pending files: a finished or in-flight run must not change.
+        files: state.files.map(f => f.status === 'pending' ? { ...f, diarization: enabled } : f)
+      })),
 
       // Settings
       storageMode: 'same',
@@ -204,56 +229,12 @@ export const useStore = create<AppState>()(
       customStoragePath: '',
       setCustomStoragePath: (path) => set({ customStoragePath: path }),
 
-      // Speaker diarization
-      enableSpeakerDiarization: false,
-      setEnableSpeakerDiarization: (enabled) => set({ enableSpeakerDiarization: enabled }),
-
-      // License / Polar
-      licenseConfig: defaultLicenseConfig,
-      updateLicenseConfig: (updates) => set((state) => ({
-        licenseConfig: { ...state.licenseConfig, ...updates }
+      // Manual model overrides (design §10.2)
+      modelOverrides: {},
+      setModelOverride: (slot, modelId) => set((state) => ({
+        modelOverrides: { ...state.modelOverrides, [slot]: modelId }
       })),
-      setLicenseKey: (licenseKey) => set((state) => {
-        const normalizedCurrent = typeof state.licenseConfig.licenseKey === 'string'
-          ? state.licenseConfig.licenseKey.trim()
-          : '';
-        const normalizedNext = typeof licenseKey === 'string' ? licenseKey.trim() : '';
-        const shouldResetActivation = normalizedCurrent !== normalizedNext;
-        return {
-          licenseConfig: {
-            ...state.licenseConfig,
-            licenseKey,
-            licenseActivationId: shouldResetActivation ? '' : state.licenseConfig.licenseActivationId,
-          },
-          licenseStatus: shouldResetActivation ? 'unknown' : state.licenseStatus,
-          licenseMessage: shouldResetActivation ? '' : state.licenseMessage,
-          licenseExpiresAt: shouldResetActivation ? null : state.licenseExpiresAt,
-          licenseLastCheckedAt: shouldResetActivation ? null : state.licenseLastCheckedAt,
-        };
-      }),
-      setLicenseActivationId: (licenseActivationId) => set((state) => ({
-        licenseConfig: { ...state.licenseConfig, licenseActivationId }
-      })),
-      setLicenseDeviceId: (licenseDeviceId) => set((state) => ({
-        licenseConfig: { ...state.licenseConfig, licenseDeviceId }
-      })),
-      licenseStatus: 'unknown',
-      licenseMessage: '',
-      licenseExpiresAt: null,
-      licenseLastCheckedAt: null,
-      setLicenseStatus: (status) => set({ licenseStatus: status }),
-      setLicenseValidation: ({ status, message, expiresAt = null, checkedAt }) => set({
-        licenseStatus: status,
-        licenseMessage: message,
-        licenseExpiresAt: expiresAt,
-        licenseLastCheckedAt: checkedAt ?? new Date().toISOString(),
-      }),
-      clearLicenseValidation: () => set({
-        licenseStatus: 'unknown',
-        licenseMessage: '',
-        licenseExpiresAt: null,
-        licenseLastCheckedAt: null,
-      }),
+      clearModelOverrides: () => set({ modelOverrides: {} }),
 
       // Global state
       isProcessing: false,
@@ -294,7 +275,7 @@ export const useStore = create<AppState>()(
         storageMode: state.storageMode,
         customStoragePath: state.customStoragePath,
         settings: state.settings,
-        licenseConfig: state.licenseConfig,
+        modelOverrides: state.modelOverrides,
       }),
     }
   )

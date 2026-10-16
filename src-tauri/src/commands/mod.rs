@@ -1,12 +1,14 @@
-pub mod license;
+pub mod external;
 pub mod models;
+pub mod plan;
 pub mod transcribe;
 pub mod tray;
 pub mod update;
 pub mod video;
 
-pub use license::*;
+pub use external::*;
 pub use models::*;
+pub use plan::*;
 pub use transcribe::*;
 pub use tray::*;
 pub use update::*;

@@ -14,7 +14,9 @@ distributed as a single prebuilt binary. There is **no Python** in the runtime.
 
 - 🎬 **Multi-file queue processing** - Manage multiple video/audio files simultaneously
 - 🖼️ **Video thumbnails** - Automatic preview generation
-- ⚡ **Local AI processing** - audio.cpp + SenseVoice for speech recognition, Metal accelerated
+- ⚡ **Local AI processing** - audio.cpp speech recognition, Metal accelerated
+- 🧩 **Pluggable model plans** - Requirement-driven model selection (speed, word-level
+  timestamps, speaker diarization, language); Tongyi/FunASR models preferred
 - 📦 **In-app model management** - Download/remove models on demand; nothing large is bundled
 - 📝 **Multiple output formats** - SRT, VTT, TXT, MD (and JSON)
 - 🌐 **Bilingual UI** - Simplified Chinese and English (`zh-CN`, `en`)
@@ -94,6 +96,8 @@ monosub/
 │   │   │   ├── mod.rs           # VAD → slice → requests.json → sequence ASR
 │   │   │   ├── cli.rs           # Binary resolution, spawn, stderr ring buffer
 │   │   │   ├── catalog.rs       # models.json, install checks, language mapping
+│   │   │   ├── plan.rs          # Requirement → ModelPlan solver (pure, unit-tested)
+│   │   │   ├── direct.rs        # Passthrough path: one unsplit call, parses turns/segments
 │   │   │   ├── vad.rs           # silero_vad invocation + chunk parsing
 │   │   │   └── wav.rs           # 16k mono s16le read + sample slicing
 │   │   ├── subtitle/            # Output generation
@@ -109,7 +113,7 @@ monosub/
 │   │   │   └── tray.rs
 │   │   └── logging.rs
 │   ├── resources/
-│   │   ├── models.json          # Model catalogue (source, committed)
+│   │   ├── models.json          # Model catalogue (v2: capabilities/roles/tier)
 │   │   ├── licenses/            # audio.cpp Apache-2.0 text + third-party notices
 │   │   ├── bin/                 # fetched: ffmpeg, ffprobe, audiocpp_cli, lib/
 │   │   └── models/silero_vad/   # fetched: silero_vad_16k.safetensors
@@ -182,6 +186,33 @@ bun run check:i18n    # Locale parity
 Tests that need the bundled binary/model print a `skip:` reason and pass when those
 gitignored artifacts are absent, so a fresh clone still has a green suite.
 
+### Interactive UI Testing (tauri-pilot)
+
+Debug builds expose the UI over a Unix socket at
+`/tmp/tauri-pilot-dev.leix.monosub.sock` via the `tauri-plugin-pilot` plugin
+(`main.rs`, gated by `#[cfg(debug_assertions)]`, plus `pilot:default` in
+`capabilities/default.json`). Install the matching CLI once:
+
+```bash
+cargo install tauri-pilot-cli    # pinned to 0.8.1; keep the plugin tag in sync
+```
+
+Then, with `bun run tauri dev` running:
+
+```bash
+tauri-pilot ping                                        # check the socket
+tauri-pilot snapshot -i                                 # accessibility tree + @eN refs
+tauri-pilot click @e5 / tauri-pilot assert text @e1 "…" # refs reset on each snapshot
+tauri-pilot logs --level error                          # console/JS errors
+tauri-pilot run src-tauri/tests/pilot/smoke.toml        # committed end-to-end smoke
+tauri-pilot run src-tauri/tests/pilot/smoke.toml --junit /tmp/pilot.xml
+```
+
+The plugin requires Tauri ≥ 2.12 ({plugin, CLI and `@tauri-apps/*` versions all
+moved together}). It is compiled out of release builds, so `tauri build` is
+unaffected. `screenshot` (DOM html-to-image) is flaky on this page; prefer
+`screenshot_native --window-id <id> --output <path>` when a PNG is needed.
+
 ### Production Builds
 
 ```bash
@@ -204,43 +235,95 @@ Rust extracts metadata (FFprobe) + generates thumbnail (FFmpeg)
     ↓
 User clicks "Start"
     ↓
-Rust checks the model is installed (else MODEL_NOT_INSTALLED → download UI)
+Solver: Requirements → ModelPlan   (engine/plan.rs)
+    ↓
+Rust checks every model in the plan is installed
+    (else MODEL_NOT_INSTALLED → download UI)
     ↓
 FFmpeg extracts 16 kHz mono s16le WAV (cached next to the media as *_audio.wav)
     ↓
-audiocpp_cli --task vad        → vad_chunks.json (speech segments)
+┌── plan.passthrough ──────────────────────────────────────────────┐
+│ audiocpp_cli --task asr  (one unsplit call)                       │
+│   --segments-out / --turns-out  → text + times + speakers         │
+└───────────────────────────────────────────────────────────────────┘
+   or
+┌── multi-stage ───────────────────────────────────────────────────┐
+│ audiocpp_cli --task vad      → vad_chunks.json (speech segments)  │
+│ Rust slices the WAV per chunk, writes requests.json               │
+│ audiocpp_cli --task asr --request-sequence → one text per chunk   │
+│ (opt) --task diar → turns → Rust turn attribution by overlap      │
+└───────────────────────────────────────────────────────────────────┘
     ↓
-Rust slices the WAV per chunk, writes requests.json
-    ↓
-audiocpp_cli --task asr --request-sequence   → one text file per chunk
-    ↓
-Rust post-processes (split/estimate/merge) → writes every requested format
+Rust post-processes (split/estimate/merge, speaker-aware) → writes every format
     ↓
 Rust emits events → React updates the UI
 ```
 
-### Why VAD runs in Rust, not in the model
+### Model plans (capability-driven model selection)
+
+Which model runs is **not hardcoded**. `docs/tech-spec/model-selection-design.md`
+defines a **requirement → plan solver**:
+
+```
+Requirements { word_timestamps, diarization, passthrough, language, speed, backend }
+        │
+        ▼  engine/plan.rs  (pure functions; unit-testable without AppHandle)
+ ModelPlan { steps: [Vad | Asr | Align | Diarize | Passthrough | TurnAttribution], … }
+        │
+        ▼  engine/mod.rs → engine/direct.rs (passthrough) or the VAD-sequence pipeline
+```
+
+Rules that follow from this:
+
+- **Capabilities live in `models.json`, not in Rust.** Adding a model is a JSON
+  change. The solver reads `capabilities.timestamps` / `capabilities.diarization` /
+  `capabilities.produces_text`, plus `roles`, `languages`, `source`, `speed`, `tier`.
+- **Tongyi/FunASR (`source: "tongyi"`) is preferred** when scores tie — hence
+  `sense_asr` / `fun_asr_nano` are the defaults for plain ASR.
+- **Every requirement must be satisfiable by an audiocpp `task`.** There is no
+  `spk`/`sv` task in audio.cpp, so CAM++ (the old `core-engine/.../diarizer.py`) is
+  **not reproducible** — speech separation comes from a `diar`-task model or from an
+  ASR model that emits speaker labels itself.
+- **Passthrough is a first-class mode.** When the plan's single step is a
+  `Passthrough` model (`moss_transcribe_diarize`, which emits text + timestamps +
+  speaker labels in one call), the whole VAD → slice → `requests.json` → sequence
+  pipeline is **skipped** and the file is transcribed unsplit. Per-request options
+  may then go on the command line, since no `--request-sequence` is involved
+  (PoC §4.1) — but note `--request-option` and `--request-sequence` still must not
+  be combined.
+- **Diarization requires a non-Tongyi model.** Neither `sense_asr` nor `fun_asr_nano`
+  exposes speaker output; FunASR's "ASR + VAD + CAM++" pipeline is a *Python*
+  composition, not a checkpoint capability.
+- The `[Speaker A]: ` prefix in `subtitle/writer.rs` is fed by `RawChunk.speaker`;
+  `subtitle/postprocess.rs` must not merge across differing speakers.
+
+### Why segmentation is a separate stage from ASR
 
 `sense_asr` (SenseVoice) has **no word/segment timestamps**; it emits one flat text
-blob. So segmentation is done up front by Silero VAD, and timestamps are then
-*estimated* inside each VAD chunk in proportion to character count. Chunk boundaries
-are therefore the only real timing anchor.
+blob. So segmentation is done up front by **Silero VAD** — which runs *inside
+`audiocpp_cli`* (`--task vad --family silero_vad`), not in Rust. Rust only builds
+that invocation and parses the returned sample offsets (`engine/vad.rs`); there is
+no VAD algorithm in this codebase. Timestamps are then *estimated* inside each VAD
+chunk in proportion to character count. Chunk boundaries are therefore the only
+real timing anchor.
 
-Two VAD constants are quality-sensitive and were tuned on measured evidence (see
-`docs/tech-spec/audiocpp-accuracy-p1-23.md`):
+Three VAD options are quality-sensitive and were tuned on measured evidence (see
+`docs/tech-spec/audiocpp-accuracy-p1-23.md`). They are **CLI arguments**, declared
+in Rust only so a test can pin their values:
 
 ```rust
-// engine/vad.rs — pinned by a test
+// engine/vad.rs — forwarded to audiocpp_cli as --vad-chunk-* flags
 pub const VAD_MAX_SECONDS: f64 = 15.0;
 pub const VAD_MERGE_GAP_SECONDS: f64 = 0.2;
 pub const VAD_PADDING_SECONDS: f64 = 0.1;
 ```
 
 `padding p` widens each speech span by `p` on both sides, so a raw silence gap `g`
-becomes `g - 2p`, and two spans merge when `g - 2p < merge_gap`. Over-merging
-irrecoverably fuses two utterances and misplaces their boundary; under-merging is
-recovered downstream by `subtitle::postprocess`, which re-joins cues closer than its
-own 0.5 s `gap_threshold`. Prefer under-merging when in doubt.
+becomes `g - 2p`, and two spans merge when `g - 2p < merge_gap` — that merge
+decision is made by the CLI, not here. Over-merging irrecoverably fuses two
+utterances and misplaces their boundary; under-merging is recovered downstream by
+`subtitle::postprocess`, which re-joins cues closer than its own 0.5 s
+`gap_threshold`. Prefer under-merging when in doubt.
 
 ---
 
@@ -264,6 +347,7 @@ own 0.5 s `gap_threshold`. Prefer under-merging when in doubt.
 | `activate_license` / `validate_license` / `deactivate_license` | Polar licensing |
 | `check_github_release_update` | Update check |
 | `update_tray_menu` | Localise tray labels |
+| `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
 
 ### Backend → Frontend (Tauri Events)
 
@@ -293,13 +377,17 @@ line-parsing subprocess.
 | `src/store/useStore.ts` | Zustand state, `persist` v2 + migrate |
 | `src/lib/models.ts` | Model commands/events, `MODEL_NOT_INSTALLED_ERROR` |
 | `src/components/Settings.tsx` | Settings incl. the Models section |
-| `src-tauri/src/engine/mod.rs` | The transcription pipeline |
+| `src/components/SettingsModelPlan.tsx` | Model-plan requirements + live preview + manual overrides |
+| `src-tauri/src/engine/mod.rs` | The transcription pipeline (dispatches on the plan) |
+| `src-tauri/src/engine/plan.rs` | Requirement → ModelPlan solver |
+| `src-tauri/src/engine/direct.rs` | Passthrough (one-shot) inference path |
 | `src-tauri/src/engine/cli.rs` | Binary resolution + process management |
 | `src-tauri/src/engine/catalog.rs` | `models.json`, install checks, language mapping |
 | `src-tauri/src/commands/transcribe.rs` | Task registry, events, cancellation |
 | `src-tauri/src/commands/models.rs` | Model download/verify/remove |
 | `src-tauri/src/subtitle/writer.rs` | Format writers |
-| `src-tauri/resources/models.json` | Model catalogue |
+| `src-tauri/resources/models.json` | Model catalogue (v2 schema) |
+| `docs/tech-spec/model-selection-design.md` | Requirement → ModelPlan design |
 | `src-tauri/tests/fixtures/` | Subtitle goldens (+ their generator) |
 | `scripts/build/fetch-audiocpp.sh` | Pinned upstream binary + VAD download |
 
@@ -335,11 +423,25 @@ isProcessing: boolean           // Global processing state
 currentTaskId: string | null    // Active task
 ```
 
-Persisted to `localStorage` as `monosub-storage` at `version: 2`. The `migrate`
-function **drops** `enableNoiseReduction`, `enableVolumeNormalization`,
-`enableBilingual` and `bilingualTargetLang`: those settings never reached the engine
-in the old code either (the Python engine hardcoded the filters), so they were dead.
-The equivalent ffmpeg filters are now always applied.
+Persisted to `localStorage` as `monosub-storage` at `version: 2` (target: `version: 3`
+for the model-plan fields). The `migrate` function **drops** `enableNoiseReduction`,
+`enableVolumeNormalization`, `enableBilingual` and `bilingualTargetLang`: those
+settings never reached the engine in the old code either (the Python engine hardcoded
+the filters), so they were dead. The equivalent ffmpeg filters are now always applied.
+
+The v2→v3 step **adds** model-plan defaults and must not drop anything:
+
+```ts
+// settings (added)
+requireWordTimestamps: boolean            // false
+passthroughMode: 'auto' | 'only' | 'never' // 'auto'
+speedPreference: 'fast' | 'balanced' | 'accurate' // 'balanced'
+// top level (added)
+modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>
+```
+
+`enableSpeakerDiarization` keeps its meaning; it now maps to
+`Requirements.diarization` instead of being a disabled placeholder.
 
 ---
 
@@ -360,8 +462,13 @@ Names use the `<name>-<target-triple>` convention, e.g.
 
 ### Model Storage
 
-Models live under `<app_data_dir>/models/<target_directory>/`, mirroring upstream's
-`model_specs` layout so a user can drop files in by hand. `is_installed` checks file
+Models live under `<models_dir>/<target_directory>/`, mirroring upstream's
+`model_specs` layout so a user can drop files in by hand. `<models_dir>` defaults to
+`<app_data_dir>/models` and is **user-configurable** (Settings → 模型 → 存储位置,
+persisted to `<app_config_dir>/settings.json`, or `MONOSUB_MODELS_DIR`): models are
+0.2–1.2 GB each, so pointing at an existing folder must not require re-downloading.
+`model_dir::configured_root` is the single resolver used by both the catalogue and
+the downloader, so they can never disagree. `is_installed` checks file
 existence plus size match and deliberately **never hashes** — hashing a 250 MB file on
 every startup is not acceptable. Hashing happens once, after download.
 
@@ -432,6 +539,7 @@ useEffect(() => {
 | `MONOSUB_FFMPEG_PATH` | Override the FFmpeg binary path |
 | `MONOSUB_FFPROBE_PATH` | Override the FFprobe binary path |
 | `MONOSUB_AUDIOCPP_PATH` | Override the audio.cpp CLI path |
+| `MONOSUB_MODELS_DIR` | Override the models directory (wins over the in-app setting) |
 | `APPLE_SIGNING_IDENTITY` | Code signing identity (optional) |
 | `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Notarization credentials (optional) |
 
@@ -451,11 +559,31 @@ useEffect(() => {
 
 ## Licensing / Attribution
 
-`audiocpp_cli` is **Apache-2.0**, so its LICENSE text must ship with the app —
-see `src-tauri/resources/licenses/`. SenseVoice weights carry the **FunASR Model
-License v1.1**, which requires naming the model; it is *not* bundled (the user
-downloads it). Adding a bundled component means updating
-`src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md`.
+**MonoSub is a personal learning project and is not distributed commercially.**
+Model licences are therefore recorded for *attribution only* — they are **not** a
+gate on which models may be offered. There is no commercial-use red line: a model
+whose upstream licence is non-commercial (e.g. CC-BY-NC) may still be listed and
+downloaded.
+
+What still matters is honesty about provenance:
+
+- `audiocpp_cli` is **Apache-2.0**, so its LICENSE text must ship with the app —
+  see `src-tauri/resources/licenses/`.
+- Each catalogue entry names its licence (`licenses[]` / `license`) and its
+  `attribution`; the About page surfaces them.
+- Adding a bundled component means updating
+  `src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md`.
+- **Never re-host** third-party weights in the repo or the DMG — models are always
+  downloaded on demand (this keeps the app small and the licences intact).
+- Licences with an explicit *redistribution* restriction (e.g. NVIDIA's
+  "local-use only, pending redistribution approval") are the one real exception:
+  they may be used locally but must not be added to a downloadable catalogue until
+  approval is confirmed — mark them `tier: experimental` and keep them
+  non-downloadable, or omit them entirely.
+
+> Rationale: several strong diarization models (Sortformer) are CC-BY-NC, while the
+> permissive ones are not necessarily the best. A blanket "no non-commercial models"
+> rule would silently remove the best tool for the job.
 
 ---
 

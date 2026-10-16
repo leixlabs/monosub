@@ -1,7 +1,6 @@
 {
   "app": {
-    "name": "MonoSub",
-    "tagline": "AI 视频字幕生成"
+    "name": "MonoSub"
   },
   "header": {
     "completed": "已完成",
@@ -35,7 +34,9 @@
     "open": "打开",
     "delete": "删除",
     "starting": "启动中...",
-    "skipped": "已跳过"
+    "skipped": "已跳过",
+    "multiSpeaker": "多人",
+    "multiSpeakerHint": "为此文件识别并标注说话人（较慢）"
   },
   "steps": {
     "extracting_audio": "提取音频",
@@ -53,15 +54,7 @@
     "chinese": "中文",
     "english": "EN",
     "multiSpeaker": "多人识别",
-    "proRequired": "需要 PRO 授权",
-    "licensePromptTitle": "解锁多人识别（Pro）",
-    "licensePromptMessage": "多人识别需要有效 License。你可以先去设置填写并激活，或在浏览器打开购买页。",
-    "licensePromptWithKeyMessage": "检测到你已填写 License Key。可先前往设置完成激活，激活后即可开启多人识别。",
-    "openInBrowser": "在系统浏览器打开",
-    "openSettings": "去设置激活",
-    "later": "稍后再说",
-    "stop": "停止",
-    "multiSpeakerComingBack": "多说话人识别即将回归"
+    "stop": "停止"
   },
   "settings": {
     "title": "设置",
@@ -77,40 +70,6 @@
       "title": "处理设置",
       "skipExisting": "跳过已有字幕",
       "skipExistingDesc": "如果输出文件已存在，则跳过处理"
-    },
-    "license": {
-      "title": "License 管理",
-      "serviceUrl": "Polar 服务地址",
-      "organizationId": "Organization ID",
-      "benefitId": "Benefit ID",
-      "licenseKey": "License Key",
-      "checkoutUrl": "Checkout 链接",
-      "checkoutUrlDesc": "当多人识别未授权时，将打开此购买链接。",
-      "validate": "校验 License",
-      "validating": "校验中...",
-      "openCheckout": "打开购买页",
-      "deactivate": "解绑当前设备",
-      "clearKey": "清除 Key",
-      "statusLabel": "状态：",
-      "lastChecked": "最近校验",
-      "expiresAt": "过期时间",
-      "deviceId": "设备 ID",
-      "activationId": "激活 ID",
-      "hint": "首次使用会激活当前设备；每次启动应用都会自动做 License 校验。",
-      "status": {
-        "unknown": "未校验",
-        "checking": "校验中...",
-        "valid": "有效",
-        "invalid": "无效",
-        "error": "校验失败"
-      },
-      "summary": {
-        "valid": "License 已激活",
-        "checking": "正在校验 License...",
-        "notActivated": "License 未激活",
-        "hint": "填写 License Key 后点击“校验 License”即可完成激活。"
-      },
-      "unlimited": "无过期"
     },
     "notifications": {
       "title": "通知设置",
@@ -132,7 +91,16 @@
       "hint": "点击“检查更新”后，将从 GitHub Releases 获取最新版本信息。"
     },
     "resetDefaults": "重置默认",
-    "done": "完成"
+    "done": "完成",
+    "files": {
+      "title": "文件与格式"
+    },
+    "modelsGroup": {
+      "title": "模型"
+    },
+    "system": {
+      "title": "系统"
+    }
   },
   "notification": {
     "completed": "字幕生成完成"
@@ -171,6 +139,48 @@
     "remove": "删除",
     "retry": "重试",
     "size": "大小",
-    "title": "模型"
+    "title": "模型",
+    "storageLocation": "存储位置",
+    "custom": "自定义",
+    "storageLocationHint": "模型从该目录读取与下载；已有文件不会被移动。",
+    "changeLocation": "更改目录",
+    "resetLocation": "恢复默认",
+    "pathFromEnv": "由环境变量 MONOSUB_MODELS_DIR 指定。",
+    "pathEnvOverrides": "已设置 MONOSUB_MODELS_DIR，环境变量会覆盖此处的设置。",
+    "rescan": "重新检测",
+    "rescanHint": "重新从磁盘读取安装状态（手动拷入模型后可用）"
+  },
+  "modelPlan": {
+    "title": "识别方案",
+    "wordTimestamps": "词级时间戳（暂不支持）",
+    "diarization": "说话人分离（默认）",
+    "speed": "速度偏好",
+    "speedFast": "快",
+    "speedBalanced": "均衡",
+    "speedAccurate": "准",
+    "effective": "当前方案",
+    "why": "为什么？",
+    "notInstalled": "未安装",
+    "download": "下载",
+    "advanced": "高级：手动指定模型",
+    "slotAsr": "转写（ASR）",
+    "slotVad": "切段（VAD）",
+    "slotDiar": "说话人（分离）",
+    "slotAuto": "自动",
+    "slotNone": "（不使用）",
+    "gapTitle": "当前需求没有可用的模型方案",
+    "gapSuggest": "建议下载 {{model}}（{{size}}）",
+    "planPassthroughMoss": "MOSS 直出（转写+时间戳+说话人）",
+    "planAsrVad": "SenseVoice + VAD（估算时间戳）",
+    "planAsrDiar": "SenseVoice + VAD + 说话人分离",
+    "reasonTongyi": "阿里系优先",
+    "reasonInstalled": "已安装",
+    "reasonPassthrough": "直出模式更少步骤",
+    "reasonWords": "唯一支持词级时间戳的方案",
+    "diarizationDefaultHint": "新增文件的默认值；每个文件可单独覆盖",
+    "wordTimestampsHint": "当前没有可用模型能输出词级时间；方案会把它列为一个缺口。",
+    "slotVadHint": "在转写前把音频切成语音片段。Silero VAD 随 App 内置，一般无需修改。",
+    "slotAsrHint": "把每个语音片段转成文字。识别准确度与支持语种由这个模型决定。",
+    "slotDiarHint": "判断谁在什么时候说话，以便给字幕加上「说话人 A/B」标签。需要分离模型；没有它字幕不带说话人标签。"
   }
 }

@@ -19,14 +19,9 @@ export function Header() {
         className="drag-region flex items-center gap-3 cursor-grab active:cursor-grabbing"
       >
         <Subtitles className="w-5 h-5 text-primary" />
-        <div>
-          <h1 className="window-title text-base font-semibold leading-tight transition-colors">
-            {t('app.name')}
-          </h1>
-          <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-tight">
-            {t('app.tagline')}
-          </p>
-        </div>
+        <h1 className="window-title text-base font-semibold leading-tight transition-colors">
+          {t('app.name')}
+        </h1>
       </div>
 
       <div data-tauri-drag-region className="drag-region flex-1 h-full cursor-grab active:cursor-grabbing" />

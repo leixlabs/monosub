@@ -65,7 +65,15 @@ pub fn postprocess(chunks: &[RawChunk], config: &PostProcessConfig) -> Vec<Segme
         // window preserves the model's timing information (spec §5.4 step 3).
         let start = chunk.start_s.max(0.0);
         let end = chunk.end_s.max(start);
-        segments.extend(postprocess::distribute_times(&sentences, start, end, config));
+        // The chunk's speaker label (when the plan produced one) is carried
+        // through every cue split out of that chunk (design §6.5).
+        segments.extend(postprocess::distribute_times(
+            &sentences,
+            start,
+            end,
+            chunk.speaker.as_deref(),
+            config,
+        ));
     }
 
     let merged = postprocess::merge_short(segments, config);

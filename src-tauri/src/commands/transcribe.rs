@@ -18,8 +18,11 @@ use std::time::{Instant, SystemTime};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
-use crate::commands::license;
 use crate::commands::models::MODEL_NOT_INSTALLED;
+use crate::engine::catalog::Speed;
+use crate::engine::plan::{
+    self, ModelPlan, Requirements, StepKind,
+};
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
 
@@ -52,6 +55,14 @@ pub struct TranscribeRequest {
     pub language: Option<String>,
     pub device: Option<String>,
     pub enable_diarization: Option<bool>,
+    // --- v3 model-plan requirements (design §9.1). All optional so an older
+    // frontend that sends none of them keeps today's behaviour exactly. ---
+    /// Word-level timestamps needed.
+    pub require_word_timestamps: Option<bool>,
+    /// `fast` / `balanced` / `accurate`.
+    pub speed_preference: Option<String>,
+    /// Manual `role -> model_id` overrides.
+    pub model_overrides: Option<HashMap<String, String>>,
 }
 
 /// Step names are part of the frozen contract: `FileItem.tsx` derives the i18n
@@ -104,6 +115,8 @@ struct TaskParams {
     language: String,
     model_id: String,
     backend: Backend,
+    /// The plan this run must execute (design §7.2 / M8-4).
+    plan: ModelPlan,
     completed: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -144,6 +157,9 @@ pub async fn start_transcription(
         language,
         device,
         enable_diarization,
+        require_word_timestamps,
+        speed_preference,
+        model_overrides,
     } = request;
 
     let format = format.unwrap_or_else(|| "srt".to_string());
@@ -171,26 +187,82 @@ pub async fn start_transcription(
         }
     };
 
-    if enable_diarization {
-        // Speaker diarization is offline for v2.0 (spec §5.7); the licence gate
-        // is kept so the check itself cannot regress.
-        let status = if license::is_pro_licensed() {
-            "Multi-speaker recognition is not available yet."
-        } else {
-            "Multi-speaker recognition requires a MonoSub Pro license."
-        };
-        tracing::warn!(task_id = %task_id, "rejected diarization request");
-        emit_error(&app, &task_id, status);
-        return Ok(task_id);
+    // Solve the requirement → plan (M8-2). The model gate is now driven by the
+    // PLAN, not by the single default model: every model the chosen plan needs
+    // must be installed, and the missing id travels back so the UI can jump
+    // straight to that catalogue entry (M8-3).
+    let requirements = Requirements {
+        word_timestamps: require_word_timestamps.unwrap_or(false),
+        diarization: enable_diarization,
+        language: language.clone(),
+        prefer: speed_from_request(speed_preference.as_deref()),
+        backend,
+    };
+
+    let catalogue = match engine::catalog::catalog(Some(&app)) {
+        Ok(catalogue) => catalogue,
+        Err(error) => {
+            tracing::error!(task_id = %task_id, error = %error, "failed to load the model catalogue");
+            emit_error(&app, &task_id, "engineFailed");
+            return Ok(task_id);
+        }
+    };
+    let installed = |id: &str| engine::catalog::is_installed(&app, id);
+    let mut plans = plan::solve(&catalogue, &installed, &requirements);
+
+    // Manual overrides pin a step to an explicit model. They are applied only
+    // to the winning plan, so an override cannot resurrect an unsatisfiable
+    // template (design §8.2.3).
+    if let Some(overrides) = model_overrides.as_ref() {
+        apply_model_overrides(&mut plans, overrides, &catalogue);
     }
 
-    // Model gate (spec §5.2): the frontend recognises this code and opens the
-    // model download dialog, so fail the invoke instead of emitting an event.
-    let model_id = engine::catalog::default_model_id().to_string();
-    if !engine::catalog::is_installed(&app, &model_id) {
-        tracing::warn!(task_id = %task_id, model = %model_id, "model is not installed");
+    let Some(plan) = plans.into_iter().next() else {
+        tracing::warn!(task_id = %task_id, "the solver produced no plan at all");
         return Err(MODEL_NOT_INSTALLED.to_string());
+    };
+
+    // A plan with no steps is the solver's "nothing fits" answer: report the
+    // missing model (when the catalogue knows one) so the download UI opens.
+    if plan.steps.is_empty() {
+        let missing = plan
+            .gaps
+            .iter()
+            .find_map(|gap| gap.suggested_model_id.clone());
+        tracing::warn!(
+            task_id = %task_id,
+            plan = %plan.id,
+            missing = ?missing,
+            "no usable model plan for this request"
+        );
+        return Err(match missing {
+            Some(id) => format!("{}:{}", MODEL_NOT_INSTALLED, id),
+            None => MODEL_NOT_INSTALLED.to_string(),
+        });
     }
+
+    // Every model in the plan must be present, and a manual override may name
+    // one the solver never checked.
+    for model_id in &plan.model_ids {
+        if !installed(model_id) {
+            tracing::warn!(task_id = %task_id, model = %model_id, plan = %plan.id, "plan model is not installed");
+            return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
+        }
+    }
+
+    let primary_model_id = plan
+        .model_ids
+        .first()
+        .cloned()
+        .unwrap_or_else(|| engine::catalog::default_model_id().to_string());
+
+    tracing::info!(
+        task_id = %task_id,
+        plan = %plan.id,
+        models = ?plan.model_ids,
+        passthrough = plan.passthrough,
+        "model plan selected"
+    );
 
     let input = PathBuf::from(path);
     let output = PathBuf::from(output_path);
@@ -215,8 +287,9 @@ pub async fn start_transcription(
         output,
         formats,
         language,
-        model_id,
+        model_id: primary_model_id,
         backend,
+        plan,
         completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     let app_for_task = app.clone();
@@ -327,9 +400,84 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
             steps.progress(app, &params.task_id, percent, message);
         };
 
-        engine::transcribe(app, &params.task_id, audio.path(), &opts, &on_progress)
+        // M8-4: dispatch on the plan. A passthrough plan makes ONE unsplit call
+        // (design §6.1); anything else runs the existing VAD → sequence
+        // pipeline, optionally followed by diarization + turn attribution.
+        if params.plan.passthrough {
+            engine::direct::transcribe_direct(
+                app,
+                &params.task_id,
+                audio.path(),
+                &params.model_id,
+                params.backend,
+                &on_progress,
+            )
             .await
             .map_err(engine_failure)?
+        } else {
+            let chunks = engine::transcribe(app, &params.task_id, audio.path(), &opts, &on_progress)
+                .await
+                .map_err(engine_failure)?;
+
+            // A composed plan needs a diar model + turn attribution (M6).
+            if params
+                .plan
+                .steps
+                .iter()
+                .any(|step| step.kind == StepKind::Diarize)
+            {
+                let diar_id = params
+                    .plan
+                    .steps
+                    .iter()
+                    .find(|step| step.kind == StepKind::Diarize)
+                    .map(|step| step.model_id.clone());
+                match diar_id {
+                    Some(diar_id) => {
+                        // Scratch file beside the other temp artefacts, never
+                        // next to the user's media file.
+                        let turns_path = std::env::temp_dir().join(format!(
+                            "monosub-diar-turns-{}.json",
+                            params.task_id
+                        ));
+                        match engine::diar::detect_turns(
+                            app,
+                            audio.path(),
+                            &diar_id,
+                            params.backend,
+                            &turns_path,
+                        )
+                        .await
+                        {
+                            Ok(turns) if !turns.is_empty() => {
+                                let attributed = engine::diar::attribute_turns(&chunks, &turns);
+                                let _ = std::fs::remove_file(&turns_path);
+                                attributed
+                            }
+                            Ok(_) => {
+                                tracing::info!(task_id = %params.task_id, "diarization found no turns");
+                                let _ = std::fs::remove_file(&turns_path);
+                                chunks
+                            }
+                            // Diarization is an enhancement: if it fails, the
+                            // transcript is still complete and should ship.
+                            Err(error) => {
+                                tracing::warn!(
+                                    task_id = %params.task_id,
+                                    error = %error,
+                                    "diarization failed; writing the unsplit transcript"
+                                );
+                                let _ = std::fs::remove_file(&turns_path);
+                                chunks
+                            }
+                        }
+                    }
+                    None => chunks,
+                }
+            } else {
+                chunks
+            }
+        }
     };
 
     // Step 4: post-process and write every requested format.
@@ -713,6 +861,83 @@ fn derive_output_paths(output_path: &Path, formats: &[Format]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Map `fast` / `balanced` / `accurate`; anything else is `Balanced`.
+fn speed_from_request(value: Option<&str>) -> Speed {
+    match value.map(|value| value.trim().to_lowercase()).as_deref() {
+        Some("fast") => Speed::Fast,
+        Some("accurate") => Speed::Accurate,
+        _ => Speed::Balanced,
+    }
+}
+
+/// Role name accepted in `model_overrides` → the [`StepKind`] it pins.
+fn override_slot_kind(slot: &str) -> Option<StepKind> {
+    match slot.trim().to_lowercase().as_str() {
+        "asr" => Some(StepKind::Asr),
+        "vad" => Some(StepKind::Vad),
+        "align" => Some(StepKind::Align),
+        "diar" => Some(StepKind::Diarize),
+        _ => None,
+    }
+}
+
+/// Apply manual `role -> model_id` overrides to the winning plan only.
+///
+/// Overrides are a user assertion, so an id that is not in the catalogue is
+/// ignored rather than silently turning into a runtime failure. Pinning a diar
+/// model onto a plan that had no `Diarize` step adds one, because that is the
+/// user's explicit intent.
+fn apply_model_overrides(
+    plans: &mut [ModelPlan],
+    overrides: &HashMap<String, String>,
+    catalogue: &[crate::engine::catalog::ModelSpec],
+) {
+    let Some(plan) = plans.first_mut() else {
+        return;
+    };
+
+    for (slot, model_id) in overrides {
+        let Some(kind) = override_slot_kind(slot) else {
+            tracing::warn!(slot = %slot, "ignoring unknown model-override slot");
+            continue;
+        };
+        let Some(spec) = catalogue.iter().find(|spec| &spec.id == model_id) else {
+            tracing::warn!(slot = %slot, model = %model_id, "ignoring override for an unknown model id");
+            continue;
+        };
+
+        let task = match kind {
+            StepKind::Vad => "vad",
+            StepKind::Asr => "asr",
+            StepKind::Align => "align",
+            StepKind::Diarize => "diar",
+            _ => continue,
+        };
+
+        if let Some(step) = plan.steps.iter_mut().find(|step| step.kind == kind) {
+            step.model_id = spec.id.clone();
+            step.task = task.to_string();
+            step.family = spec.family.clone();
+        } else {
+            plan.steps.push(crate::engine::plan::PlanStep {
+                kind,
+                model_id: spec.id.clone(),
+                task: task.to_string(),
+                family: spec.family.clone(),
+            });
+        }
+
+        let mut model_ids: Vec<String> = plan
+            .steps
+            .iter()
+            .filter(|step| !step.model_id.is_empty())
+            .map(|step| step.model_id.clone())
+            .collect();
+        model_ids.dedup();
+        plan.model_ids = model_ids;
+    }
+}
+
 /// The frontend does not send `device` today; `auto`/absent means "the engine
 /// picks", which on macOS is Metal (engine retries CPU itself). Other platforms
 /// stay on CPU until the Phase 4 platform work.
@@ -755,6 +980,82 @@ fn remove_partial_outputs(outputs: &[PathBuf], started: SystemTime) {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+
+    // --- M8: request → solver requirement mapping -------------------------
+
+    #[test]
+    fn speed_request_mapping_defaults_to_balanced() {
+        assert_eq!(speed_from_request(Some("fast")), Speed::Fast);
+        assert_eq!(speed_from_request(Some("ACCURATE")), Speed::Accurate);
+        assert_eq!(speed_from_request(Some("nonsense")), Speed::Balanced);
+        assert_eq!(speed_from_request(None), Speed::Balanced);
+    }
+
+    #[test]
+    fn override_slots_map_to_step_kinds() {
+        assert_eq!(override_slot_kind("asr"), Some(StepKind::Asr));
+        assert_eq!(override_slot_kind("VAD"), Some(StepKind::Vad));
+        assert_eq!(override_slot_kind("diar"), Some(StepKind::Diarize));
+        assert_eq!(override_slot_kind("align"), Some(StepKind::Align));
+        assert_eq!(override_slot_kind("bogus"), None);
+    }
+
+    #[test]
+    fn overrides_pin_the_matching_step_and_ignore_unknown_models() {
+        let catalogue = vec![
+            crate::engine::catalog::ModelSpec {
+                id: "sortformer_diar_4spk_q8_0".to_string(),
+                family: "sortformer_diar".to_string(),
+                display_name: "Sortformer".to_string(),
+                target_directory: "d".to_string(),
+                model_file: "m.gguf".to_string(),
+                files: Vec::new(),
+                languages: vec!["auto".to_string()],
+                license: "CC-BY-NC-4.0".to_string(),
+                attribution: None,
+                capabilities_raw: None,
+                roles: Vec::new(),
+                speed: None,
+                source: None,
+                tier: None,
+                licenses: Vec::new(),
+            },
+        ];
+
+        let mut plans = vec![ModelPlan {
+            id: "asr".to_string(),
+            title_key: "t",
+            model_ids: vec!["sensevoice_small_q8".to_string()],
+            steps: vec![crate::engine::plan::PlanStep {
+                kind: StepKind::Asr,
+                model_id: "sensevoice_small_q8".to_string(),
+                task: "asr".to_string(),
+                family: "sense_asr".to_string(),
+            }],
+            passthrough: false,
+            cost: crate::engine::plan::PlanCost {
+                steps: 1,
+                speed: Speed::Fast,
+            },
+            capabilities: crate::engine::catalog::Capabilities::default(),
+            gaps: Vec::new(),
+        }];
+
+        let mut overrides = HashMap::new();
+        overrides.insert("diar".to_string(), "sortformer_diar_4spk_q8_0".to_string());
+        overrides.insert("asr".to_string(), "does_not_exist".to_string());
+
+        apply_model_overrides(&mut plans, &overrides, &catalogue);
+
+        let plan = &plans[0];
+        // A diar pin adds the missing step...
+        assert!(plan.steps.iter().any(|step| step.kind == StepKind::Diarize
+            && step.model_id == "sortformer_diar_4spk_q8_0"));
+        // ...an unknown model id is ignored rather than breaking the run.
+        assert_eq!(plan.steps[0].model_id, "sensevoice_small_q8");
+        assert!(plan.model_ids.contains(&"sortformer_diar_4spk_q8_0".to_string()));
+    }
 
     /// Creates a unique scratch directory (the crate has no `tempfile`).
     fn scratch_dir(tag: &str) -> PathBuf {
@@ -1065,6 +1366,50 @@ mod tests {
                     path.display(),
                     expected
                 );
+            }
+        }
+    }
+
+    /// Every `title_key` a solved plan can carry must exist as a FLAT key in
+    /// both locales.
+    ///
+    /// Regression: i18next treats `.` as a path separator, so a key spelled
+    /// `modelPlan.plan.asrVad` resolves the nested path `modelPlan.plan` (which
+    /// does not exist) and the UI renders the raw key string — exactly what the
+    /// Settings preview showed instead of “SenseVoice + VAD”.
+    #[test]
+    fn plan_title_keys_exist_as_flat_locale_keys() {
+        let locales = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("src/i18n/locales");
+
+        // Cover every branch of `plan::title_key` plus the empty-plan gap key.
+        let keys = [
+            "modelPlan.gapTitle",
+            "modelPlan.planPassthroughMoss",
+            "modelPlan.planAsrDiar",
+            "modelPlan.planAsrVad",
+        ];
+
+        for entry in std::fs::read_dir(&locales).expect("read locales") {
+            let path = entry.expect("entry").path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let body = std::fs::read_to_string(&path).expect("read locale");
+            let json: serde_json::Value = serde_json::from_str(&body)
+                .unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+
+            for key in keys {
+                // Split on '.' the way i18next would, then walk the JSON.
+                let mut node = &json;
+                for segment in key.split('.') {
+                    node = node
+                        .get(segment)
+                        .unwrap_or_else(|| panic!("{} is missing {key}", path.display()));
+                }
+                assert!(node.is_string(), "{key} must be a string in {}", path.display());
             }
         }
     }

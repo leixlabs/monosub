@@ -1,0 +1,62 @@
+# tauri-pilot smoke scenario for MonoSub.
+#
+# Requires the app running in dev mode (the pilot plugin is debug-only, so it is
+# absent from release builds):
+#
+#   bun run tauri dev                                        # terminal 1
+#   tauri-pilot run src-tauri/tests/pilot/smoke.toml         # terminal 2
+#   tauri-pilot run src-tauri/tests/pilot/smoke.toml --junit /tmp/pilot.xml
+#
+# Steps target CSS selectors, never @e refs: refs are reset by every snapshot.
+# The selectors below were verified against a running app; the settings panel is
+# unique among the `div.glass-medium` elements because it carries
+# `glass-dark-strong`, while the welcome cards only use `glass-dark`.
+
+[scenario]
+name = "MonoSub smoke"
+fail_fast = true
+global_timeout_ms = 60000
+
+[[step]]
+name = "reset to the app root"
+action = "navigate"
+url = "http://localhost:5173/"
+
+[[step]]
+name = "wait for the app shell"
+action = "wait"
+selector = "header .no-drag > button:last-child"
+timeout_ms = 15000
+
+[[step]]
+name = "header shows the product name"
+action = "assert-contains"
+target = "header"
+expected = "MonoSub"
+
+[[step]]
+name = "open settings"
+action = "click"
+target = "header .no-drag > button:last-child"
+
+[[step]]
+name = "settings panel mounts"
+action = "wait"
+selector = "div.glass-medium[class*=\"glass-dark-strong\"]"
+timeout_ms = 5000
+
+[[step]]
+name = "settings lists the model section"
+action = "assert-contains"
+target = "div.glass-medium[class*=\"glass-dark-strong\"]"
+expected = "模型"
+
+[[step]]
+name = "close settings"
+action = "click"
+target = "div.glass-medium[class*=\"glass-dark-strong\"] > div:last-child button:last-child"
+
+[[step]]
+name = "settings panel is gone"
+action = "assert-hidden"
+target = "div.glass-medium[class*=\"glass-dark-strong\"]"

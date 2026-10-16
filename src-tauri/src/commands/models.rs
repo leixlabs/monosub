@@ -2,9 +2,10 @@
 //!
 //! Task: P1-14. See docs/tech-spec/refactor-audiocpp.md §5.2.
 //!
-//! Downloads stream into `<app_data_dir>/models/<target_directory>/<file>.part`,
-//! verify size (and sha256 when the manifest pins one) and are then renamed onto
-//! the final name, so a partial transfer never appears under the real name.
+//! Downloads stream into `<models_dir>/<target_directory>/<file>.part`, verify
+//! size (and sha256 when the manifest pins one) and are then renamed onto the
+//! final name, so a partial transfer never appears under the real name.
+//! `<models_dir>` is user-configurable (`crate::model_dir`).
 //! Progress is reported through `model_download_progress` (throttled to one
 //! event per [`PROGRESS_INTERVAL`]); completion and failure use
 //! `model_download_complete` / `model_download_error`.
@@ -18,7 +19,7 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::commands::video::open_in_finder;
@@ -61,6 +62,12 @@ pub struct ModelFileStatus {
     pub sha256: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelLicenseStatus {
+    pub name: String,
+    pub url: Option<String>,
+}
+
 /// `list_models` payload: the manifest entry plus its install state, flat, so
 /// the frontend can render model metadata and download size without another
 /// round trip.
@@ -75,8 +82,26 @@ pub struct ModelStatus {
     pub model_file: String,
     pub files: Vec<ModelFileStatus>,
     pub languages: Vec<String>,
+    /// Deprecated single-licence string, kept for back-compat.
     pub license: String,
+    /// Structured licences from `models.json` `licenses[]` (design §7.6); the
+    /// About page surfaces these for attribution.
+    pub licenses: Vec<ModelLicenseStatus>,
     pub attribution: Option<String>,
+    // --- v2 capability fields (design §7.6): drive UI grouping and the
+    // "can this plan run?" checks without a second round trip. ---
+    /// `roles` as declared in `models.json` (`asr` / `vad` / `align` / `diar` /
+    /// `passthrough`); empty means the v1 fallback `["asr"]`.
+    pub roles: Vec<String>,
+    /// Effective timestamps grade: `none` / `turns` / `segment` / `word`.
+    pub timestamps: String,
+    /// Effective diarization grade: `none` / `turns` / `turns_with_text`.
+    pub diarization: String,
+    pub produces_text: bool,
+    /// `source` (`tongyi` / `nvidia` / `openmoss` / `qwen` / `other`).
+    pub source: Option<String>,
+    /// `tier` (`default` / `recommended` / `optional` / `experimental`).
+    pub tier: Option<String>,
     /// Every manifest file present with a matching size.
     pub installed: bool,
     /// Bytes currently on disk (`0` when not installed).
@@ -86,6 +111,13 @@ pub struct ModelStatus {
 impl ModelStatus {
     fn from_catalog(status: crate::engine::catalog::ModelStatus) -> Self {
         let spec = status.spec;
+        let capabilities = spec.capabilities();
+        // An entry with no explicit `roles` is a plain ASR model (v1 fallback).
+        let roles: Vec<String> = if spec.roles.is_empty() {
+            vec!["asr".to_string()]
+        } else {
+            spec.roles.iter().map(|role| role.as_str().to_string()).collect()
+        };
         Self {
             id: spec.id,
             family: spec.family,
@@ -104,7 +136,21 @@ impl ModelStatus {
                 .collect(),
             languages: spec.languages,
             license: spec.license,
+            licenses: spec
+                .licenses
+                .into_iter()
+                .map(|license| ModelLicenseStatus {
+                    name: license.name,
+                    url: license.url,
+                })
+                .collect(),
             attribution: spec.attribution,
+            roles,
+            timestamps: capabilities.timestamps.as_str().to_string(),
+            diarization: capabilities.diarization.as_str().to_string(),
+            produces_text: capabilities.produces_text,
+            source: spec.source.map(|source| source.as_str().to_string()),
+            tier: spec.tier.map(|tier| tier.as_str().to_string()),
             installed: status.installed,
             size_on_disk: status.size_on_disk,
         }
@@ -248,13 +294,78 @@ pub async fn remove_model(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Create (if needed) and reveal `<app_data_dir>/models` in the file manager.
+/// Create (if needed) and reveal the models directory in the file manager.
 #[tauri::command]
 pub async fn open_models_dir(app: AppHandle) -> Result<(), String> {
     let root = models_root(&app)?;
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("failed to create {}: {}", root.display(), e))?;
     open_in_finder(root.to_string_lossy().to_string()).await
+}
+
+/// The models directory currently in effect, and whether it is the user's own.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelsDirInfo {
+    /// Absolute path models are read from and downloaded into.
+    pub path: String,
+    /// True when the path comes from the user rather than the default.
+    pub is_custom: bool,
+    /// The default path, so the UI can offer "reset to default".
+    pub default_path: String,
+    /// Set when the persisted/env override is in force (not the default),
+    /// explaining which source won. `None` when using the default.
+    pub source: Option<String>,
+}
+
+/// Report the effective models directory (design: no re-downloading models).
+#[tauri::command]
+pub async fn get_models_dir(app: AppHandle) -> Result<ModelsDirInfo, String> {
+    let path = models_root(&app)?;
+    let default_path = crate::model_dir::default_root(&app)?;
+    let from_env = std::env::var_os(crate::model_dir::MODELS_DIR_ENV)
+        .map(|v| !v.to_string_lossy().trim().is_empty())
+        .unwrap_or(false);
+
+    Ok(ModelsDirInfo {
+        is_custom: path != default_path,
+        path: path.to_string_lossy().into_owned(),
+        default_path: default_path.to_string_lossy().into_owned(),
+        source: if from_env {
+            Some("env".to_string())
+        } else if path != default_path {
+            Some("settings".to_string())
+        } else {
+            None
+        },
+    })
+}
+
+/// Point model storage at `path`, or reset to the default when `path` is null.
+///
+/// Validated before persisting: a path that does not exist or is not writable
+/// would otherwise turn every later download into a confusing failure. The
+/// existing models are NOT moved — the caller re-reads `list_models`, and the
+/// point of this feature is to reuse models the user already has.
+#[tauri::command]
+pub async fn set_models_dir(app: AppHandle, path: Option<String>) -> Result<ModelsDirInfo, String> {
+    let mut settings = crate::model_dir::load_settings(&app);
+
+    match path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(candidate) => {
+            let dir = PathBuf::from(candidate);
+            crate::model_dir::validate_dir(&dir)?;
+            tracing::info!(path = %dir.display(), "using a custom models directory");
+            settings.models_dir = Some(dir.to_string_lossy().into_owned());
+        }
+        None => {
+            tracing::info!("resetting the models directory to the default");
+            settings.models_dir = None;
+        }
+    }
+
+    crate::model_dir::save_settings(&app, &settings)?;
+    get_models_dir(app).await
 }
 
 /// Stop the transfer task registered for `id`, if any, and wait for it to clean
@@ -284,10 +395,9 @@ fn find_spec(app: &AppHandle, id: &str) -> Result<ModelSpec, String> {
 }
 
 fn models_root(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_data_dir()
-        .map(|dir| dir.join("models"))
-        .map_err(|e| format!("failed to resolve app data dir: {}", e))
+    // Delegated so `engine::catalog` (install checks, `--model` paths) and this
+    // downloader always resolve the same directory.
+    crate::model_dir::configured_root(app)
 }
 
 /// Download every file of `spec` in manifest order, emitting throttled progress.

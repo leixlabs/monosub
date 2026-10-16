@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "default": "sensevoice_small_q8",
   "models": [
     {
@@ -19,13 +19,300 @@
           "sha256": "4dedf169f625437fb336f2959674f399819729a765e184128c0e25a6e16ff0ec"
         }
       ],
-      "languages": ["auto", "zh", "en", "yue", "ja", "ko", "pt", "ru", "es", "it", "fr", "de", "nl", "pl", "tr", "ar", "hi", "vi", "th", "id", "ms", "fa"],
+      "languages": [
+        "auto",
+        "zh",
+        "en",
+        "yue",
+        "ja",
+        "ko",
+        "pt",
+        "ru",
+        "es",
+        "it",
+        "fr",
+        "de",
+        "nl",
+        "pl",
+        "tr",
+        "ar",
+        "hi",
+        "vi",
+        "th",
+        "id",
+        "ms",
+        "fa"
+      ],
       "capabilities": {
         "timestamps": "none",
-        "diarization": false
+        "diarization": "none",
+        "produces_text": true
       },
+      "roles": [
+        "asr"
+      ],
+      "speed": "fast",
+      "source": "tongyi",
+      "tier": "default",
       "license": "FunASR Model License v1.1",
+      "licenses": [
+        {
+          "name": "FunASR Model License v1.1",
+          "url": "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE"
+        }
+      ],
       "attribution": "SenseVoice-Small (FunAudioLLM/SenseVoiceSmall)"
+    },
+    {
+      "id": "fun_asr_nano_2512_q8_0",
+      "family": "fun_asr_nano",
+      "display_name": "Fun-ASR-Nano-2512 (Q8_0)",
+      "target_directory": "Fun-ASR-Nano-2512-GGUF",
+      "model_file": "fun-asr-nano-2512-q8_0.gguf",
+      "files": [
+        {
+          "path": "fun-asr-nano-2512-q8_0.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/0e86630cc8c5514fb82683f79c0a07f3e3869377/Fun-ASR-Nano-2512-GGUF/fun-asr-nano-2512-q8_0.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/Fun-ASR-Nano-2512-GGUF/fun-asr-nano-2512-q8_0.gguf"
+          ],
+          "size": 1045334432,
+          "sha256": "4d727357574b079b7f43336b2930f39da086ca02f5d8d50872090b4c1c3d5e0a"
+        }
+      ],
+      "languages": [
+        "auto",
+        "zh",
+        "en",
+        "ja"
+      ],
+      "capabilities": {
+        "timestamps": "none",
+        "diarization": "none",
+        "produces_text": true
+      },
+      "roles": [
+        "asr"
+      ],
+      "speed": "balanced",
+      "source": "tongyi",
+      "tier": "recommended",
+      "license": "FunASR Model License v1.1",
+      "licenses": [
+        {
+          "name": "FunASR Model License v1.1",
+          "url": "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE"
+        }
+      ],
+      "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf)"
+    },
+    {
+      "id": "qwen3_asr_0_6b_q8_0",
+      "family": "qwen3_asr",
+      "display_name": "Qwen3-ASR-0.6B (Q8_0)",
+      "target_directory": "Qwen3-ASR-0.6B-GGUF",
+      "model_file": "qwen3-asr-0.6b-q8_0.gguf",
+      "files": [
+        {
+          "path": "qwen3-asr-0.6b-q8_0.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/67d0ca7390694a24bf9d44497c474b93b2e3863d/Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf"
+          ],
+          "size": 1151272416,
+          "sha256": "6c44ec2fb4cee513892d7863c1fcc3ea6b699ffa4d899b0ef4ab19956d9544f7"
+        }
+      ],
+      "languages": [
+        "auto",
+        "zh",
+        "en",
+        "ja",
+        "ko",
+        "es",
+        "de",
+        "fr",
+        "pt",
+        "it",
+        "ru",
+        "ar",
+        "hi",
+        "vi",
+        "th",
+        "id",
+        "ms",
+        "tr",
+        "nl",
+        "pl",
+        "fa"
+      ],
+      "capabilities": {
+        "timestamps": "word",
+        "diarization": "none",
+        "produces_text": true
+      },
+      "roles": [
+        "asr"
+      ],
+      "speed": "balanced",
+      "source": "qwen",
+      "tier": "optional",
+      "license": "Apache-2.0",
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "attribution": "Qwen3-ASR-0.6B (Qwen/Qwen3-ASR-0.6B). Word-level timestamps require the forced aligner."
+    },
+    {
+      "id": "moss_transcribe_diarize_q8_0",
+      "family": "moss_transcribe_diarize",
+      "display_name": "MOSS-Transcribe-Diarize 0.9B (Q8_0)",
+      "target_directory": "MOSS-Transcribe-Diarize-GGUF",
+      "model_file": "moss-transcribe-diarize-q8_0.gguf",
+      "files": [
+        {
+          "path": "moss-transcribe-diarize-q8_0.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/81a1d0db82fe7fad00a742367b1c0989ee955ba7/MOSS-Transcribe-Diarize-GGUF/moss-transcribe-diarize-q8_0.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/MOSS-Transcribe-Diarize-GGUF/moss-transcribe-diarize-q8_0.gguf"
+          ],
+          "size": 1132110560,
+          "sha256": "93eea5865615e270b827752945f2dfd0f522ed673f4f551675e9013170173679"
+        }
+      ],
+      "languages": [
+        "auto",
+        "zh",
+        "en",
+        "yue",
+        "ja",
+        "ko",
+        "es",
+        "de",
+        "fr",
+        "pt",
+        "it",
+        "ru",
+        "ar",
+        "hi"
+      ],
+      "capabilities": {
+        "timestamps": "segment",
+        "diarization": "turns_with_text",
+        "produces_text": true
+      },
+      "roles": [
+        "passthrough",
+        "asr"
+      ],
+      "speed": "balanced",
+      "source": "openmoss",
+      "tier": "recommended",
+      "license": "Apache-2.0",
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. Q8_0 preserves words and speakers; the recommended passthrough default."
+    },
+    {
+      "id": "moss_transcribe_diarize_q4_k",
+      "family": "moss_transcribe_diarize",
+      "display_name": "MOSS-Transcribe-Diarize 0.9B (Q4_K)",
+      "target_directory": "MOSS-Transcribe-Diarize-GGUF",
+      "model_file": "moss-transcribe-diarize-q4_k.gguf",
+      "files": [
+        {
+          "path": "moss-transcribe-diarize-q4_k.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/81a1d0db82fe7fad00a742367b1c0989ee955ba7/MOSS-Transcribe-Diarize-GGUF/moss-transcribe-diarize-q4_k.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/MOSS-Transcribe-Diarize-GGUF/moss-transcribe-diarize-q4_k.gguf"
+          ],
+          "size": 758293216,
+          "sha256": "4e3020379ff592bbb22a4e3d47a7cd6709951cc5d451c561b69df955b5f0a220"
+        }
+      ],
+      "languages": [
+        "auto",
+        "zh",
+        "en",
+        "yue",
+        "ja",
+        "ko",
+        "es",
+        "de",
+        "fr",
+        "pt",
+        "it",
+        "ru",
+        "ar",
+        "hi"
+      ],
+      "capabilities": {
+        "timestamps": "segment",
+        "diarization": "turns_with_text",
+        "produces_text": true
+      },
+      "roles": [
+        "passthrough",
+        "asr"
+      ],
+      "speed": "accurate",
+      "source": "openmoss",
+      "tier": "optional",
+      "license": "Apache-2.0",
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Upstream README marks Q4_K 'not parity-safe: segment/timestamp drift' (up to 680 ms on matched segments) — do not use when faithful timing is required."
+    },
+    {
+      "id": "sortformer_diar_4spk_q8_0",
+      "family": "sortformer_diar",
+      "display_name": "Sortformer Diar 4spk v1 (Q8_0)",
+      "target_directory": "Sortformer-Diar-4spk-v1-GGUF",
+      "model_file": "sortformer-diar-4spk-v1-q8_0.gguf",
+      "files": [
+        {
+          "path": "sortformer-diar-4spk-v1-q8_0.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/67d0ca7390694a24bf9d44497c474b93b2e3863d/Sortformer-Diar-4spk-v1-GGUF/sortformer-diar-4spk-v1-q8_0.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/Sortformer-Diar-4spk-v1-GGUF/sortformer-diar-4spk-v1-q8_0.gguf"
+          ],
+          "size": 175662720,
+          "sha256": "4fa6a3e30c4a1c6cc1da455268806edc93432ca1e1b5b6923e942be8e6e479ff"
+        }
+      ],
+      "languages": [
+        "auto"
+      ],
+      "capabilities": {
+        "timestamps": "turns",
+        "diarization": "turns",
+        "produces_text": false
+      },
+      "roles": [
+        "diar"
+      ],
+      "speed": "fast",
+      "source": "nvidia",
+      "tier": "optional",
+      "license": "CC-BY-NC-4.0",
+      "licenses": [
+        {
+          "name": "CC-BY-NC-4.0",
+          "url": "https://creativecommons.org/licenses/by-nc/4.0/"
+        }
+      ],
+      "attribution": "Sortformer Diar 4spk v1 (nvidia/diar_sortformer_4spk-v1). CC-BY-NC-4.0 — non-commercial use only; MonoSub is a personal learning project, so it is listed for attribution and local use. Speaker turns only (max 4 speakers), no text."
     }
   ]
 }

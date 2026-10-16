@@ -1,7 +1,6 @@
 {
   "app": {
-    "name": "MonoSub",
-    "tagline": "AI Video Subtitle Generator"
+    "name": "MonoSub"
   },
   "header": {
     "completed": "completed",
@@ -35,7 +34,9 @@
     "open": "Open",
     "delete": "Delete",
     "starting": "Starting...",
-    "skipped": "Skipped"
+    "skipped": "Skipped",
+    "multiSpeaker": "Speakers",
+    "multiSpeakerHint": "Detect and label speakers for this file (slower)"
   },
   "steps": {
     "extracting_audio": "Extracting audio",
@@ -53,14 +54,6 @@
     "chinese": "Chinese",
     "english": "English",
     "multiSpeaker": "Multi-speaker",
-    "multiSpeakerComingBack": "Multi-speaker is coming back soon",
-    "proRequired": "PRO license required",
-    "licensePromptTitle": "Unlock Multi-speaker (Pro)",
-    "licensePromptMessage": "Multi-speaker requires a valid license. You can activate it in Settings first, or open the purchase page in your browser.",
-    "licensePromptWithKeyMessage": "A license key is already saved. You can activate it in Settings first, then enable multi-speaker.",
-    "openInBrowser": "Open in browser",
-    "openSettings": "Open Settings",
-    "later": "Maybe later",
     "stop": "Stop"
   },
   "settings": {
@@ -77,40 +70,6 @@
       "title": "Processing",
       "skipExisting": "Skip Existing Subtitles",
       "skipExistingDesc": "Skip processing if output file already exists"
-    },
-    "license": {
-      "title": "License",
-      "serviceUrl": "Polar Service URL",
-      "organizationId": "Organization ID",
-      "benefitId": "Benefit ID",
-      "licenseKey": "License Key",
-      "checkoutUrl": "Checkout URL",
-      "checkoutUrlDesc": "Used when multi-speaker is enabled without a valid license.",
-      "validate": "Validate License",
-      "validating": "Validating...",
-      "openCheckout": "Open Checkout",
-      "deactivate": "Deactivate This Device",
-      "clearKey": "Clear Key",
-      "statusLabel": "Status:",
-      "lastChecked": "Last checked",
-      "expiresAt": "Expires at",
-      "deviceId": "Device ID",
-      "activationId": "Activation ID",
-      "hint": "First use activates this device. On every app launch, license validation runs automatically.",
-      "status": {
-        "unknown": "Not validated",
-        "checking": "Checking...",
-        "valid": "Valid",
-        "invalid": "Invalid",
-        "error": "Validation error"
-      },
-      "summary": {
-        "valid": "License is activated",
-        "checking": "Checking license...",
-        "notActivated": "License is not activated",
-        "hint": "Enter your license key and click Validate License to activate."
-      },
-      "unlimited": "No expiration"
     },
     "notifications": {
       "title": "Notifications",
@@ -132,7 +91,16 @@
       "hint": "Click \"Check for Updates\" to fetch the latest release from GitHub."
     },
     "resetDefaults": "Reset Defaults",
-    "done": "Done"
+    "done": "Done",
+    "files": {
+      "title": "Files & Format"
+    },
+    "modelsGroup": {
+      "title": "Models"
+    },
+    "system": {
+      "title": "System"
+    }
   },
   "models": {
     "title": "Models",
@@ -152,7 +120,16 @@
       "title": "Credits & Licenses",
       "audioCpp": "Speech engine: audio.cpp (Apache-2.0).",
       "sensevoice": "Model: SenseVoice-Small (FunAudioLLM/SenseVoiceSmall) under the FunASR Model License v1.1."
-    }
+    },
+    "storageLocation": "Storage location",
+    "custom": "Custom",
+    "storageLocationHint": "Models are read from and downloaded into this folder. Existing files are not moved.",
+    "changeLocation": "Change folder",
+    "resetLocation": "Use default",
+    "pathFromEnv": "Set by the MONOSUB_MODELS_DIR environment variable.",
+    "pathEnvOverrides": "MONOSUB_MODELS_DIR is set, so it overrides this setting.",
+    "rescan": "Rescan",
+    "rescanHint": "Re-read install state from disk (use after copying models in by hand)"
   },
   "errors": {
     "modelNotInstalled": "The speech model is not installed. Open Settings → Models to download it.",
@@ -172,5 +149,38 @@
     "auto": "Auto Detect",
     "zh": "Chinese",
     "en": "English"
+  },
+  "modelPlan": {
+    "title": "Recognition plan",
+    "wordTimestamps": "Word-level timestamps (not available yet)",
+    "diarization": "Speaker separation (default)",
+    "speed": "Speed preference",
+    "speedFast": "Fast",
+    "speedBalanced": "Balanced",
+    "speedAccurate": "Accurate",
+    "effective": "Current plan",
+    "why": "Why?",
+    "notInstalled": "Not installed",
+    "download": "Download",
+    "advanced": "Advanced: pick models manually",
+    "slotAsr": "Transcribe (ASR)",
+    "slotVad": "Segment (VAD)",
+    "slotDiar": "Speakers (diarization)",
+    "slotAuto": "Auto",
+    "slotNone": "(none)",
+    "gapTitle": "No model plan can satisfy the current requirements",
+    "gapSuggest": "Suggested download: {{model}} ({{size}})",
+    "planPassthroughMoss": "MOSS passthrough (transcript + timestamps + speakers)",
+    "planAsrVad": "SenseVoice + VAD (estimated timestamps)",
+    "planAsrDiar": "SenseVoice + VAD + speaker separation",
+    "reasonTongyi": "Tongyi-family preferred",
+    "reasonInstalled": "Already installed",
+    "reasonPassthrough": "Passthrough needs fewer steps",
+    "reasonWords": "The only option with word-level timestamps",
+    "diarizationDefaultHint": "Default for newly added files; each file can override it",
+    "wordTimestampsHint": "No supported model can produce word timing; the plan reports it as a gap.",
+    "slotVadHint": "Splits the audio into speech segments before transcription. Silero VAD ships with the app, so this is rarely changed.",
+    "slotAsrHint": "Turns each speech segment into text. This is the model that decides recognition accuracy and language support.",
+    "slotDiarHint": "Detects who spoke when, so cues can be labelled Speaker A/B. Needs a diarization model; without it the transcript has no speaker labels."
   }
 }

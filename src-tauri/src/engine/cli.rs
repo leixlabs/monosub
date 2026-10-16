@@ -386,7 +386,8 @@ fn find_executable(dir: &Path, candidates: &[String]) -> Option<PathBuf> {
         .find(|path| is_executable_file(path))
 }
 
-/// A bundled resource: dev checkout first, then the app bundle.
+/// A bundled resource: dev checkout first, then the executable's own directory
+/// (where `tauri dev` copies `resources/`), then the macOS app bundle.
 fn resolve_resource_path(
     relative: &Path,
     app: Option<&tauri::AppHandle>,
@@ -401,8 +402,24 @@ fn resolve_resource_path(
     }
 
     if app.is_some() {
-        if let Some(path) = std::env::current_exe()
-            .ok()
+        let exe_path = std::env::current_exe().ok();
+
+        // `tauri dev` (and a packaged non-bundle layout) copies `resources/`
+        // next to the executable, which is *not* the same as
+        // `bundle_resources_dir` (`target/Resources/resources`). Without this
+        // candidate a dev run whose cwd is `src-tauri/` finds no catalogue at
+        // all — `resolve_binary` already checks `exe_dir`, so mirror it here.
+        if let Some(path) = exe_path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(|exe_dir| exe_dir.join("resources").join(relative))
+            .filter(|path| path.exists())
+        {
+            tracing::debug!(path = ?path, "Found resource next to the executable");
+            return Ok(path);
+        }
+
+        if let Some(path) = exe_path
             .as_deref()
             .and_then(bundle_resources_dir)
             .map(|dir| dir.join(relative))
@@ -708,6 +725,46 @@ mod tests {
         assert!(vad_dir.join(VAD_MODEL_FILE).is_file(), "{:?}", vad_dir);
 
         assert!(resources.join("models.json").is_file());
+    }
+
+    /// Regression: `bun run tauri dev` starts the app with cwd = `<repo>/src-tauri`,
+    /// so `dev_resources_dir(cwd)` looks for `<repo>/src-tauri/src-tauri/resources`
+    /// and fails. `tauri` also copies `resources/` next to the executable
+    /// (`target/debug/resources`), which the resolver must therefore check too —
+    /// otherwise `list_models` reports "bundled resource models.json not found".
+    #[test]
+    fn dev_resources_dir_misses_when_cwd_is_src_tauri() {
+        let src_tauri = repo_root().join("src-tauri");
+        assert!(
+            dev_resources_dir(Some(&src_tauri)).is_none(),
+            "cwd = <repo>/src-tauri has no nested src-tauri/resources; this is the bug case"
+        );
+    }
+
+    /// The executable-adjacent candidate must resolve the committed catalogue.
+    /// This is exactly the layout `tauri dev` produces in `target/debug`.
+    #[test]
+    fn exe_adjacent_resources_candidate_resolves_catalogue() {
+        let exe_dir = repo_root()
+            .join("src-tauri")
+            .join("target")
+            .join("debug");
+        let candidate = exe_dir.join("resources").join("models.json");
+        if !candidate.exists() {
+            eprintln!(
+                "skip: {} is absent (run `bun run tauri dev` or `cargo build` once)",
+                candidate.display()
+            );
+            return;
+        }
+
+        assert!(
+            candidate.is_file(),
+            "tauri dev must copy the catalogue next to the executable"
+        );
+        // The resolver's step-2 candidate is exactly this path.
+        let resolved = exe_dir.join("resources").join(Path::new("models.json"));
+        assert_eq!(resolved, candidate);
     }
 
     /// Without `silero_vad_16k.safetensors` the CLI would silently fall back to

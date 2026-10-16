@@ -286,6 +286,8 @@ curl -L -o sensevoice-small-q8-audiocpp-v1.gguf \
 # 校验：254211200 字节 / 4dedf169…6ff0ec
 
 # 3. VAD
+# 注意：0.5 / 0.25 是本次 PoC 当时的值；P1-23 实测后已改为 0.2 / 0.1
+# （见 audiocpp-accuracy-p1-23.md §3.3/§3.4，以及 AGENTS.md 的说明）。
 audiocpp_cli --task vad --family silero_vad \
   --model src-tauri/resources/models/silero_vad --backend cpu \
   --audio input.wav --vad-chunks-out vad_chunks.json \

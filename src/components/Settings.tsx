@@ -7,13 +7,7 @@ import {
   Loader2,
   SlidersHorizontal,
   Cpu,
-  Bell,
-  KeyRound,
   ExternalLink,
-  BadgeCheck,
-  AlertTriangle,
-  Unplug,
-  Info,
   Package,
   Download,
   FolderOpen,
@@ -24,19 +18,14 @@ import { motion } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
 import { supportedLanguages, toSupportedLanguage, UI_LANGUAGE_STORAGE_KEY } from '@/i18n';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
+import { SettingsModelPlan } from '@/components/SettingsModelPlan';
+import { SettingsModelsDir } from '@/components/SettingsModelsDir';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import {
-  validatePolarLicense,
-  activatePolarLicense,
-  deactivatePolarLicense,
-  openLicenseCheckout,
-  SETTINGS_OPEN_CATEGORY_STORAGE_KEY,
-} from '@/lib/license';
+import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
-import { GlassInput } from '@/components/ui/glass-input';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import {
   MODEL_DOWNLOAD_COMPLETE_EVENT,
@@ -56,20 +45,28 @@ import {
   type ModelStatus,
 } from '@/lib/models';
 
-type SettingsCategory = 'general' | 'output' | 'processing' | 'license' | 'models' | 'notifications' | 'about';
+/**
+ * Three top-level groups (was six scattered categories):
+ * * `files`  — interface language, subtitle format/language, processing
+ * * `models` — recognition plan + model management
+ * * `system` — notifications + about/updates
+ */
+type SettingsCategory = 'files' | 'models' | 'system';
 
 const RELEASES_URL = 'https://github.com/0xkamalei/monosub/releases';
 
-const safeTrim = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
-
 const isSettingsCategory = (value: string | null): value is SettingsCategory => {
-  return value === 'general'
-    || value === 'output'
-    || value === 'processing'
-    || value === 'license'
-    || value === 'models'
-    || value === 'notifications'
-    || value === 'about';
+  return value === 'files' || value === 'models' || value === 'system';
+};
+
+/** Legacy category ids from before the regroup, mapped onto the new groups. */
+const LEGACY_CATEGORY_MAP: Record<string, SettingsCategory> = {
+  general: 'files',
+  output: 'files',
+  processing: 'files',
+  models: 'models',
+  notifications: 'system',
+  about: 'system',
 };
 
 interface GithubReleaseUpdateResult {
@@ -84,31 +81,23 @@ interface GithubReleaseUpdateResult {
 
 export function Settings() {
   const { t, i18n } = useTranslation();
-  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('general');
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>('files');
   const isOpen = useStore((state) => state.isSettingsOpen);
   const setIsOpen = useStore((state) => state.setIsSettingsOpen);
   const settings = useStore((state) => state.settings);
   const updateSettings = useStore((state) => state.updateSettings);
   const resetSettings = useStore((state) => state.resetSettings);
-  const licenseConfig = useStore((state) => state.licenseConfig);
-  const setLicenseKey = useStore((state) => state.setLicenseKey);
-  const setLicenseActivationId = useStore((state) => state.setLicenseActivationId);
-  const licenseStatus = useStore((state) => state.licenseStatus);
-  const licenseMessage = useStore((state) => state.licenseMessage);
-  const licenseExpiresAt = useStore((state) => state.licenseExpiresAt);
-  const licenseLastCheckedAt = useStore((state) => state.licenseLastCheckedAt);
-  const clearLicenseValidation = useStore((state) => state.clearLicenseValidation);
 
   const [models, setModels] = useState<ModelStatus[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  // `models` is refreshed by the plan panel's downloads too; the list below
+  // re-renders from the same state on the next load.
   const [modelsError, setModelsError] = useState('');
   const [downloadPercentById, setDownloadPercentById] = useState<Record<string, number>>({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [modelActionError, setModelActionError] = useState('');
   const isMountedRef = useRef(true);
   const ignoreDownloadErrorRef = useRef<string | null>(null);
-  const [isValidatingLicense, setIsValidatingLicense] = useState(false);
-  const [isDeactivatingLicense, setIsDeactivatingLicense] = useState(false);
   const [appVersion, setAppVersion] = useState('');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<GithubReleaseUpdateResult | null>(null);
@@ -127,11 +116,14 @@ export function Settings() {
       return;
     }
 
-    let initialCategory: SettingsCategory = 'general';
+    let initialCategory: SettingsCategory = 'files';
     try {
       const storedCategory = localStorage.getItem(SETTINGS_OPEN_CATEGORY_STORAGE_KEY);
       if (isSettingsCategory(storedCategory)) {
         initialCategory = storedCategory;
+      } else if (storedCategory && LEGACY_CATEGORY_MAP[storedCategory]) {
+        // A blob written before the regroup still points at an old id.
+        initialCategory = LEGACY_CATEGORY_MAP[storedCategory];
       }
       localStorage.removeItem(SETTINGS_OPEN_CATEGORY_STORAGE_KEY);
     } catch (error) {
@@ -235,13 +227,19 @@ export function Settings() {
     setDownloadingId(id);
     setDownloadPercentById((prev) => ({ ...prev, [id]: 0 }));
     try {
+      // `download_model` returns as soon as the BACKGROUND task is spawned, not
+      // when the transfer finishes. The in-flight state must therefore survive
+      // this resolve: it is cleared by the completion/error events (and by the
+      // catch below when the request itself is rejected). Clearing it here too
+      // made the button flip back to "Download" immediately, so the user saw no
+      // change and could click again.
       await downloadModel(id);
     } catch (error) {
       if (isMountedRef.current && ignoreDownloadErrorRef.current !== id) {
         console.error('[download_model] Failed:', error);
         setModelActionError(String(error));
       }
-    } finally {
+      // The request was rejected, so no events will arrive: reset here.
       ignoreDownloadErrorRef.current = null;
       if (isMountedRef.current) {
         setDownloadingId((current) => (current === id ? null : current));
@@ -291,34 +289,6 @@ export function Settings() {
         setModelActionError(String(error));
       }
     }
-  };
-
-  const handleValidateLicense = async () => {
-    setIsValidatingLicense(true);
-    try {
-      if (!safeTrim(licenseConfig?.licenseActivationId)) {
-        const activation = await activatePolarLicense();
-        if (!activation.activated) {
-          return;
-        }
-      }
-      await validatePolarLicense();
-    } finally {
-      setIsValidatingLicense(false);
-    }
-  };
-
-  const handleDeactivateLicense = async () => {
-    setIsDeactivatingLicense(true);
-    try {
-      await deactivatePolarLicense();
-    } finally {
-      setIsDeactivatingLicense(false);
-    }
-  };
-
-  const handleOpenCheckout = async () => {
-    await openLicenseCheckout();
   };
 
   const handleCheckUpdate = async () => {
@@ -390,37 +360,6 @@ export function Settings() {
     return supportedLanguages.find((lang) => lang.code === normalized) ?? supportedLanguages[1];
   }, [i18n.language]);
   const uiLanguageLabel = t('bottomBar.language').replace(/[:：]\s*$/, '');
-  const hasActivationId = safeTrim(licenseConfig?.licenseActivationId).length > 0;
-  const isLicenseChecking = isValidatingLicense || licenseStatus === 'checking';
-  const hasLicenseChecked = Boolean(licenseLastCheckedAt);
-  const normalizedLicenseExpiresAt = safeTrim(licenseExpiresAt);
-  const licenseExpiryDisplay = useMemo(() => {
-    if (!normalizedLicenseExpiresAt) {
-      return '';
-    }
-
-    const expiresAtMs = Date.parse(normalizedLicenseExpiresAt);
-    if (Number.isNaN(expiresAtMs)) {
-      return normalizedLicenseExpiresAt;
-    }
-
-    return new Intl.DateTimeFormat(i18n.language || undefined, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }).format(new Date(expiresAtMs));
-  }, [i18n.language, normalizedLicenseExpiresAt]);
-  const licenseSummary = licenseStatus === 'valid'
-    ? t('settings.license.summary.valid')
-    : isLicenseChecking
-      ? t('settings.license.summary.checking')
-      : t('settings.license.summary.notActivated');
-  const licenseDetail = licenseStatus === 'valid'
-    ? ''
-    : (licenseMessage || t('settings.license.summary.hint'));
   const updatePublishedDisplay = useMemo(() => {
     const publishedAt = updateResult?.publishedAt;
     if (!publishedAt) {
@@ -472,17 +411,13 @@ export function Settings() {
           </GlassButton>
         </div>
 
-        <div className="flex flex-1 min-h-0 bg-bg-tertiary/85 dark:bg-zinc-900/60">
-          <aside className="w-56 border-r border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/95 dark:bg-zinc-900/80 p-3">
+        <div className="flex flex-1 min-h-0 min-w-0 bg-bg-tertiary/85 dark:bg-zinc-900/60">
+          <aside className="w-56 shrink-0 border-r border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/95 dark:bg-zinc-900/80 p-3">
             <div className="space-y-1">
               {[
-                { id: 'general' as const, label: uiLanguageLabel, icon: Globe },
-                { id: 'output' as const, label: t('settings.output.title'), icon: SlidersHorizontal },
-                { id: 'processing' as const, label: t('settings.processing.title'), icon: Cpu },
-                { id: 'license' as const, label: t('settings.license.title'), icon: KeyRound },
-                { id: 'models' as const, label: t('models.title'), icon: Package },
-                { id: 'notifications' as const, label: t('settings.notifications.title'), icon: Bell },
-                { id: 'about' as const, label: t('settings.about.title'), icon: Info },
+                { id: 'files' as const, label: t('settings.files.title'), icon: SlidersHorizontal },
+                { id: 'models' as const, label: t('settings.modelsGroup.title'), icon: Package },
+                { id: 'system' as const, label: t('settings.system.title'), icon: Cpu },
               ].map((item) => {
                 const Icon = item.icon;
                 const isActive = activeCategory === item.id;
@@ -505,45 +440,23 @@ export function Settings() {
             </div>
           </aside>
 
-          <div className="flex-1 min-h-0 flex flex-col bg-bg-tertiary/90 dark:bg-zinc-900/60">
+          <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-bg-tertiary/90 dark:bg-zinc-900/60">
             <div className="px-8 py-5 border-b border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/95 dark:bg-zinc-900/70">
               <h3 className="text-base font-bold text-text-primary dark:text-white">
                 {
                   {
-                    general: uiLanguageLabel,
-                    output: t('settings.output.title'),
-                    processing: t('settings.processing.title'),
-                    license: t('settings.license.title'),
-                    models: t('models.title'),
-                    notifications: t('settings.notifications.title'),
-                    about: t('settings.about.title'),
+                    files: t('settings.files.title'),
+                    models: t('settings.modelsGroup.title'),
+                    system: t('settings.system.title'),
                   }[activeCategory]
                 }
               </h3>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto px-8 py-6 bg-bg-secondary/60 dark:bg-zinc-900/50">
-              {activeCategory === 'general' && (
-                <section className="space-y-6">
-                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-2">
-                        <Globe className="w-4 h-4 text-text-primary dark:text-gray-300" />
-                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{uiLanguageLabel}</label>
-                      </div>
-                      <CustomSelect
-                        value={currentLang.code}
-                        onChange={handleUILanguageChange}
-                        options={uiLanguageOptions}
-                        className="w-[260px]"
-                      />
-                    </div>
-                  </div>
-                </section>
-              )}
-
-              {activeCategory === 'output' && (
+            <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-8 py-6 bg-bg-secondary/60 dark:bg-zinc-900/50">
+              {activeCategory === 'files' && (
                 <section className="space-y-4">
+                  {/* Subtitle output */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
@@ -593,12 +506,9 @@ export function Settings() {
                       <GlassSwitch checked={false} disabled={true} />
                     </div>
                   </div>
-                </section>
-              )}
 
-              {activeCategory === 'processing' && (
-                <section className="space-y-4">
-                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
+                  {/* Processing */}
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
                     <div className="flex items-center justify-between">
                       <div>
                         <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
@@ -617,116 +527,38 @@ export function Settings() {
                 </section>
               )}
 
-              {activeCategory === 'license' && (
-                <section className="space-y-4">
-                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
-                    <div className="grid grid-cols-1 gap-3">
-                      <label className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
-                        {t('settings.license.licenseKey')}
-                      </label>
-                      <GlassInput
-                        type="password"
-                        value={licenseConfig.licenseKey}
-                        onChange={(e) => setLicenseKey(e.target.value)}
-                        placeholder="pol_xxx..."
-                        className="text-text-primary dark:text-white"
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <GlassButton
-                        variant="primary"
-                        size="sm"
-                        onClick={() => void handleValidateLicense()}
-                        disabled={isValidatingLicense}
-                      >
-                        {isValidatingLicense ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <RefreshCw className="w-4 h-4" />
-                        )}
-                        {isValidatingLicense ? t('settings.license.validating') : t('settings.license.validate')}
-                      </GlassButton>
-
-                      <GlassButton
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setLicenseKey('');
-                          setLicenseActivationId('');
-                          clearLicenseValidation();
-                        }}
-                        className="text-text-secondary dark:text-gray-400 hover:text-danger"
-                      >
-                        {t('settings.license.clearKey')}
-                      </GlassButton>
-
-                      {hasActivationId && (
-                        <GlassButton
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleDeactivateLicense()}
-                          disabled={isDeactivatingLicense}
-                        >
-                          {isDeactivatingLicense ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Unplug className="w-4 h-4" />
-                          )}
-                          {t('settings.license.deactivate')}
-                        </GlassButton>
-                      )}
-                    </div>
-
-                    <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-text-primary dark:text-white">
-                        {licenseStatus === 'valid' ? (
-                          <BadgeCheck className="w-4 h-4 text-success" />
-                        ) : isLicenseChecking ? (
-                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-warning" />
-                        )}
-                        {licenseSummary}
-                      </div>
-                      {licenseDetail && (
-                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-2">{licenseDetail}</p>
-                      )}
-                      {hasLicenseChecked && (
-                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-2">
-                          {t('settings.license.expiresAt')}: {normalizedLicenseExpiresAt ? licenseExpiryDisplay : t('settings.license.unlimited')}
-                        </p>
-                      )}
-                    </div>
-
-                    <GlassButton
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void handleOpenCheckout()}
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      {t('settings.license.openCheckout')}
-                    </GlassButton>
-                  </div>
-                </section>
-              )}
-
               {activeCategory === 'models' && (
                 <section className="space-y-4">
+                  <SettingsModelPlan />
+                  <SettingsModelsDir onChanged={() => void loadModels()} />
+
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
                     <div className="flex items-start justify-between gap-4">
                       <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
                         {t('models.description')}
                       </p>
-                      <GlassButton
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleOpenModelsDir()}
-                        className="shrink-0"
-                      >
-                        <FolderOpen className="w-4 h-4" />
-                        {t('models.openFolder')}
-                      </GlassButton>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {/* Re-reads install state from disk. Useful after copying
+                            models in by hand or changing the storage location. */}
+                        <GlassButton
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void loadModels()}
+                          disabled={isLoadingModels}
+                          title={t('models.rescanHint')}
+                        >
+                          <RefreshCw className={`w-4 h-4 ${isLoadingModels ? 'animate-spin' : ''}`} />
+                          {t('models.rescan')}
+                        </GlassButton>
+                        <GlassButton
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleOpenModelsDir()}
+                        >
+                          <FolderOpen className="w-4 h-4" />
+                          {t('models.openFolder')}
+                        </GlassButton>
+                      </div>
                     </div>
 
                     {isLoadingModels && (
@@ -861,8 +693,25 @@ export function Settings() {
                 </section>
               )}
 
-              {activeCategory === 'notifications' && (
+              {activeCategory === 'system' && (
                 <section className="space-y-4">
+                  {/* Interface language */}
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <Globe className="w-4 h-4 text-text-primary dark:text-gray-300" />
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">{uiLanguageLabel}</label>
+                      </div>
+                      <CustomSelect
+                        value={currentLang.code}
+                        onChange={handleUILanguageChange}
+                        options={uiLanguageOptions}
+                        className="w-[260px]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Notifications */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
                     <div className="flex items-center justify-between">
                       <div>
@@ -879,11 +728,8 @@ export function Settings() {
                       />
                     </div>
                   </div>
-                </section>
-              )}
 
-              {activeCategory === 'about' && (
-                <section className="space-y-4">
+                  {/* About + updates */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>

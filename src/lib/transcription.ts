@@ -105,7 +105,13 @@ export const startTranscriptionTask = async (taskId: string) => {
         output_path: outputPath,
         format: state.settings.outputFormat,
         language: state.settings.outputLanguage,
-        enable_diarization: state.enableSpeakerDiarization,
+        // Per-file speaker separation: a single-narrator file can skip the
+        // diar/passthrough model entirely (much faster).
+        enable_diarization: file.diarization,
+        // Model-plan requirements (design §9.1); all optional server-side.
+        require_word_timestamps: state.settings.requireWordTimestamps,
+        speed_preference: state.settings.speedPreference,
+        model_overrides: state.modelOverrides,
       },
     });
     return true;

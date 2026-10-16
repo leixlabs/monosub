@@ -7,6 +7,9 @@
 
 pub mod catalog;
 pub mod cli;
+pub mod diar;
+pub mod direct;
+pub mod plan;
 pub mod vad;
 pub mod wav;
 
@@ -20,6 +23,9 @@ pub struct RawChunk {
     pub start_s: f64,
     pub end_s: f64,
     pub text: String,
+    /// Already-formatted speaker label (`Speaker A`), or `None` when the source
+    /// produced no speaker information (design §6.5).
+    pub speaker: Option<String>,
 }
 
 /// Options for one file's transcription run.
@@ -46,9 +52,11 @@ impl Default for TranscribeOpts {
 /// Progress callback payload: `(done, total, message)`.
 pub type ProgressFn<'a> = dyn Fn(usize, usize, &str) + Send + Sync + 'a;
 
-/// audio.cpp task/family pair for SenseVoice ASR.
+/// audio.cpp task for ASR. The `family` always comes from the selected model's
+/// `ModelSpec`, never from a constant here: a GGUF embeds its own family and
+/// `audiocpp_cli` rejects a mismatch with
+/// "GGUF embeds model spec for family 'X', not 'Y'".
 const ASR_TASK: &str = "asr";
-const ASR_FAMILY: &str = "sense_asr";
 
 /// Per-request option written into `requests.json`.
 ///
@@ -129,6 +137,10 @@ pub async fn transcribe(
             app,
             dir,
             &model_file,
+            // The family comes from the SELECTED model, never a constant: the
+            // solver may pick `qwen3_asr` for es/de/fr/pt or a manual override,
+            // and the GGUF must be loaded by its own family.
+            &spec.family,
             &language,
             opts.backend,
             batch,
@@ -154,6 +166,8 @@ pub async fn transcribe(
             start_s: chunk.start_s(),
             end_s: chunk.end_s(),
             text,
+            // The VAD-sequence path has no speaker model, so no label here.
+            speaker: None,
         })
         .collect();
 
@@ -169,6 +183,7 @@ async fn transcribe_batch(
     app: &tauri::AppHandle,
     dir: &std::path::Path,
     model_file: &std::path::Path,
+    family: &str,
     language: &str,
     backend: Backend,
     batch: &[vad::VadChunk],
@@ -192,7 +207,7 @@ async fn transcribe_batch(
     };
 
     match run_sequence(
-        app, dir, model_file, &vad_dir, &requests_path, backend, batch, total, done_before,
+        app, dir, model_file, family, &vad_dir, &requests_path, backend, batch, total, done_before,
         &report,
     )
     .await
@@ -208,7 +223,7 @@ async fn transcribe_batch(
                 on_progress(done_before, total, "Metal unavailable, retrying on CPU");
             }
             run_sequence(
-                app, dir, model_file, &vad_dir, &requests_path, Backend::Cpu, batch, total,
+                app, dir, model_file, family, &vad_dir, &requests_path, Backend::Cpu, batch, total,
                 done_before, &report,
             )
             .await
@@ -236,6 +251,7 @@ async fn run_sequence(
     app: &tauri::AppHandle,
     dir: &std::path::Path,
     model_file: &std::path::Path,
+    family: &str,
     vad_dir: &std::path::Path,
     requests_path: &std::path::Path,
     backend: Backend,
@@ -249,12 +265,12 @@ async fn run_sequence(
 
     let invocation = CliInvocation {
         task: ASR_TASK.to_string(),
-        family: ASR_FAMILY.to_string(),
+        family: family.to_string(),
         model: model_file.to_path_buf(),
         // Sequence mode names every chunk inside requests.json.
         audio: None,
         backend,
-        args: asr_args(requests_path, &text_out, vad_dir),
+        args: asr_args(requests_path, &text_out, vad_dir, family),
     };
 
     // Ids are `c0000`-style, so the CLI's `safe_output_name` leaves them alone.
@@ -346,22 +362,42 @@ async fn run_sequence(
 
 /// `--request-sequence` arguments. Deliberately contains no `--request-option`
 /// (PoC §4.1).
+///
+/// `family` also namespaces the session option: `sense_asr.vad_model_path` and
+/// `qwen3_asr.vad_model_path` are different keys, so the prefix must be the
+/// selected model's family too. Only families that actually take a VAD path get
+/// the option; the rest would see an unknown key.
 fn asr_args(
     requests_path: &std::path::Path,
     text_out: &std::path::Path,
     vad_dir: &std::path::Path,
+    family: &str,
 ) -> Vec<String> {
-    vec![
+    let mut args = vec![
         "--request-sequence".to_string(),
         requests_path.to_string_lossy().into_owned(),
         "--text-out".to_string(),
         text_out.to_string_lossy().into_owned(),
-        "--session-option".to_string(),
-        format!("sense_asr.vad_model_path={}", vad_dir.to_string_lossy()),
-        "--threads".to_string(),
-        thread_count().to_string(),
-        "--metrics".to_string(),
-    ]
+    ];
+
+    if family_takes_vad_model_path(family) {
+        args.push("--session-option".to_string());
+        args.push(format!("{}.vad_model_path={}", family, vad_dir.to_string_lossy()));
+    }
+
+    args.push("--threads".to_string());
+    args.push(thread_count().to_string());
+    args.push("--metrics".to_string());
+    args
+}
+
+/// Families whose spec declares a `vad_model_path` session option.
+///
+/// A family without it is not the same as "no VAD": the option is opt-in and
+/// passing it under an unknown family/key would be ignored at best. Verified
+/// against `audiocpp_cli --list-loaders --json` for v0.9.1.
+fn family_takes_vad_model_path(family: &str) -> bool {
+    matches!(family, "sense_asr" | "fun_asr_nano")
 }
 
 /// Write `requests.json` for one batch.
@@ -476,12 +512,12 @@ fn thread_count() -> usize {
 }
 
 /// `temp_dir()/monosub-<task_id>/`, removed on drop for every exit path.
-struct TempWorkDir {
+pub(super) struct TempWorkDir {
     path: PathBuf,
 }
 
 impl TempWorkDir {
-    fn create(task_id: &str) -> Result<Self, EngineError> {
+    pub(super) fn create(task_id: &str) -> Result<Self, EngineError> {
         let safe: String = task_id
             .chars()
             .map(|c| {
@@ -504,7 +540,7 @@ impl TempWorkDir {
         Ok(Self { path })
     }
 
-    fn path(&self) -> &std::path::Path {
+    pub(super) fn path(&self) -> &std::path::Path {
         &self.path
     }
 }
@@ -586,6 +622,7 @@ mod tests {
             std::path::Path::new("/w/requests.json"),
             std::path::Path::new("/w/out/seg.txt"),
             std::path::Path::new("/res/models/silero_vad"),
+            "sense_asr",
         );
 
         assert!(args.iter().any(|a| a == "--request-sequence"));
@@ -598,6 +635,39 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a == "sense_asr.vad_model_path=/res/models/silero_vad"));
+    }
+
+    /// Regression: the session-option prefix is family-scoped, so a plan that
+    /// selected a different ASR family must not be handed
+    /// `sense_asr.vad_model_path`. `qwen3_asr` has no such option at all.
+    #[test]
+    fn sequence_args_namespace_the_vad_option_by_family() {
+        let qwen = asr_args(
+            std::path::Path::new("/w/requests.json"),
+            std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/res/models/silero_vad"),
+            "qwen3_asr",
+        );
+        assert!(
+            !qwen.iter().any(|a| a.contains("vad_model_path")),
+            "qwen3_asr declares no vad_model_path; got {qwen:?}"
+        );
+        // The sequence/text plumbing must survive regardless of family.
+        assert!(qwen.iter().any(|a| a == "--request-sequence"));
+        assert!(qwen.iter().any(|a| a == "--metrics"));
+
+        let fun = asr_args(
+            std::path::Path::new("/w/requests.json"),
+            std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/res/models/silero_vad"),
+            "fun_asr_nano",
+        );
+        assert!(
+            fun.iter()
+                .any(|a| a == "fun_asr_nano.vad_model_path=/res/models/silero_vad"),
+            "fun_asr_nano does declare it, under its own prefix; got {fun:?}"
+        );
+        assert!(!fun.iter().any(|a| a.starts_with("sense_asr.")));
     }
 
     #[test]

@@ -133,7 +133,7 @@ export function CustomSelect<T extends string = string>({
           triggerClassName,
         )}
       >
-        <span className="truncate">{selectedOption?.label ?? ''}</span>
+        <span className="truncate" title={selectedOption?.label}>{selectedOption?.label ?? ''}</span>
         <ChevronDown
           className={cn('w-4 h-4 shrink-0 text-text-secondary dark:text-gray-400 transition-transform', isOpen && 'rotate-180')}
         />
@@ -144,7 +144,11 @@ export function CustomSelect<T extends string = string>({
           id={listId}
           role="listbox"
           className={cn(
-            'absolute right-0 mt-2 w-full z-30 p-1 rounded-xl border border-border dark:border-zinc-700',
+            // The menu must not inherit the trigger's (often narrow) width, or
+            // long option labels are truncated to a few characters. Size it to
+            // its content instead: at least the trigger, up to a readable cap.
+            'absolute right-0 mt-2 z-30 p-1 rounded-xl border border-border dark:border-zinc-700',
+            'min-w-full w-max max-w-[min(24rem,70vw)]',
             'bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl shadow-glass-lg',
             'max-h-64 overflow-y-auto',
             menuClassName,
@@ -174,7 +178,7 @@ export function CustomSelect<T extends string = string>({
                   isHighlighted && 'bg-bg-secondary dark:bg-zinc-800 text-text-primary dark:text-white',
                 )}
               >
-                <span className="truncate">{option.label}</span>
+                <span className="truncate" title={option.label}>{option.label}</span>
                 {isSelected && <Check className="w-4 h-4 text-primary" />}
               </button>
             );
