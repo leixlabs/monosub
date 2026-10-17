@@ -10,6 +10,74 @@ use super::{PostProcessConfig, Segment};
 /// (hard-coded next to `MERGE_CONFIG`), in addition to `min_duration`.
 const MIN_MERGE_CHARS: usize = 5;
 
+/// Language tokens `sense_asr` can put in a `<|…|>` tag.
+///
+/// Deliberately a closed set (PoC §4.2: the CLI accepts 23 tags but only
+/// `{auto, zh, en, yue, ja, ko, nospeech}` map to a real token, and `auto` is
+/// not an output tag). A broader "any short tag" rule cannot be used: the same
+/// delimiters carry emotion (`<|NEUTRAL|>`), event (`<|Speech|>`) and ITN
+/// markers, none of which is a language. A tag outside this set therefore means
+/// *unknown language*, which downstream is the "translate anyway" branch — never
+/// a guess and never an error.
+const LANGUAGE_TAGS: &[&str] = &["zh", "en", "yue", "ja", "ko"];
+
+/// Extract the ASR's own language tag (`<|zh|>`) from a raw transcript.
+///
+/// `clean_text` deletes every `<|…|>` tag, so the language has to be read *here,
+/// before cleaning*, or it is lost for good (design §5). The passthrough model
+/// emits no such tag, which is why the result is an `Option` rather than a
+/// string.
+pub fn extract_language_tag(raw: &str) -> Option<String> {
+    let mut rest = raw;
+    while let Some(open) = rest.find("<|") {
+        let after_open = &rest[open + 2..];
+        // A lone `<|` with no closing `|>` carries no tag.
+        let close = after_open.find("|>")?;
+        let tag = &after_open[..close];
+        if !tag.contains('|') {
+            let lowered = tag.to_lowercase();
+            if LANGUAGE_TAGS.contains(&lowered.as_str()) {
+                return Some(lowered);
+            }
+        }
+        rest = &after_open[close + 2..];
+    }
+
+    None
+}
+
+/// Fold the per-chunk language tags into the recording's dominant language.
+///
+/// Majority wins; a tie breaks to the tag seen first, so the same input always
+/// yields the same answer. `None` when no chunk carried a tag: the moss /
+/// passthrough path emits none, and "unknown" is the documented signal to
+/// translate rather than to skip (design §5).
+pub fn dominant_language<'a>(tags: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
+    // A Vec rather than a map: first-seen order is what breaks a tie.
+    let mut counts: Vec<(String, usize)> = Vec::new();
+
+    for tag in tags.into_iter().flatten() {
+        let tag = tag.trim().to_lowercase();
+        if tag.is_empty() {
+            continue;
+        }
+        match counts.iter_mut().find(|(known, _)| *known == tag) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((tag, 1)),
+        }
+    }
+
+    // Explicit comparison: `max_by_key` returns the LAST maximum, which would
+    // silently invert the first-seen tie-break.
+    counts
+        .into_iter()
+        .fold(None, |best: Option<(String, usize)>, entry| match best {
+            Some((best_tag, best_count)) if best_count >= entry.1 => Some((best_tag, best_count)),
+            _ => Some(entry),
+        })
+        .map(|(tag, _)| tag)
+}
+
 /// Remove leftover `<|...|>` tags and trim; `None` means "drop this text".
 pub fn clean_text(raw: &str) -> Option<String> {
     // Equivalent to Python's `re.sub(r'<\|[^|]+\|>', '', text).strip()`: a tag is
@@ -383,6 +451,7 @@ mod tests {
             end_s,
             text: text.to_string(),
             speaker: None,
+            language: None,
         }
     }
 
@@ -419,6 +488,68 @@ mod tests {
         assert_eq!(clean_text("<|zh|>"), None);
         // A lone `<|` without a closing `|>` is preserved verbatim.
         assert_eq!(clean_text("a<|b"), Some("a<|b".to_string()));
+    }
+
+    /// The language tag is read BEFORE `clean_text` runs; the two must not fight
+    /// over the same `<|…|>` syntax (design §5).
+    #[test]
+    fn language_tag_is_extracted_before_cleaning() {
+        let raw = "<|zh|><|NEUTRAL|><|Speech|><|withitn|>开放时间";
+
+        assert_eq!(extract_language_tag(raw).as_deref(), Some("zh"));
+        // ...and cleaning still removes every tag, unchanged.
+        assert_eq!(clean_text(raw).as_deref(), Some("开放时间"));
+        // The tag has to come first, or cleaning loses it.
+        assert_eq!(extract_language_tag(&clean_text(raw).unwrap()), None);
+    }
+
+    /// Only real language tokens count: the same delimiters carry emotion,
+    /// event and ITN markers, and a wrong guess here would skip a translation
+    /// that is actually needed.
+    #[test]
+    fn only_language_tokens_are_extracted() {
+        assert_eq!(extract_language_tag("<|en|>hello"), Some("en".to_string()));
+        assert_eq!(extract_language_tag("<|YUE|>hi"), Some("yue".to_string()));
+        assert_eq!(extract_language_tag("<|NEUTRAL|>hi"), None);
+        assert_eq!(extract_language_tag("<|Speech|>hi"), None);
+        assert_eq!(extract_language_tag("<|withitn|>hi"), None);
+        assert_eq!(extract_language_tag("<|auto|>hi"), None);
+        assert_eq!(extract_language_tag("plain text"), None);
+        assert_eq!(extract_language_tag(""), None);
+        // A malformed tail must not panic or invent a tag.
+        assert_eq!(extract_language_tag("<|"), None);
+        assert_eq!(extract_language_tag("<|zh"), None);
+        // The second tag is found when the first is not a language.
+        assert_eq!(
+            extract_language_tag("<|NEUTRAL|><|ko|>안녕").as_deref(),
+            Some("ko")
+        );
+    }
+
+    /// Majority wins across chunks; a tie keeps the first tag that was seen.
+    #[test]
+    fn dominant_language_uses_majority_then_first_seen() {
+        let tags = |values: &[Option<&'static str>]| dominant_language(values.iter().copied());
+
+        assert_eq!(tags(&[Some("zh"), Some("zh"), Some("en")]).as_deref(), Some("zh"));
+        assert_eq!(tags(&[Some("en"), Some("en"), Some("zh")]).as_deref(), Some("en"));
+        // Tie: the first seen wins, so the answer is stable.
+        assert_eq!(tags(&[Some("zh"), Some("en")]).as_deref(), Some("zh"));
+        assert_eq!(tags(&[Some("en"), Some("zh")]).as_deref(), Some("en"));
+        // Untagged chunks are simply skipped, not counted as a language.
+        assert_eq!(
+            tags(&[None, Some("ja"), None, Some("ja"), None]).as_deref(),
+            Some("ja")
+        );
+        assert_eq!(dominant_language([Some(" "), Some("")]), None);
+    }
+
+    /// No tag at all (the moss / direct path) means "unknown", which is the
+    /// documented signal to translate anyway — it must never be an error.
+    #[test]
+    fn dominant_language_is_none_without_any_tag() {
+        assert_eq!(dominant_language(std::iter::empty()), None);
+        assert_eq!(dominant_language([None, None, None]), None);
     }
 
     #[test]
@@ -627,12 +758,14 @@ mod tests {
                 end_s: 2.0,
                 text: "第一句。第二句。".to_string(),
                 speaker: Some("Speaker B".to_string()),
+                language: None,
             },
             RawChunk {
                 start_s: 2.0,
                 end_s: 4.0,
                 text: "第三句。".to_string(),
                 speaker: None,
+                language: None,
             },
         ];
         let segments = compose(&chunks, &config());

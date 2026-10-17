@@ -3,6 +3,7 @@ mod engine;
 mod logging;
 mod model_dir;
 mod subtitle;
+mod translate;
 mod tray;
 
 use commands::*;

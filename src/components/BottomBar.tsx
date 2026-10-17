@@ -1,4 +1,4 @@
-import { Folder, FolderOpen, HardDrive } from 'lucide-react';
+import { Folder, FolderOpen, HardDrive, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -53,6 +53,23 @@ export function BottomBar() {
     return labels[settings.outputLanguage] || settings.outputLanguage;
   };
 
+  // The target language is a separate language from the recognition one, so it
+  // gets its own chip; `getLanguageLabel` only reads `outputLanguage`.
+  const getTargetLanguageLabel = () => {
+    const labels: Record<string, string> = {
+      'en': 'EN',
+      'zh': '中文',
+      'es': 'ES',
+      'ja': '日本語',
+      'de': 'DE',
+      'fr': 'FR',
+      'pt': 'PT',
+      'zh-tw': '繁中',
+      'ko': 'KR',
+    };
+    return labels[settings.translateTargetLanguage] || settings.translateTargetLanguage;
+  };
+
   return (
     <div className="bg-bg-secondary dark:bg-zinc-950 h-14 px-6 flex-shrink-0 sticky bottom-0 z-30 flex items-center justify-between border-t border-divider/40 dark:border-zinc-800/40 transition-colors">
       <div className="flex items-center gap-2">
@@ -98,6 +115,20 @@ export function BottomBar() {
         <span className="text-xs text-text-tertiary dark:text-gray-500">
           {t('bottomBar.language')} <span className="text-text-secondary dark:text-gray-300 font-medium">{getLanguageLabel()}</span>
         </span>
+        {/* Only shown while translation is on: the chip is the visible signal
+            that a `<stem>.<lang>.<ext>` file will also be written. */}
+        {settings.translateEnabled && (
+          <>
+            <span className="mx-2 w-px h-3 bg-divider dark:bg-zinc-700" />
+            <span className="text-xs text-text-tertiary dark:text-gray-500 flex items-center gap-1">
+              <Languages className="w-3 h-3" />
+              {t('bottomBar.translationTarget')}{' '}
+              <span className="text-text-secondary dark:text-gray-300 font-medium">
+                {getTargetLanguageLabel()}
+              </span>
+            </span>
+          </>
+        )}
       </div>
     </div>
   );

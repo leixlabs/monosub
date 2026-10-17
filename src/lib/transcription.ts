@@ -2,7 +2,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
 import { exists } from '@tauri-apps/plugin-fs';
 import i18n from '@/i18n';
-import { MODEL_NOT_INSTALLED_ERROR, openModelsSettings } from '@/lib/models';
+import {
+  MODEL_NOT_INSTALLED_ERROR,
+  modelNotInstalledId,
+  listModels,
+  isTranslationModel,
+  openModelsSettings,
+} from '@/lib/models';
 
 let isQueueProcessing = false;
 
@@ -12,6 +18,30 @@ let isQueueProcessing = false;
  */
 export const isModelNotInstalledError = (error: unknown): boolean =>
   String(error).includes(MODEL_NOT_INSTALLED_ERROR);
+
+/**
+ * Whether the missing model named in a `MODEL_NOT_INSTALLED:<id>` rejection is a
+ * translation model.
+ *
+ * The recognition pre-flight runs first, so the id alone does not say whether
+ * the user is missing an ASR model or the translation model they turned on
+ * (translation-design §6). The catalogue is the only source of the role, so it
+ * is re-read here — on the error path only, where one round trip is cheap next
+ * to a wasted transcription. A lookup failure falls back to the recognition
+ * wording rather than hiding the error.
+ */
+const isMissingTranslationModel = async (error: unknown): Promise<boolean> => {
+  const missingId = modelNotInstalledId(error);
+  if (!missingId) return false;
+  try {
+    const models = await listModels();
+    const missing = models.find((model) => model.id === missingId);
+    return missing ? isTranslationModel(missing) : false;
+  } catch (lookupError) {
+    console.warn('[transcription] could not resolve the missing model role', lookupError);
+    return false;
+  }
+};
 
 export const processQueueBatch = () => {
   const state = useStore.getState();
@@ -112,16 +142,27 @@ export const startTranscriptionTask = async (taskId: string) => {
         require_word_timestamps: state.settings.requireWordTimestamps,
         speed_preference: state.settings.speedPreference,
         model_overrides: state.modelOverrides,
+        // Translation (translation-design §7). All optional server-side: an
+        // empty `translation_model` means "use the catalogue default", and a
+        // disabled run translates nothing.
+        translate_enabled: state.settings.translateEnabled,
+        target_language: state.settings.translateTargetLanguage,
+        translation_model: state.settings.translationModelId,
       },
     });
     return true;
   } catch (error) {
     if (isModelNotInstalledError(error)) {
       // Guide the user straight to the download list instead of just failing.
+      // The models page shows recognition and translation models as separate
+      // groups, so either kind of miss is fixable from the same place.
+      const isTranslation = await isMissingTranslationModel(error);
       state.updateFile(file.id, {
         status: 'error',
         progress: 0,
-        error: i18n.t('errors.modelNotInstalled'),
+        error: isTranslation
+          ? i18n.t('errors.translationModelNotInstalled')
+          : i18n.t('errors.modelNotInstalled'),
       });
       openModelsSettings();
     } else {

@@ -41,6 +41,10 @@ export interface ModelStatus {
   attribution: string | null;
   /** Declared roles; empty means the v1 fallback `['asr']`. */
   roles: string[];
+  /** Inference engine: `audiocpp` (recognition) or `llamacpp` (translation). */
+  engine: string;
+  /** Prompt-template kind for a `llamacpp` translate model; `null` otherwise. */
+  prompt_template: string | null;
   /** Effective timestamps grade: `none` | `turns` | `segment` | `word`. */
   timestamps: string;
   /** Effective diarization grade: `none` | `turns` | `turns_with_text`. */
@@ -73,6 +77,27 @@ export const MODEL_DOWNLOAD_ERROR_EVENT = 'model_download_error';
 
 /** Sentinel returned by `start_transcription` when the default model is absent. */
 export const MODEL_NOT_INSTALLED_ERROR = 'MODEL_NOT_INSTALLED';
+
+/**
+ * The catalogue id embedded in a `MODEL_NOT_INSTALLED:<id>` rejection, or `null`
+ * when the sentinel carries no id (the solver had no suggestion at all).
+ *
+ * The id is what tells a missing recognition model apart from a missing
+ * translation model on the error path (translation-design §6).
+ */
+export const modelNotInstalledId = (error: unknown): string | null => {
+  const text = String(error);
+  const marker = `${MODEL_NOT_INSTALLED_ERROR}:`;
+  const index = text.indexOf(marker);
+  if (index === -1) return null;
+  // The id follows the marker; take the first token, ignoring quotes and any
+  // wrapping around it (the sentinel is embedded in a longer message string).
+  const token = text
+    .slice(index + marker.length)
+    .split(/[\s"'`]/)
+    .find((part) => part.length > 0);
+  return token ?? null;
+};
 
 /** Settings category that hosts the model list (see `Settings.tsx`). */
 export const MODELS_SETTINGS_CATEGORY = 'models';
@@ -131,6 +156,10 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
       : [],
     attribution: typeof manifest.attribution === 'string' ? manifest.attribution : null,
     roles: asStringArray(manifest.roles),
+    // Absent `engine` means audio.cpp, matching the manifest default, so every
+    // pre-translation entry reads as a recognition model here too.
+    engine: asString(manifest.engine, 'audiocpp'),
+    prompt_template: typeof manifest.prompt_template === 'string' ? manifest.prompt_template : null,
     timestamps: asString(manifest.timestamps, 'none'),
     diarization: asString(manifest.diarization, 'none'),
     produces_text: manifest.produces_text !== false,
@@ -152,6 +181,28 @@ export const hasInstalledDiarizationModel = (models: ModelStatus[]): boolean =>
 /** True when some installed model can fill `role` (design §8.2). */
 export const hasInstalledRole = (models: ModelStatus[], role: string): boolean =>
   models.some((model) => model.installed && model.roles.includes(role));
+
+/** The role a local translation model declares (translation-design §6). */
+export const TRANSLATE_ROLE = 'translate';
+
+/**
+ * True when `model` is a translation model.
+ *
+ * The role is what decides, not the engine: a `llamacpp` entry without the role
+ * is not something the translation stage may be pointed at (translation-design
+ * §9). Keeping recognition and translation lists apart is the whole reason the
+ * role exists on the wire.
+ */
+export const isTranslationModel = (model: ModelStatus): boolean =>
+  model.roles.includes(TRANSLATE_ROLE);
+
+/** Models the recognition plan may draw on — translation models are excluded. */
+export const recognitionModels = (models: ModelStatus[]): ModelStatus[] =>
+  models.filter((model) => !isTranslationModel(model));
+
+/** Only the translation models, for the Settings translation group. */
+export const translationModels = (models: ModelStatus[]): ModelStatus[] =>
+  models.filter(isTranslationModel);
 
 export const listModels = async (): Promise<ModelStatus[]> => {
   const raw = await invoke<unknown>('list_models');

@@ -5,18 +5,22 @@
 
 ## Project Overview
 
-**MonoSub** is a local-first desktop application for converting videos and audio files to subtitles without cloud dependencies. It provides a clean, modern UI for batch processing media files using local AI speech recognition.
+**MonoSub** is a local-first desktop application for converting videos and audio files to subtitles without cloud dependencies. It provides a clean, modern UI for batch processing media files using local AI speech recognition, with optional local translation into a second language.
 
-Speech recognition runs through **audio.cpp** (`audiocpp_cli`), a C++ inference engine
-distributed as a single prebuilt binary. There is **no Python** in the runtime.
+Speech recognition runs through **audio.cpp** (`audiocpp_cli`) and translation through
+**llama.cpp** (`llama-server`), both C++ inference engines distributed as prebuilt binaries
+and run as **separate child processes** — neither is linked into the app. There is
+**no Python** in the runtime.
 
 ### Key Features
 
 - 🎬 **Multi-file queue processing** - Manage multiple video/audio files simultaneously
 - 🖼️ **Video thumbnails** - Automatic preview generation
-- ⚡ **Local AI processing** - audio.cpp speech recognition, Metal accelerated
+- ⚡ **Local AI processing** - audio.cpp speech recognition and llama.cpp translation, both Metal accelerated
 - 🧩 **Pluggable model plans** - Requirement-driven model selection (speed, word-level
   timestamps, speaker diarization, language); Tongyi/FunASR models preferred
+- 🌍 **Local subtitle translation** - Optional post-recognition pass with a dedicated
+  translation model (HY-MT1.5-1.8B); writes `<stem>.<lang>.<ext>` and never touches the originals
 - 📦 **In-app model management** - Download/remove models on demand; nothing large is bundled
 - 📝 **Multiple output formats** - SRT, VTT, TXT, MD (and JSON)
 - 🌐 **Bilingual UI** - Simplified Chinese and English (`zh-CN`, `en`)
@@ -44,12 +48,22 @@ distributed as a single prebuilt binary. There is **no Python** in the runtime.
 │  ├── Model download + integrity verification                    │
 │  ├── Silero VAD segmentation (audiocpp_cli --task vad)          │
 │  ├── ASR orchestration (audiocpp_cli --task asr)                │
-│  └── Subtitle post-processing + writers                         │
+│  ├── Subtitle post-processing + writers                         │
+│  └── Translation orchestration (llama-server over HTTP)         │
 └─────────────────────────────────────────────────────────────────┘
-                    │ spawns
-                    ▼
-        audiocpp_cli (prebuilt, bundled; ~31 MB, no deps)
+        │ spawns                    │ spawns
+        ▼                           ▼
+  audiocpp_cli                 llama-server
+  (prebuilt, bundled;          (prebuilt, bundled;
+   ~31 MB, no deps)             ~68 MB incl. its flat lib*.dylib)
+        │                           │
+   recognition only            translation only
+   (its own ggml)              (its own ggml)
 ```
+
+The two engines never share a process: audio.cpp and llama.cpp each embed their own
+ggml, so linking both into one binary would collide. `translate/server.rs` talks to the
+child over HTTP on `127.0.0.1` instead.
 
 ### Package Managers
 
@@ -71,10 +85,12 @@ monosub/
 │   │   ├── FileList.tsx
 │   │   ├── FileItem.tsx
 │   │   ├── BottomBar.tsx
-│   │   ├── Settings.tsx         # Includes the Models section
+│   │   ├── Settings.tsx         # Includes the Models + Translation sections
+│   │   ├── SettingsModelPlan.tsx
+│   │   ├── SettingsTranslation.tsx
 │   │   └── ThemeToggle.tsx
 │   ├── store/
-│   │   └── useStore.ts          # Zustand state + persist v2 migration
+│   │   └── useStore.ts          # Zustand state + persist v4 migration
 │   ├── i18n/
 │   │   ├── index.ts
 │   │   └── locales/             # en.json + zh-CN.json (kept at parity)
@@ -100,6 +116,13 @@ monosub/
 │   │   │   ├── direct.rs        # Passthrough path: one unsplit call, parses turns/segments
 │   │   │   ├── vad.rs           # silero_vad invocation + chunk parsing
 │   │   │   └── wav.rs           # 16k mono s16le read + sample slicing
+│   │   ├── translate/           # llama.cpp integration (SPAWNED, never linked)
+│   │   │   ├── mod.rs           # should_translate → server → batch → validate → degrade
+│   │   │   ├── server.rs        # llama-server spawn, /health probe, chat completion
+│   │   │   ├── prompt.rs        # Batched numbered prompts (template from models.json)
+│   │   │   ├── parse.rs         # Numbered-line / JSON response parsing (pure)
+│   │   │   ├── language.rs      # Tag normalisation, skip decision, script census
+│   │   │   └── error.rs         # TranslateError + user-showable status
 │   │   ├── subtitle/            # Output generation
 │   │   │   ├── mod.rs           # Segment, postprocess, write
 │   │   │   ├── postprocess.rs   # Split / estimate / merge
@@ -113,9 +136,10 @@ monosub/
 │   │   │   └── tray.rs
 │   │   └── logging.rs
 │   ├── resources/
-│   │   ├── models.json          # Model catalogue (v2: capabilities/roles/tier)
-│   │   ├── licenses/            # audio.cpp Apache-2.0 text + third-party notices
+│   │   ├── models.json          # Model catalogue (v2: capabilities/roles/tier/engine)
+│   │   ├── licenses/            # audio.cpp Apache-2.0 + llama.cpp MIT + notices
 │   │   ├── bin/                 # fetched: ffmpeg, ffprobe, audiocpp_cli, lib/
+│   │   │                        #   and llama-server-* + its lib*.dylib FLAT in bin/
 │   │   └── models/silero_vad/   # fetched: silero_vad_16k.safetensors
 │   ├── tests/fixtures/          # Python-generated subtitle goldens
 │   ├── Cargo.toml
@@ -124,6 +148,7 @@ monosub/
 ├── scripts/
 │   ├── build/
 │   │   ├── fetch-audiocpp.sh    # Pinned download + SHA256 of CLI + VAD model
+│   │   ├── fetch-llamacpp.sh    # Pinned download + SHA256 of llama-server + dylibs
 │   │   ├── prepare-ffmpeg.sh
 │   │   └── prepare-resources.sh # Orchestrates the above; regenerates MANIFEST
 │   ├── release/
@@ -162,7 +187,8 @@ Python/`uv` are **no longer required**.
 # 1. Install frontend dependencies
 bun install
 
-# 2. Fetch the bundled runtime (audiocpp_cli + silero VAD) and ffmpeg
+# 2. Fetch the bundled runtimes (audiocpp_cli + silero VAD, llama-server + dylibs)
+#    and ffmpeg
 ./scripts/build/prepare-resources.sh
 ```
 
@@ -256,8 +282,16 @@ FFmpeg extracts 16 kHz mono s16le WAV (cached next to the media as *_audio.wav)
     ↓
 Rust post-processes (split/estimate/merge, speaker-aware) → writes every format
     ↓
+Translation enabled AND source ≠ target?  (translate::language::should_translate)
+    │ yes  → llama-server (127.0.0.1, spawned per stage) → <stem>.<lang>.<ext>
+    │ no   → skipped; originals are already on disk either way
+    ↓
 Rust emits events → React updates the UI
 ```
+
+Translation is an **enhancement, never a precondition**: the original subtitle files are
+written before step 5 starts, so a translation failure is logged as a warning and the task
+still completes. It never reaches `transcribe_error`.
 
 ### Model plans (capability-driven model selection)
 
@@ -296,6 +330,13 @@ Rules that follow from this:
   composition, not a checkpoint capability.
 - The `[Speaker A]: ` prefix in `subtitle/writer.rs` is fed by `RawChunk.speaker`;
   `subtitle/postprocess.rs` must not merge across differing speakers.
+- **Translation models are never part of a `ModelPlan`.** They are `role: "translate"`
+  entries with `engine: "llamacpp"`, and `plan::solve` filters the catalogue down to
+  `engine == audiocpp && !role.translate` before it looks for candidates. Which
+  translation model runs is chosen **by role from `models.json`**
+  (`catalog::translation_models` / `default_translation_model_id`, best `tier` first),
+  independently of the recognition plan — there is no `StepKind` for translation.
+  For such an entry `family` is only a prompt-template hint and never reaches audio.cpp.
 
 ### Why segmentation is a separate stage from ASR
 
@@ -325,6 +366,62 @@ utterances and misplaces their boundary; under-merging is recovered downstream b
 `subtitle::postprocess`, which re-joins cues closer than its own 0.5 s
 `gap_threshold`. Prefer under-merging when in doubt.
 
+### Why translation is a separate engine, and how it is driven
+
+Translation hangs off the **end** of the pipeline: the input is the already-timed
+`Vec<Segment>` produced by `subtitle::postprocess`, and only `text` may change — times and
+speaker labels are the ASR's output and are never re-derived. That is why the whole
+subtitle is written first and the translated files are additive.
+
+- **Engine**: `translate/server.rs` spawns the bundled `llama-server` on a random
+  `127.0.0.1` port, one process per translation stage, and kills it on drop. It waits for
+  `GET /health` to answer `{"status":"ok"}` before sending anything.
+- **Output contract**: numbered lines, **not** structured output. Measured against
+  HY-MT1.5-1.8B, `response_format: json_schema` echoed the source untranslated or returned
+  an empty array, and a raw GBNF grammar returned `[]`. Asking for `1. …` lines and
+  parsing them produced exact cue counts at batch sizes 10/20/40, so `BATCH_SIZE = 20`.
+  See `docs/tech-spec/translation-poc.md` §5.
+- **The prompt wording is load-bearing; do not "simplify" it** (`translate/prompt.rs`).
+  Three measured traps, all of which silently produce *wrong output* rather than an error:
+  1. **Never prepend the model card's single-segment template to the batch contract.** Two
+     competing instructions make the model drop numbering — and at 20 cues it returns the
+     **source text echoed untranslated**, which is non-empty, so a naive "did we get a
+     reply?" check accepts it as success.
+  2. **The count sentence must be its own paragraph and must be accompanied by a two-line
+     worked example.** With the count but no example, batches of 2–4 cues failed on *every*
+     attempt and 14 failed intermittently; with the example, 27/27 requests across sizes
+     2–20 were exact. Folding the count into the instruction sentence also breaks numbering.
+  3. **A lone cue uses a different prompt.** The numbered shape is unreliable for exactly
+     one short cue, so `single_cue_prompt` uses the card's single-segment form and the
+     answer is taken verbatim. For a **Chinese source the target must be named in Chinese**
+     (`翻译为英语`): writing `翻译为English` made the model answer in Chinese for every probe,
+     because it reads the English word as content instead of as the target language.
+  These were found by running the shipped prompt against the real model; the unit tests pin
+  the shapes, and the evidence is in `docs/tech-spec/translation-poc.md` §5.4.
+- **Degradation**: a batch whose cue count does not match is retried at half size, down to
+  a single cue; a cue that still fails keeps its original text. A translation run is
+  therefore always *complete* in cue count, even when some cues are untranslated. The
+  single-cue rung also rejects two measured non-answers as failures rather than shipping
+  them: a reply identical to the source, and the prompt's own instruction coming back.
+- **`models.json` schema for a translate entry**: `roles: ["translate"]`,
+  `engine: "llamacpp"` (absent means `audiocpp`, so every recognition entry is unchanged),
+  and `prompt_template` naming the prompt wording (`hy_mt`). `capabilities` is declared as
+  `timestamps: none / diarization: none / produces_text: true` — it describes what the
+  model can do to a subtitle, not a recognition step. `family` is a prompt-template hint
+  here, and `source` is `other`, because `Source` is a closed enum and HY-MT belongs to no
+  existing family.
+- **Failure semantics**: a translation error is a warning, never a task failure. The
+  recognised files are already on disk; `translate_and_write` logs the outcome and, when
+  nothing at all was translated, deliberately writes no `<stem>.<lang>.<ext>` file rather
+  than a duplicate of the original under a language it does not contain.
+- **Language tags**: `RawChunk.language` carries the ASR's own `<|zh|>` tag, read by
+  `subtitle::postprocess::extract_language_tag` **before** `clean_text` deletes it. The tag
+  set is closed (`zh/en/yue/ja/ko`) because the same delimiters carry emotion, event and
+  ITN markers. No tag means *unknown*, and unknown means **translate anyway** — a wasted
+  run on a same-language input is cheaper than silently dropping a translation. When there
+  is no tag and the request was `auto`, `language::detect_by_script` is the last resort and
+  answers only for unambiguous scripts (kana ⇒ `ja`, hangul ⇒ `ko`, CJK ≥ latin ⇒ `zh`).
+
 ---
 
 ## IPC Communication Pattern
@@ -349,6 +446,9 @@ utterances and misplaces their boundary; under-merging is recovered downstream b
 | `update_tray_menu` | Localise tray labels |
 | `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
 
+The catalogue contains both engines, but only audio.cpp entries can fill a recognition
+plan; `translate` entries are grouped separately by `role` in the UI.
+
 ### Backend → Frontend (Tauri Events)
 
 | Event | Payload | Purpose |
@@ -362,7 +462,15 @@ utterances and misplaces their boundary; under-merging is recovered downstream b
 
 `step` is `{current_step, total_steps, step_name, step_elapsed, total_elapsed}` with
 `step_name` from the frozen set `Extracting audio` / `Loading model` / `Transcribing` /
-`Writing subtitle`. `FileItem.tsx` maps those to i18n keys, so **do not reword them**.
+`Writing subtitle` / `Translating`. `Translating` was **appended**; the first four keep
+their exact spelling, because `FileItem.tsx` derives the i18n key as
+`steps.<lowercase, spaces → _>` and renaming one would blank that step. `total_steps` is
+**4 normally and 5 when the run translates**: `Steps::new(translating)` picks the
+denominator per run, and the first step event already carries the right one.
+
+`TranscribeRequest` carries three translation fields, all `Option` so an older frontend
+that sends none of them translates nothing: `translate_enabled`, `target_language`, and
+`translation_model` (the UI sends `''`/absent for "catalogue default").
 
 There is no stdout protocol any more — the engine is called directly, not via a
 line-parsing subprocess.
@@ -374,22 +482,31 @@ line-parsing subprocess.
 | Path | Purpose |
 |------|---------|
 | `src/App.tsx` | Event listeners for progress/completion/error |
-| `src/store/useStore.ts` | Zustand state, `persist` v2 + migrate |
+| `src/store/useStore.ts` | Zustand state, `persist` v4 + migrate |
 | `src/lib/models.ts` | Model commands/events, `MODEL_NOT_INSTALLED_ERROR` |
-| `src/components/Settings.tsx` | Settings incl. the Models section |
+| `src/components/Settings.tsx` | Settings incl. the Models + Translation groups |
 | `src/components/SettingsModelPlan.tsx` | Model-plan requirements + live preview + manual overrides |
+| `src/components/SettingsTranslation.tsx` | Translation switch, target language, translation-model download |
 | `src-tauri/src/engine/mod.rs` | The transcription pipeline (dispatches on the plan) |
 | `src-tauri/src/engine/plan.rs` | Requirement → ModelPlan solver |
 | `src-tauri/src/engine/direct.rs` | Passthrough (one-shot) inference path |
 | `src-tauri/src/engine/cli.rs` | Binary resolution + process management |
 | `src-tauri/src/engine/catalog.rs` | `models.json`, install checks, language mapping |
-| `src-tauri/src/commands/transcribe.rs` | Task registry, events, cancellation |
+| `src-tauri/src/commands/transcribe.rs` | Task registry, events, cancellation, translation stage |
 | `src-tauri/src/commands/models.rs` | Model download/verify/remove |
+| `src-tauri/src/translate/mod.rs` | Translation stage: should-translate → batch → validate → degrade |
+| `src-tauri/src/translate/server.rs` | `llama-server` spawn, `/health` probe, one chat completion |
+| `src-tauri/src/translate/prompt.rs` | Batched numbered prompts; template comes from `models.json` |
+| `src-tauri/src/translate/parse.rs` | Numbered-line response parsing |
+| `src-tauri/src/translate/language.rs` | Tag normalisation, `zh` vs `zh-tw`, skip decision |
 | `src-tauri/src/subtitle/writer.rs` | Format writers |
-| `src-tauri/resources/models.json` | Model catalogue (v2 schema) |
+| `src-tauri/resources/models.json` | Model catalogue (v2 schema, incl. `engine` / `translate` role) |
 | `docs/tech-spec/model-selection-design.md` | Requirement → ModelPlan design |
+| `docs/tech-spec/translation-design.md` | Translation design |
+| `docs/tech-spec/translation-poc.md` | Measured llama.cpp / HY-MT behaviour (pins, speed, format) |
 | `src-tauri/tests/fixtures/` | Subtitle goldens (+ their generator) |
 | `scripts/build/fetch-audiocpp.sh` | Pinned upstream binary + VAD download |
+| `scripts/build/fetch-llamacpp.sh` | Pinned llama.cpp `llama-server` + dylib download |
 
 ---
 
@@ -423,25 +540,33 @@ isProcessing: boolean           // Global processing state
 currentTaskId: string | null    // Active task
 ```
 
-Persisted to `localStorage` as `monosub-storage` at `version: 2` (target: `version: 3`
-for the model-plan fields). The `migrate` function **drops** `enableNoiseReduction`,
-`enableVolumeNormalization`, `enableBilingual` and `bilingualTargetLang`: those
+Persisted to `localStorage` as `monosub-storage` at `version: 4`. The `migrate` function
+**drops** `enableNoiseReduction`, `enableVolumeNormalization`, `enableBilingual` and
+`bilingualTargetLang`: those
 settings never reached the engine in the old code either (the Python engine hardcoded
 the filters), so they were dead. The equivalent ffmpeg filters are now always applied.
 
-The v2→v3 step **adds** model-plan defaults and must not drop anything:
+The v3 step **adds** model-plan defaults and must not drop anything; the v4 step adds the
+translation defaults the same way:
 
 ```ts
-// settings (added)
+// settings (added in v3)
 requireWordTimestamps: boolean            // false
-passthroughMode: 'auto' | 'only' | 'never' // 'auto'
 speedPreference: 'fast' | 'balanced' | 'accurate' // 'balanced'
-// top level (added)
+// top level (added in v3)
 modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>
+
+// settings (added in v4; translation)
+translateEnabled: boolean                 // false
+translateTargetLanguage: TranslateTargetLanguage // 'en' (never 'auto')
+translationModelId: string                // '' means "catalogue default"
 ```
 
-`enableSpeakerDiarization` keeps its meaning; it now maps to
-`Requirements.diarization` instead of being a disabled placeholder.
+`settings.defaultDiarization` keeps the meaning the old `enableSpeakerDiarization` had; it
+now maps to `Requirements.diarization` and seeds each newly queued file's own toggle instead
+of being a disabled placeholder. `TranslateTargetLanguage`
+is `Exclude<OutputLanguage, 'auto'>`: `auto` is a *source*-detection value and "translate
+into auto" has no meaning, so the Rust side skips such a run rather than guessing.
 
 ---
 
@@ -449,16 +574,23 @@ modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>
 
 ### Binary Path Resolution
 
-Bundled binaries (`ffmpeg`, `ffprobe`, `audiocpp_cli`) are resolved in this order:
+Bundled binaries (`ffmpeg`, `ffprobe`, `audiocpp_cli`, `llama-server`) are resolved in this
+order by the single `engine/cli.rs::resolve_bundled_binary` (`pub(crate)`, shared by both
+engines so the rules cannot drift):
 
-1. `MONOSUB_FFMPEG_PATH` / `MONOSUB_FFPROBE_PATH` / `MONOSUB_AUDIOCPP_PATH` override
+1. `MONOSUB_FFMPEG_PATH` / `MONOSUB_FFPROBE_PATH` / `MONOSUB_AUDIOCPP_PATH` /
+   `MONOSUB_LLAMACPP_PATH` override
 2. Dev checkout: `src-tauri/resources/bin/`
 3. Next to the executable
 4. `<Contents>/Resources/resources/bin/` (app bundle)
 5. System paths / `PATH` (ffmpeg only)
 
 Names use the `<name>-<target-triple>` convention, e.g.
-`audiocpp_cli-aarch64-apple-darwin`.
+`audiocpp_cli-aarch64-apple-darwin` and `llama-server-aarch64-apple-darwin`.
+
+`llama-server`'s libraries must sit **flat in `resources/bin/`**, next to the executable —
+its only `LC_RPATH` is `@loader_path`. ffmpeg's dylibs live in `bin/lib/` and are resolved
+by ffmpeg's own rpath; the two layouts must not be merged.
 
 ### Model Storage
 
@@ -471,6 +603,17 @@ persisted to `<app_config_dir>/settings.json`, or `MONOSUB_MODELS_DIR`): models 
 the downloader, so they can never disagree. `is_installed` checks file
 existence plus size match and deliberately **never hashes** — hashing a 250 MB file on
 every startup is not acceptable. Hashing happens once, after download.
+
+### Output Naming
+
+The original files are derived by `output_path_for` and are **never touched by
+translation**: the first format writes to `output_path` verbatim, later ones replace only
+the extension. Translated files are additive and go through a separate function
+`translation_output_path`, producing `<stem>.<lang>.<ext>` next to the original
+(`video.srt` → `video.en.srt`). The `<lang>` is `language::file_tag`: canonicalised
+(`zh-tw` → `zh-Hant`) and reduced to `[A-Za-z0-9-]`, so it can never contain a path
+separator or a second dot. `derive_output_paths` returns originals first and translated
+paths second, which is what makes a cancelled run clean up both.
 
 ### The `audiocpp_cli` Contract (hard-won; PoC §4.1/§4.2)
 
@@ -506,15 +649,24 @@ If the filtered attempt fails, extraction is retried once **without** `-af`.
 `engine/catalog.rs::map_language`. The CLI *accepts* 23 language tags but only
 `{auto, zh, en, yue, ja, ko, nospeech}` map to a real token; everything else silently
 becomes `auto`. The mapping therefore happens on our side: `zh-tw` → `zh`, and
-`es`/`de`/`fr`/`pt` → `auto`. Neither engine has ever converted to Traditional.
+`es`/`de`/`fr`/`pt` → `auto`. **Recognition** has never converted to Traditional.
+
+Translation is the one place `zh` and traditional Chinese are distinct targets: the
+translation model is prompted with the target's script (`zh` vs `zh-Hant`) and can convert
+between them, so `zh-tw` → `en` and `zh` → `zh-tw` are both real translation jobs
+(`translate/language.rs`).
 
 ### Cancellation
 
 `cancel_transcription` aborts the task and then awaits it, so cleanup is
 deterministic. The CLI child dies via `kill_on_drop`, and `engine::transcribe` owns a
 `Drop` guard for its temp directory — aborting the task is sufficient for both.
+The `llama-server` child is reclaimed the same way: the translation stage owns a
+`LlamaServer` whose `Drop` kills it, so an abort mid-translation leaves no orphan.
 Partially written subtitle files are removed **only if their mtime is at or after the
-task start**, so a pre-existing subtitle the user already had is not destroyed.
+task start**, so a pre-existing subtitle the user already had is not destroyed. That
+list is `derive_output_paths`, which includes the translated `<stem>.<lang>.<ext>` paths
+when translation is on — so a cancelled run does not leave a newer translated file behind.
 
 ### Stale Closure Prevention
 
@@ -539,6 +691,7 @@ useEffect(() => {
 | `MONOSUB_FFMPEG_PATH` | Override the FFmpeg binary path |
 | `MONOSUB_FFPROBE_PATH` | Override the FFprobe binary path |
 | `MONOSUB_AUDIOCPP_PATH` | Override the audio.cpp CLI path |
+| `MONOSUB_LLAMACPP_PATH` | Override the llama.cpp `llama-server` path |
 | `MONOSUB_MODELS_DIR` | Override the models directory (wins over the in-app setting) |
 | `APPLE_SIGNING_IDENTITY` | Code signing identity (optional) |
 | `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Notarization credentials (optional) |
@@ -552,8 +705,9 @@ useEffect(() => {
 3. **Path safety**: model file paths are validated against directory traversal before
    any download destination or deletion is honoured
 4. **File system access**: limited to user-selected directories and app data
-5. **Subprocess isolation**: the inference binary runs as a separate process with
-   `stdin` closed and no inherited environment secrets
+5. **Subprocess isolation**: both inference binaries run as separate child processes with
+   `stdin` closed and no inherited environment secrets; `llama-server` listens only on
+   `127.0.0.1` and is killed with its task
 
 ---
 
@@ -569,6 +723,12 @@ What still matters is honesty about provenance:
 
 - `audiocpp_cli` is **Apache-2.0**, so its LICENSE text must ship with the app —
   see `src-tauri/resources/licenses/`.
+- `llama-server` (and its dylibs) is **MIT**; its LICENSE text ships with the app as
+  `resources/licenses/llama.cpp-LICENSE`.
+- **HY-MT1.5-1.8B** is *not* bundled: it is downloaded on demand and recorded for
+  attribution only (`Tencent HY Community License Agreement`, release date 2025-12-30,
+  licence text: <https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/blob/main/License.txt>).
+  It is never re-hosted.
 - Each catalogue entry names its licence (`licenses[]` / `license`) and its
   `attribution`; the About page surfaces them.
 - Adding a bundled component means updating
@@ -594,9 +754,15 @@ What still matters is honesty about provenance:
 ./scripts/build/fetch-audiocpp.sh
 ```
 
+**llama-server missing / translation reports `engineMissing`:**
+```bash
+./scripts/build/fetch-llamacpp.sh
+```
+
 **Model missing:** the app reports `MODEL_NOT_INSTALLED`; download it from
-Settings → Models. Models can also be placed manually under
-`<app_data_dir>/models/<target_directory>/`.
+Settings → Models. A missing *translation* model reports the same sentinel with its id
+(`MODEL_NOT_INSTALLED:<id>`) and points at Settings → Translation. Models can also be
+placed manually under `<app_data_dir>/models/<target_directory>/`.
 
 **FFmpeg not found:**
 ```bash
@@ -625,10 +791,14 @@ cd src-tauri && cargo clean && cargo build
 ## Resources
 
 - [Tauri Documentation](https://tauri.app/)
-- [audio.cpp](https://github.com/0xShug0/audio.cpp) — the inference engine
+- [audio.cpp](https://github.com/0xShug0/audio.cpp) — the recognition engine
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) — the translation engine
 - [FunASR / SenseVoice](https://github.com/modelscope/FunASR) — model family
+- [Hunyuan MT](https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF) — the translation model
 - [Tailwind CSS](https://tailwindcss.com/)
 - [Zustand Documentation](https://github.com/pmndrs/zustand)
 - `docs/tech-spec/refactor-audiocpp.md` — the refactor spec
 - `docs/tech-spec/audiocpp-poc.md` — measured CLI behaviour
 - `docs/tech-spec/audiocpp-accuracy-p1-23.md` — accuracy + VAD tuning evidence
+- `docs/tech-spec/translation-design.md` — translation design
+- `docs/tech-spec/translation-poc.md` — measured llama.cpp / HY-MT behaviour

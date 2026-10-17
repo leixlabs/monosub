@@ -23,6 +23,11 @@ sign_app() {
         if [ -n "$APP_PATH" ]; then
             # audio.cpp 与 ffmpeg 以 adhoc/linker-signed 状态分发（PoC §2），必须在签 App 的
             # 外壳之前对每个内嵌可执行文件单独重签，否则 hardened runtime 下公证会失败。
+            #
+            # llama.cpp 同理：llama-server-* 与它的 lib*.dylib 都直接放在这个目录里
+            # （不进 bin/lib/，因为 llama-server 的 LC_RPATH 只有 @loader_path），
+            # 因此下面的 "*" 循环已经覆盖了它们。不要再加第二个循环，否则同一批文件
+            # 会被重签两次。ffmpeg 的 bin/lib/ 仍然由它自己那套签名规则处理，不受影响。
             RESOURCE_BIN_DIR="$APP_PATH/Contents/Resources/resources/bin"
             if [ -d "$RESOURCE_BIN_DIR" ]; then
                 for bundled_bin in "$RESOURCE_BIN_DIR"/*; do

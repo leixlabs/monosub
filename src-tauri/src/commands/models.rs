@@ -71,10 +71,17 @@ pub struct ModelLicenseStatus {
 /// `list_models` payload: the manifest entry plus its install state, flat, so
 /// the frontend can render model metadata and download size without another
 /// round trip.
+///
+/// Field names stay snake_case, as they always have: `ModelStatus` carries no
+/// `rename_all`, and the frontend (`src/lib/models.ts`) already reads
+/// `display_name` / `size_on_disk` / `produces_text` verbatim. Switching the
+/// whole payload to camelCase would silently break every existing field, so the
+/// new ones follow the same convention instead.
 #[derive(Debug, Clone, Serialize)]
 pub struct ModelStatus {
     pub id: String,
-    /// audio.cpp `family`, e.g. `sense_asr`.
+    /// audio.cpp `family` for recognition models; a prompt-template hint for a
+    /// `llamacpp` translate model (translation-design §9).
     pub family: String,
     pub display_name: String,
     /// Directory under `<app_data_dir>/models/` that `remove_model` deletes.
@@ -91,8 +98,14 @@ pub struct ModelStatus {
     // --- v2 capability fields (design §7.6): drive UI grouping and the
     // "can this plan run?" checks without a second round trip. ---
     /// `roles` as declared in `models.json` (`asr` / `vad` / `align` / `diar` /
-    /// `passthrough`); empty means the v1 fallback `["asr"]`.
+    /// `passthrough` / `translate`); empty means the v1 fallback `["asr"]`.
     pub roles: Vec<String>,
+    /// Inference engine: `audiocpp` (recognition) or `llamacpp` (translation),
+    /// so the UI can group the two lists apart (translation-design §9).
+    pub engine: String,
+    /// Prompt-template kind for a translate model (e.g. `hy_mt`); `null` for
+    /// recognition models.
+    pub prompt_template: Option<String>,
     /// Effective timestamps grade: `none` / `turns` / `segment` / `word`.
     pub timestamps: String,
     /// Effective diarization grade: `none` / `turns` / `turns_with_text`.
@@ -146,6 +159,8 @@ impl ModelStatus {
                 .collect(),
             attribution: spec.attribution,
             roles,
+            engine: spec.engine.as_str().to_string(),
+            prompt_template: spec.prompt_template,
             timestamps: capabilities.timestamps.as_str().to_string(),
             diarization: capabilities.diarization.as_str().to_string(),
             produces_text: capabilities.produces_text,
@@ -917,6 +932,85 @@ mod tests {
     #[test]
     fn model_not_installed_sentinel_is_the_documented_literal() {
         assert_eq!(MODEL_NOT_INSTALLED, "MODEL_NOT_INSTALLED");
+    }
+
+    /// The list payload keeps its snake_case field names — including the new
+    /// `engine` / `prompt_template` — because `src/lib/models.ts` and every
+    /// existing UI reader spell them that way. Regression: adding
+    /// `rename_all = "camelCase"` here would rename `display_name`,
+    /// `size_on_disk` and `produces_text` at the same time.
+    #[test]
+    fn list_models_payload_spells_engine_and_prompt_template() {
+        let spec = ModelSpec {
+            id: "hy_mt_1_8b_q4_k_m".to_string(),
+            family: "hy_mt".to_string(),
+            display_name: "HY-MT1.5-1.8B (Q4_K_M)".to_string(),
+            target_directory: "HY-MT1.5-1.8B-GGUF".to_string(),
+            model_file: "HY-MT1.5-1.8B-Q4_K_M.gguf".to_string(),
+            files: Vec::new(),
+            languages: vec!["zh".to_string(), "en".to_string()],
+            license: "Tencent HY Community License Agreement".to_string(),
+            attribution: None,
+            capabilities_raw: None,
+            roles: vec![catalog::Role::Translate],
+            engine: catalog::Engine::Llamacpp,
+            prompt_template: Some("hy_mt".to_string()),
+            speed: None,
+            source: None,
+            tier: None,
+            licenses: Vec::new(),
+        };
+
+        let status = ModelStatus::from_catalog(catalog::ModelStatus {
+            spec,
+            installed: false,
+            size_on_disk: 0,
+        });
+        let json = serde_json::to_value(&status).expect("serialize ModelStatus");
+
+        assert_eq!(json["engine"], "llamacpp");
+        assert_eq!(json["prompt_template"], "hy_mt");
+        assert_eq!(json["roles"][0], "translate");
+        // Untouched fields keep their existing spelling.
+        assert!(json.get("display_name").is_some());
+        assert!(json.get("displayName").is_none());
+        assert!(json.get("size_on_disk").is_some());
+        assert!(json.get("produces_text").is_some());
+    }
+
+    /// A recognition model reports the default engine and no template, so the
+    /// frontend default matches the manifest default.
+    #[test]
+    fn list_models_payload_defaults_to_audiocpp() {
+        let spec = ModelSpec {
+            id: "sensevoice_small_q8".to_string(),
+            family: "sense_asr".to_string(),
+            display_name: "SenseVoice Small (Q8)".to_string(),
+            target_directory: "SenseVoice-Small-GGUF".to_string(),
+            model_file: "sensevoice-small-q8-audiocpp-v1.gguf".to_string(),
+            files: Vec::new(),
+            languages: vec!["auto".to_string()],
+            license: "FunASR Model License v1.1".to_string(),
+            attribution: None,
+            capabilities_raw: None,
+            roles: vec![catalog::Role::Asr],
+            engine: catalog::Engine::default(),
+            prompt_template: None,
+            speed: None,
+            source: None,
+            tier: None,
+            licenses: Vec::new(),
+        };
+
+        let status = ModelStatus::from_catalog(catalog::ModelStatus {
+            spec,
+            installed: true,
+            size_on_disk: 10,
+        });
+        let json = serde_json::to_value(&status).expect("serialize ModelStatus");
+
+        assert_eq!(json["engine"], "audiocpp");
+        assert!(json["prompt_template"].is_null());
     }
 
     #[test]

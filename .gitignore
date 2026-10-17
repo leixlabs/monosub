@@ -48,7 +48,10 @@ core-engine/models/*
 
 # Tauri
 src-tauri/target/
-# Bundled binaries and models are fetched by scripts/build/fetch-audiocpp.sh
+# Bundled binaries and models are fetched by the resource scripts
+# (fetch-audiocpp.sh for the audio.cpp CLI + Silero VAD, fetch-llamacpp.sh for
+# llama-server and its dylibs). The pattern covers those artifacts and nothing
+# else, so the flat `lib*.dylib` files in bin/ need no extra rule.
 src-tauri/resources/*
 # The model catalogue is source, not a fetched artifact
 !src-tauri/resources/models.json

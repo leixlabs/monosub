@@ -13,6 +13,20 @@ MonoSub bundles or depends on the following third-party components.
 The Apache License 2.0 permits redistribution provided the license text and
 copyright notice are included; `audio.cpp-LICENSE` contains both.
 
+## llama.cpp
+
+- Version: b11696 (rolling build)
+- Source: https://github.com/ggml-org/llama.cpp
+- License: MIT — full text in `llama.cpp-LICENSE`
+- Bundled as: `bin/llama-server-*` plus its `libllama*` / `libggml*` / `libmtmd*`
+  dylibs (flat in `bin/`, because the executable's only `LC_RPATH` is
+  `@loader_path`). The tarball's other executables (`llama-cli`,
+  `llama-tokenize`, …) are deliberately not bundled.
+- Modifications: none (unmodified upstream binary)
+- Runs as a separate child process, never linked into the app: audio.cpp and
+  llama.cpp each carry their own ggml, and linking both into one process would
+  conflict (translation-design §11).
+
 ## Silence detection model (Silero VAD)
 
 - File: `models/silero_vad/silero_vad_16k.safetensors`
@@ -64,6 +78,18 @@ copyright notice are included; `audio.cpp-LICENSE` contains both.
 - License: FunASR Model License v1.1
 - Required attribution: model name "Fun-ASR-Nano", produced by FunAudioLLM.
 - No timestamps and no speaker output are exposed by the audio.cpp port.
+
+## HY-MT1.5-1.8B (translation model)
+
+- Not bundled — downloaded by the user at runtime, at the user's request.
+- Source (GGUF): https://www.modelscope.cn/models/Tencent-Hunyuan/HY-MT1.5-1.8B-GGUF
+  (mirrors: https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF,
+  https://hf-mirror.com/tencent/HY-MT1.5-1.8B-GGUF)
+- Upstream: Tencent Hunyuan — HY-MT1.5-1.8B, licence release date 2025-12-30
+- License: Tencent HY Community License Agreement
+  (https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/blob/main/License.txt)
+- Required attribution: model name "HY-MT1.5-1.8B", produced by Tencent Hunyuan.
+- Run by the bundled `llama-server` (llama.cpp), not by audio.cpp.
 
 ## FFmpeg
 

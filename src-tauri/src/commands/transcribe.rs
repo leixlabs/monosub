@@ -19,12 +19,13 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
-use crate::engine::catalog::Speed;
+use crate::engine::catalog::{ModelSpec, Speed};
 use crate::engine::plan::{
     self, ModelPlan, Requirements, StepKind,
 };
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
+use crate::translate;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StepInfo {
@@ -63,17 +64,34 @@ pub struct TranscribeRequest {
     pub speed_preference: Option<String>,
     /// Manual `role -> model_id` overrides.
     pub model_overrides: Option<HashMap<String, String>>,
+    // --- translation (translation-design §7). All optional so an older
+    // frontend that sends none of them translates nothing, exactly as before. ---
+    /// Whether the user turned translation on for this run.
+    pub translate_enabled: Option<bool>,
+    /// Target language as the frontend spells it (`en`, `zh-tw`, …).
+    pub target_language: Option<String>,
+    /// Explicit translation-model id; absent means the catalogue default.
+    pub translation_model: Option<String>,
 }
 
 /// Step names are part of the frozen contract: `FileItem.tsx` derives the i18n
 /// key as `steps.<lowercase, spaces → _>`, so the wording must not change.
-const STEP_NAMES: [&str; 4] = [
+///
+/// `Translating` was APPENDED (translation-design §7). The first four keep their
+/// exact spelling: adding a name is a new i18n key, renaming one would silently
+/// blank an existing step on every file in every queue.
+const STEP_NAMES: [&str; 5] = [
     "Extracting audio",
     "Loading model",
     "Transcribing",
     "Writing subtitle",
+    "Translating",
 ];
-const TOTAL_STEPS: u32 = 4;
+
+/// Steps a run that does not translate emits — the pre-translation contract.
+const STEPS_WITHOUT_TRANSLATION: u32 = 4;
+/// Steps a run that translates emits (translation-design §7).
+const STEPS_WITH_TRANSLATION: u32 = 5;
 
 /// ffmpeg filter chain of the previous engine, reproduced verbatim.
 ///
@@ -117,7 +135,24 @@ struct TaskParams {
     backend: Backend,
     /// The plan this run must execute (design §7.2 / M8-4).
     plan: ModelPlan,
+    /// Resolved before anything is spawned, so `transcribe_file` never has to
+    /// re-decide whether this run translates (translation-design §6).
+    translation: Option<TranslationPlan>,
     completed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// The translation stage, decided at request time.
+///
+/// `model_path` is resolved here rather than in `transcribe_file` so the
+/// pre-flight can fail the request before a single process is spawned.
+#[derive(Debug)]
+struct TranslationPlan {
+    model_id: String,
+    model_path: PathBuf,
+    /// The catalogue entry, which carries the prompt-template kind.
+    model: ModelSpec,
+    /// Target language as the frontend spelled it.
+    target: String,
 }
 
 /// A failure that has already been turned into user-showable text.
@@ -160,6 +195,9 @@ pub async fn start_transcription(
         require_word_timestamps,
         speed_preference,
         model_overrides,
+        translate_enabled,
+        target_language,
+        translation_model,
     } = request;
 
     let format = format.unwrap_or_else(|| "srt".to_string());
@@ -266,7 +304,35 @@ pub async fn start_transcription(
 
     let input = PathBuf::from(path);
     let output = PathBuf::from(output_path);
-    let outputs = derive_output_paths(&output, &formats);
+
+    // Translation pre-flight (T4-3, translation-design §6): when translation is
+    // on AND it will actually run, the chosen model must be in the catalogue and
+    // installed BEFORE the ASR run starts. Otherwise the user would wait out a
+    // whole transcription and only then be told to download a model.
+    //
+    // The source language is the request's own `auto`-able value here: an `auto`
+    // source always translates (§5), so nothing is skipped on a guess.
+    let translation = match resolve_translation(
+        &catalogue,
+        &language,
+        translate_enabled,
+        target_language.as_deref(),
+        translation_model.as_deref(),
+        &installed,
+        &|id: &str| engine::catalog::model_path(&app, id).ok().flatten(),
+    ) {
+        Ok(translation) => translation,
+        Err(status) => {
+            tracing::warn!(task_id = %task_id, status = %status, "translation pre-flight rejected the request");
+            return Err(status);
+        }
+    };
+
+    let outputs = derive_output_paths(
+        &output,
+        &formats,
+        translation.as_ref().map(|plan| plan.target.as_str()),
+    );
 
     {
         let mut tasks = TASKS.lock().await;
@@ -290,6 +356,7 @@ pub async fn start_transcription(
         model_id: primary_model_id,
         backend,
         plan,
+        translation,
         completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
     };
     let app_for_task = app.clone();
@@ -342,6 +409,111 @@ pub async fn cancel_transcription(task_id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Resolve the translation stage for a request, or reject it clearly.
+///
+/// Returns `Ok(None)` whenever translation is off or would not run — including
+/// the same-language case — so nothing is downloaded or spawned for a run that
+/// has nothing to do. Returns `Err("MODEL_NOT_INSTALLED:<id>")` exactly like a
+/// recognition model, which is what routes the user to the download list.
+///
+/// `installed` and `model_file` are injected so the whole gate is a pure
+/// function of (catalogue, install state, paths) and can be unit-tested without
+/// a Tauri `AppHandle` or a real models directory.
+fn resolve_translation(
+    catalogue: &[ModelSpec],
+    source_language: &str,
+    enabled: Option<bool>,
+    target: Option<&str>,
+    model_id: Option<&str>,
+    installed: &dyn Fn(&str) -> bool,
+    model_file: &dyn Fn(&str) -> Option<PathBuf>,
+) -> Result<Option<TranslationPlan>, String> {
+    if !enabled.unwrap_or(false) {
+        return Ok(None);
+    }
+    let target = target.unwrap_or_default();
+
+    // `language` may be `auto`; the ASR's own tag (and the fallback rule) decides
+    // later whether the real source equals the target. Here only an EXPLICIT
+    // equal pair is short-circuited, because skipping on a guess would silently
+    // drop a translation the user asked for (translation-design §5).
+    if canonical_source_equals_target(source_language, target) {
+        tracing::info!(
+            source = %source_language,
+            target = %target,
+            "translation skipped: source and target are the same language"
+        );
+        return Ok(None);
+    }
+    if !translate::language::should_translate(Some(source_language), target) {
+        // The source is `auto` and the target is missing/auto: nothing to ask for.
+        tracing::info!(target = %target, "translation skipped: no usable target language");
+        return Ok(None);
+    }
+
+    let model_id = match model_id.map(str::trim).filter(|id| !id.is_empty()) {
+        Some(id) => id.to_string(),
+        None => engine::catalog::default_translation_model_id(catalogue).ok_or_else(|| {
+            tracing::error!("the catalogue offers no translation model");
+            MODEL_NOT_INSTALLED.to_string()
+        })?,
+    };
+
+    let Some(model) = catalogue.iter().find(|spec| spec.id == model_id).cloned() else {
+        tracing::warn!(model = %model_id, "translation model is not in the catalogue");
+        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
+    };
+
+    // A translate entry must run on llama.cpp; anything else would be handed to
+    // `llama-server`, which cannot load an audio.cpp GGUF (design §3.2, §11).
+    if model.engine != engine::catalog::Engine::Llamacpp || !model.has_role(engine::catalog::Role::Translate)
+    {
+        tracing::warn!(
+            model = %model_id,
+            engine = %model.engine.as_str(),
+            "the chosen translation model is not a llama.cpp translate entry"
+        );
+        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
+    }
+
+    if !installed(&model_id) {
+        tracing::warn!(model = %model_id, "translation model is not installed");
+        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
+    }
+    let Some(model_path) = model_file(&model_id) else {
+        tracing::warn!(model = %model_id, "translation model has no usable file path");
+        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
+    };
+
+    tracing::info!(
+        model = %model_id,
+        target = %target,
+        path = %model_path.display(),
+        "translation enabled"
+    );
+
+    Ok(Some(TranslationPlan {
+        model_id,
+        model_path,
+        model,
+        target: target.to_string(),
+    }))
+}
+
+/// True when the two languages are the same target — `zh` and `zh-tw` are not
+/// (translation-design §9).
+///
+/// `auto`/empty is "unknown", never "the same language": treating the two as
+/// equal would silently drop a translation the user asked for.
+fn canonical_source_equals_target(source: &str, target: &str) -> bool {
+    use crate::translate::language::{canonical_tag, is_unknown_language};
+
+    if is_unknown_language(source) || is_unknown_language(target) {
+        return false;
+    }
+    source.trim().eq_ignore_ascii_case(target.trim()) || canonical_tag(source) == canonical_tag(target)
+}
+
 /// Task body: run one file end to end, then report a single outcome.
 async fn run_transcription(app: AppHandle, params: TaskParams) {
     if let Err(failure) = transcribe_file(&app, &params).await {
@@ -366,7 +538,7 @@ async fn run_transcription(app: AppHandle, params: TaskParams) {
 }
 
 async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), TaskFailure> {
-    let mut steps = Steps::new();
+    let mut steps = Steps::new(params.translation.is_some());
     emit_queued(app, &params.task_id);
 
     // Step 1: 16 kHz mono s16le WAV, cached next to the media file. Audio
@@ -507,6 +679,24 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
         );
     }
 
+    // Step 5 is the enhancement, never a precondition: the originals are on disk
+    // before it starts, so any failure here still delivers them (design §2).
+    //
+    // The TRANSCRIBE_SEMAPHORE is held across BOTH the recognition and the
+    // translation stages (T4-7): llama.cpp and audio.cpp both want the GPU, and
+    // the semaphore is what stops two queued files from running one of each at
+    // the same time.
+    if let Some(translation) = params.translation.as_ref() {
+        let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
+        steps.begin(app, &params.task_id, 5);
+        // The detected source is resolved from the RAW chunks (`T4-1` reads the
+        // ASR's `<|zh|>` tag before cleaning), so `auto` is answered by the ASR
+        // rather than by a guess (translation-design §5).
+        let detected = detected_language(&chunks, &params.language);
+        translate_and_write(app, params, translation, &segments, detected.as_deref(), &steps)
+            .await;
+    }
+
     // Exactly one completion event, after every format landed.
     params
         .completed
@@ -524,6 +714,152 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
     Ok(())
 }
 
+/// Translate the finished cues and write one file per requested format.
+///
+/// A failure here is logged and swallowed: the originals are already written and
+/// the task completes normally (design §2). `TranslationOutcome` says what
+/// happened, so a degraded run is visible in the log without being an error.
+async fn translate_and_write(
+    app: &AppHandle,
+    params: &TaskParams,
+    translation: &TranslationPlan,
+    segments: &[subtitle::Segment],
+    detected: Option<&str>,
+    steps: &Steps,
+) {
+    let on_progress = |done: usize, total: usize| {
+        let percent = if total == 0 {
+            0.0
+        } else {
+            done as f64 * 100.0 / total as f64
+        };
+        steps.progress(app, &params.task_id, percent, "Translating");
+    };
+
+    let (translated, outcome) = translate::translate_segments(
+        segments,
+        detected,
+        &translation.target,
+        &translation.model,
+        &translation.model_path,
+        Some(app),
+        on_progress,
+    )
+    .await;
+
+    if let Some(reason) = outcome.skipped {
+        // Nothing was sent, so nothing is written: an "already in the target
+        // language" file would be a misleading duplicate of the original.
+        tracing::info!(
+            task_id = %params.task_id,
+            reason = ?reason,
+            source = ?detected,
+            target = %translation.target,
+            "translation skipped"
+        );
+        return;
+    }
+
+    if outcome.degraded() {
+        tracing::warn!(
+            task_id = %params.task_id,
+            model = %translation.model_id,
+            status = outcome
+                .last_error
+                .as_ref()
+                .map(|error| error.status())
+                .unwrap_or(translate::TRANSLATION_FAILED_STATUS),
+            error = ?outcome.last_error,
+            translated = outcome.translated,
+            kept_original = outcome.kept_original,
+            "translation degraded; those cues keep their original language"
+        );
+    }
+
+    if outcome.translated == 0 {
+        // Nothing was translated, so writing `<stem>.<lang>.<ext>` would produce
+        // a file whose name promises a language it does not contain. The
+        // originals are already delivered; the warn above is the report.
+        tracing::warn!(
+            task_id = %params.task_id,
+            model = %translation.model_id,
+            "translation produced nothing; no translated file written"
+        );
+        return;
+    }
+
+    for path in write_translated_formats(
+        &params.output,
+        &params.formats,
+        &translation.target,
+        &translated,
+    ) {
+        tracing::info!(
+            task_id = %params.task_id,
+            path = %path.display(),
+            translated = outcome.translated,
+            kept_original = outcome.kept_original,
+            "Translated subtitle written"
+        );
+    }
+}
+
+/// Write one translated file per requested format next to the original.
+///
+/// Split out so the naming, the per-format loop and the write itself are
+/// testable without a Tauri handle. The caller has already established that
+/// there is something worth writing. Returns the paths actually written.
+fn write_translated_formats(
+    output: &Path,
+    formats: &[Format],
+    target_language: &str,
+    segments: &[subtitle::Segment],
+) -> Vec<PathBuf> {
+    let mut written = Vec::new();
+
+    for (index, format) in formats.iter().enumerate() {
+        let Some(path) = translation_output_path(output, index, *format, target_language) else {
+            continue;
+        };
+        match subtitle::write(segments, &path, *format) {
+            Ok(()) => written.push(path),
+            Err(error) => tracing::warn!(
+                path = %path.display(),
+                error = %error,
+                "could not write a translated subtitle file"
+            ),
+        }
+    }
+
+    written
+}
+
+/// The language a run actually recognised.
+///
+/// Preference order (translation-design §5):
+///
+/// 1. The dominant tag the ASR itself emitted (`<|zh|>`), folded across the
+///    chunks — the only source that is measured rather than inferred. It has to
+///    be read from `RawChunk::language`, which `T4-1` populated before
+///    `subtitle::postprocess::clean_text` deleted the tags; the cleaned segments
+///    no longer carry them.
+/// 2. The requested language, when it is not `auto`, so an explicit choice wins
+///    over the absence of tags (the moss / passthrough path emits none).
+/// 3. A script census over the transcript (§5's "简单的文字脚本统计兜底"). This
+///    is the only case the census exists for: `auto` was requested AND the model
+///    gave no tag, which is exactly the passthrough path.
+/// 4. `None` — genuinely unknown. The caller then translates rather than skips.
+fn detected_language(chunks: &[engine::RawChunk], requested: &str) -> Option<String> {
+    let tags = chunks.iter().map(|chunk| chunk.language.as_deref());
+    if let Some(tag) = crate::subtitle::postprocess::dominant_language(tags) {
+        return Some(tag);
+    }
+    if !translate::language::is_unknown_language(requested) {
+        return Some(requested.to_string());
+    }
+    translate::language::detect_by_script(chunks.iter().map(|chunk| chunk.text.as_str()))
+}
+
 /// Emits the exported step transitions with real elapsed seconds.
 ///
 /// The previous implementation fed `step_elapsed`/`total_elapsed` from the
@@ -532,19 +868,31 @@ struct Steps {
     start: Instant,
     step_start: Instant,
     current: u32,
+    /// How many steps THIS run emits: 4 normally, 5 when it translates. Carried
+    /// per run rather than read from a constant, because the frontend renders
+    /// `current/total` and a fixed 4 would show "5/4" on a translating run
+    /// (translation-design §7).
+    total: u32,
 }
 
 impl Steps {
-    fn new() -> Self {
+    /// `translating` decides the total up front, so the very first step event
+    /// already carries the right denominator.
+    fn new(translating: bool) -> Self {
         let now = Instant::now();
         Self {
             start: now,
             step_start: now,
             current: 0,
+            total: if translating {
+                STEPS_WITH_TRANSLATION
+            } else {
+                STEPS_WITHOUT_TRANSLATION
+            },
         }
     }
 
-    /// Enter `step` (1..=4) and emit its transition event.
+    /// Enter `step` (1..=5) and emit its transition event.
     fn begin(&mut self, app: &AppHandle, task_id: &str, step: u32) {
         self.current = step;
         self.step_start = Instant::now();
@@ -565,7 +913,7 @@ impl Steps {
                 status: status.to_string(),
                 step: Some(StepInfo {
                     current_step: self.current,
-                    total_steps: TOTAL_STEPS,
+                    total_steps: self.total,
                     // Never taken from `status`: the i18n keys depend on it.
                     step_name: step_name(self.current).to_string(),
                     step_elapsed: self.step_start.elapsed().as_secs_f64(),
@@ -844,6 +1192,10 @@ fn parse_formats(value: &str) -> Result<Vec<Format>, String> {
 
 /// The first format writes to `output_path` verbatim, each later one replaces
 /// only the extension (`os.path.splitext` semantics).
+///
+/// This is the ORIGINAL subtitle's rule and is untouched by translation: the
+/// translated files use [`translation_output_path`] instead (translation-design
+/// §9), so enabling translation can never move or rename an original.
 fn output_path_for(output_path: &Path, index: usize, format: Format) -> PathBuf {
     if index == 0 {
         return output_path.to_path_buf();
@@ -853,12 +1205,68 @@ fn output_path_for(output_path: &Path, index: usize, format: Format) -> PathBuf 
     path
 }
 
-fn derive_output_paths(output_path: &Path, formats: &[Format]) -> Vec<PathBuf> {
-    formats
+/// `<stem>.<lang>.<ext>` next to the original (translation-design §7).
+///
+/// The first format keeps the original's exact extension (like
+/// [`output_path_for`]), later ones replace it. `None` when a path has no file
+/// name at all, in which case there is nowhere to put a translation.
+fn translation_output_path(
+    output_path: &Path,
+    index: usize,
+    format: Format,
+    target_language: &str,
+) -> Option<PathBuf> {
+    let stem = output_path.file_stem()?.to_string_lossy().into_owned();
+    let extension = if index == 0 {
+        output_path
+            .extension()
+            .map(|extension| extension.to_string_lossy().into_owned())
+            .unwrap_or_else(|| format.extension().to_string())
+    } else {
+        format.extension().to_string()
+    };
+    let name = format!(
+        "{}.{}.{}",
+        stem,
+        translate::language::file_tag(target_language),
+        extension
+    );
+
+    Some(match output_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent.join(name),
+        _ => PathBuf::from(name),
+    })
+}
+
+/// Every path a run may write: the originals first, then — when translation is
+/// on — the translated files.
+///
+/// The cancellation cleanup uses this list, so a cancelled run cannot leave a
+/// translated file behind (T4-6). The mtime rule in [`remove_partial_outputs`]
+/// is what keeps a pre-existing file safe, and it is deliberately unchanged.
+fn derive_output_paths(
+    output_path: &Path,
+    formats: &[Format],
+    target_language: Option<&str>,
+) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = formats
         .iter()
         .enumerate()
         .map(|(index, format)| output_path_for(output_path, index, *format))
-        .collect()
+        .collect();
+
+    if let Some(target) = target_language {
+        paths.extend(
+            formats
+                .iter()
+                .enumerate()
+                .filter_map(|(index, format)| {
+                    translation_output_path(output_path, index, *format, target)
+                }),
+        );
+    }
+
+    paths
 }
 
 /// Map `fast` / `balanced` / `accurate`; anything else is `Balanced`.
@@ -984,6 +1392,265 @@ mod tests {
 
     // --- M8: request → solver requirement mapping -------------------------
 
+    /// A request that omits the translation fields must decode to "no
+    /// translation" — the old-frontend contract (T4-2).
+    #[test]
+    fn request_without_translation_fields_decodes_to_none() {
+        let request: TranscribeRequest = serde_json::from_str(
+            r#"{
+              "id": "t1",
+              "path": "/media/clip.mov",
+              "output_path": "/media/clip.srt",
+              "format": "srt",
+              "language": "zh"
+            }"#,
+        )
+        .expect("an old request still decodes");
+
+        assert_eq!(request.translate_enabled, None);
+        assert_eq!(request.target_language, None);
+        assert_eq!(request.translation_model, None);
+
+        // ...and that decodes into "do not translate", before any catalogue or
+        // disk access.
+        let result = resolve_translation(
+            &[],
+            "zh",
+            request.translate_enabled,
+            request.target_language.as_deref(),
+            request.translation_model.as_deref(),
+            &|_| true,
+            &|_| Some(PathBuf::from("/models/none.gguf")),
+        );
+        assert!(result.unwrap().is_none());
+    }
+
+    /// A catalogue holding just the committed translate entry, plus install and
+    /// path predicates a test controls.
+    fn translation_fixture() -> Vec<ModelSpec> {
+        let path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let catalogue = engine::catalog::load_catalog(path).expect("committed models.json");
+        assert!(
+            engine::catalog::default_translation_model_id(&catalogue).is_some(),
+            "the committed catalogue must offer a translation model"
+        );
+        catalogue
+    }
+
+    /// The whole pre-flight gate, including the `MODEL_NOT_INSTALLED:<id>` error
+    /// the frontend routes on (T4-3).
+    #[test]
+    fn preflight_requires_an_installed_translation_model() {
+        let catalogue = translation_fixture();
+        let default_id = engine::catalog::default_translation_model_id(&catalogue).unwrap();
+        let file = |id: &str| Some(PathBuf::from(format!("/models/{}.gguf", id)));
+
+        // Enabled, a real language pair, model installed: a plan comes back.
+        let plan = resolve_translation(
+            &catalogue,
+            "zh",
+            Some(true),
+            Some("en"),
+            None,
+            &|id| id == default_id,
+            &file,
+        )
+        .expect("installed model passes the pre-flight")
+        .expect("translation is planned");
+        assert_eq!(plan.model_id, default_id);
+        assert_eq!(plan.target, "en");
+        assert_eq!(plan.model.prompt_template.as_deref(), Some("hy_mt"));
+
+        // Not installed: the exact sentinel the download UI matches on.
+        let status = resolve_translation(
+            &catalogue,
+            "zh",
+            Some(true),
+            Some("en"),
+            None,
+            &|_| false,
+            &file,
+        )
+        .unwrap_err();
+        assert_eq!(status, format!("{}:{}", MODEL_NOT_INSTALLED, default_id));
+        assert!(status.starts_with(MODEL_NOT_INSTALLED));
+
+        // Installed but with no file path: still a missing model, never a panic.
+        let status = resolve_translation(
+            &catalogue,
+            "zh",
+            Some(true),
+            Some("en"),
+            None,
+            &|_| true,
+            &|_| None,
+        )
+        .unwrap_err();
+        assert_eq!(status, format!("{}:{}", MODEL_NOT_INSTALLED, default_id));
+
+        // An explicit id that the catalogue does not know is rejected the same way.
+        let status = resolve_translation(
+            &catalogue,
+            "zh",
+            Some(true),
+            Some("en"),
+            Some("no_such_model"),
+            &|_| true,
+            &file,
+        )
+        .unwrap_err();
+        assert_eq!(status, format!("{}:no_such_model", MODEL_NOT_INSTALLED));
+
+        // An explicitly chosen RECOGNITION model must be refused: it runs on
+        // audio.cpp, so llama-server could not load it (design §11).
+        let status = resolve_translation(
+            &catalogue,
+            "zh",
+            Some(true),
+            Some("en"),
+            Some("sensevoice_small_q8"),
+            &|_| true,
+            &file,
+        )
+        .unwrap_err();
+        assert_eq!(
+            status,
+            format!("{}:sensevoice_small_q8", MODEL_NOT_INSTALLED)
+        );
+    }
+
+    /// The skipped cases must never reach the model gate, so a same-language run
+    /// cannot demand a download (T4-3, translation-design §5).
+    #[test]
+    fn preflight_skips_when_translation_would_not_run() {
+        let catalogue = translation_fixture();
+        // Nothing is installed and no path resolves: any model access would fail.
+        let nothing_installed = |_: &str| false;
+        let no_path = |_: &str| None;
+
+        let skipped = |enabled: Option<bool>, source: &str, target: Option<&str>| {
+            resolve_translation(&catalogue, source, enabled, target, None, &nothing_installed, &no_path)
+                .expect("a skipped run is not an error")
+                .is_none()
+        };
+
+        assert!(skipped(None, "zh", Some("en")), "flag absent");
+        assert!(skipped(Some(false), "zh", Some("en")), "flag off");
+        assert!(skipped(Some(true), "zh", Some("zh")), "same language");
+        assert!(skipped(Some(true), "zh", Some("ZH")), "same language, other case");
+        assert!(skipped(Some(true), "zh-tw", Some("zh-Hant")), "same script");
+        assert!(skipped(Some(true), "zh", None), "no target");
+        assert!(skipped(Some(true), "zh", Some("auto")), "auto target");
+        assert!(skipped(Some(true), "zh", Some("  ")), "blank target");
+
+        // `auto` as a source is unknown, so it must NOT be skipped: a run that
+        // needs translating would otherwise be dropped on a guess.
+        let status = resolve_translation(
+            &catalogue,
+            "auto",
+            Some(true),
+            Some("en"),
+            None,
+            &nothing_installed,
+            &no_path,
+        )
+        .unwrap_err();
+        assert!(status.starts_with(MODEL_NOT_INSTALLED), "{status}");
+
+        // zh vs zh-tw is a real translation in both directions (design §9).
+        let status = resolve_translation(
+            &catalogue,
+            "zh",
+            Some(true),
+            Some("zh-tw"),
+            None,
+            &nothing_installed,
+            &no_path,
+        )
+        .unwrap_err();
+        assert!(status.starts_with(MODEL_NOT_INSTALLED), "{status}");
+    }
+
+    /// A catalogue with no translate entry at all must fail the pre-flight with
+    /// the bare sentinel rather than planning a run it cannot perform.
+    #[test]
+    fn preflight_without_any_translation_model_is_a_clear_error() {
+        let recognition_only: Vec<ModelSpec> = translation_fixture()
+            .into_iter()
+            .filter(|spec| !spec.has_role(engine::catalog::Role::Translate))
+            .collect();
+
+        let status = resolve_translation(
+            &recognition_only,
+            "zh",
+            Some(true),
+            Some("en"),
+            None,
+            &|_| true,
+            &|_| Some(PathBuf::from("/models/x.gguf")),
+        )
+        .unwrap_err();
+        assert_eq!(status, MODEL_NOT_INSTALLED);
+    }
+
+    /// An explicitly identical source/target pair is recognised before the model
+    /// gate — including the `zh-tw` → `zh-Hant` equivalence, which must NOT be
+    /// confused with `zh-tw` → `zh`.
+    #[test]
+    fn same_language_pair_is_recognised_before_the_model_gate() {
+        assert!(canonical_source_equals_target("zh", "zh"));
+        assert!(canonical_source_equals_target("zh", "ZH"));
+        assert!(canonical_source_equals_target("zh-tw", "zh-Hant"));
+        assert!(canonical_source_equals_target("zh_Hant", "zh-tw"));
+        // ...while a genuinely different pair proceeds to the model gate.
+        assert!(!canonical_source_equals_target("zh", "en"));
+        assert!(!canonical_source_equals_target("zh", "zh-tw"));
+        assert!(!canonical_source_equals_target("auto", "auto"));
+        assert!(!canonical_source_equals_target("", "auto"));
+        assert!(!canonical_source_equals_target("zh", ""));
+    }
+
+    /// The detected source language prefers the ASR's own tag, falls back to an
+    /// explicit request, then to a script census, and finally reports `None`
+    /// (⇒ translate anyway) — the moss path (translation-design §5).
+    #[test]
+    fn detected_language_prefers_the_asr_tag_then_the_request_then_the_script() {
+        let chunk = |language: Option<&str>, text: &str| engine::RawChunk {
+            start_s: 0.0,
+            end_s: 1.0,
+            text: text.to_string(),
+            speaker: None,
+            language: language.map(str::to_string),
+        };
+
+        // The tag wins, even over a contradicting request.
+        let chunks = vec![
+            chunk(Some("zh"), "你好"),
+            chunk(Some("zh"), "世界"),
+            chunk(Some("en"), "hello"),
+        ];
+        assert_eq!(detected_language(&chunks, "en").as_deref(), Some("zh"));
+
+        // No tags: an explicit request answers.
+        let chunks = vec![chunk(None, "你好"), chunk(None, "世界")];
+        assert_eq!(detected_language(&chunks, "ja").as_deref(), Some("ja"));
+
+        // No tags AND `auto`: the script census is the last resort, and it does
+        // NOT override an explicit request (checked above).
+        assert_eq!(detected_language(&chunks, "auto").as_deref(), Some("zh"));
+        let korean = vec![chunk(None, "안녕하세요")];
+        assert_eq!(detected_language(&korean, "auto").as_deref(), Some("ko"));
+
+        // Even the census can be inconclusive: `None`, which means translate
+        // anyway rather than skip on a guess.
+        let latin = vec![chunk(None, "hello there")];
+        assert_eq!(detected_language(&latin, "auto"), None);
+        assert_eq!(detected_language(&[], "auto"), None);
+    }
+
     #[test]
     fn speed_request_mapping_defaults_to_balanced() {
         assert_eq!(speed_from_request(Some("fast")), Speed::Fast);
@@ -1016,6 +1683,8 @@ mod tests {
                 attribution: None,
                 capabilities_raw: None,
                 roles: Vec::new(),
+                engine: crate::engine::catalog::Engine::default(),
+                prompt_template: None,
                 speed: None,
                 source: None,
                 tier: None,
@@ -1041,7 +1710,6 @@ mod tests {
             capabilities: crate::engine::catalog::Capabilities::default(),
             gaps: Vec::new(),
         }];
-
         let mut overrides = HashMap::new();
         overrides.insert("diar".to_string(), "sortformer_diar_4spk_q8_0".to_string());
         overrides.insert("asr".to_string(), "does_not_exist".to_string());
@@ -1167,13 +1835,178 @@ mod tests {
     fn derives_one_output_path_per_requested_format() {
         let formats = vec![Format::Srt, Format::Vtt, Format::Txt];
         assert_eq!(
-            derive_output_paths(Path::new("/media/clip.srt"), &formats),
+            derive_output_paths(Path::new("/media/clip.srt"), &formats, None),
             vec![
                 PathBuf::from("/media/clip.srt"),
                 PathBuf::from("/media/clip.vtt"),
                 PathBuf::from("/media/clip.txt"),
             ]
         );
+    }
+
+    /// The delivery half of step 5: one translated file per requested format,
+    /// next to the original, with the original files untouched (T4-4, design §7).
+    #[test]
+    fn translated_files_are_written_next_to_the_originals() {
+        let dir = scratch_dir("translate-write");
+        let output = dir.join("clip.srt");
+        let formats = vec![Format::Srt, Format::Vtt, Format::Json];
+        let original = vec![subtitle::Segment {
+            start: 0.0,
+            end: 1.0,
+            text: "<原文>".to_string(),
+            speaker: Some("Speaker A".to_string()),
+        }];
+
+        // What the original stage would already have written.
+        for (index, format) in formats.iter().enumerate() {
+            subtitle::write(&original, &output_path_for(&output, index, *format), *format).unwrap();
+        }
+        let originals_before: Vec<String> = formats
+            .iter()
+            .enumerate()
+            .map(|(index, format)| {
+                std::fs::read_to_string(output_path_for(&output, index, *format)).unwrap()
+            })
+            .collect();
+
+        let translated = vec![subtitle::Segment {
+            start: 0.0,
+            end: 1.0,
+            text: "<translated>".to_string(),
+            speaker: Some("Speaker A".to_string()),
+        }];
+        let written = write_translated_formats(&output, &formats, "en", &translated);
+
+        assert_eq!(
+            written,
+            vec![
+                dir.join("clip.en.srt"),
+                dir.join("clip.en.vtt"),
+                dir.join("clip.en.json"),
+            ]
+        );
+        assert!(written.iter().all(|path| path.is_file()));
+        let english = std::fs::read_to_string(dir.join("clip.en.srt")).unwrap();
+        assert!(english.contains("<translated>"), "{english}");
+        assert!(
+            english.contains("[Speaker A]: "),
+            "the speaker label must survive translation: {english}"
+        );
+
+        // The originals are byte-identical to what they were.
+        for (index, format) in formats.iter().enumerate() {
+            assert_eq!(
+                std::fs::read_to_string(output_path_for(&output, index, *format)).unwrap(),
+                originals_before[index],
+                "an original file must not be rewritten by the translation stage"
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `zh-tw` names the file `zh-Hant`, which is the whole point of treating
+    /// traditional Chinese as a distinct target (design §9).
+    #[test]
+    fn translated_file_name_uses_the_canonical_tag() {
+        let dir = scratch_dir("translate-tag");
+        let output = dir.join("clip.srt");
+        let written = write_translated_formats(&output, &[Format::Srt], "zh-tw", &[]);
+
+        assert_eq!(written, vec![dir.join("clip.zh-Hant.srt")]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Translated paths sit next to the original as `<stem>.<lang>.<ext>`, and
+    /// the originals are still derived first and unchanged (T4-6, design §7).
+    #[test]
+    fn derives_translated_paths_alongside_the_originals() {
+        let formats = vec![Format::Srt, Format::Vtt, Format::Txt];
+        assert_eq!(
+            derive_output_paths(Path::new("/media/clip.srt"), &formats, Some("en")),
+            vec![
+                PathBuf::from("/media/clip.srt"),
+                PathBuf::from("/media/clip.vtt"),
+                PathBuf::from("/media/clip.txt"),
+                PathBuf::from("/media/clip.en.srt"),
+                PathBuf::from("/media/clip.en.vtt"),
+                PathBuf::from("/media/clip.en.txt"),
+            ]
+        );
+
+        // A single format, a dotted stem, a custom directory and a relative path.
+        assert_eq!(
+            derive_output_paths(Path::new("/media/clip.srt"), &[Format::Srt], Some("zh-tw")),
+            vec![
+                PathBuf::from("/media/clip.srt"),
+                PathBuf::from("/media/clip.zh-Hant.srt"),
+            ]
+        );
+        assert_eq!(
+            derive_output_paths(Path::new("a.b.c.mp4"), &[Format::Srt, Format::Md], Some("ja")),
+            vec![
+                PathBuf::from("a.b.c.mp4"),
+                PathBuf::from("a.b.c.md"),
+                PathBuf::from("a.b.c.ja.mp4"),
+                PathBuf::from("a.b.c.ja.md"),
+            ]
+        );
+        assert_eq!(
+            derive_output_paths(Path::new("/custom/out/clip.srt"), &[Format::Srt], Some("de")),
+            vec![
+                PathBuf::from("/custom/out/clip.srt"),
+                PathBuf::from("/custom/out/clip.de.srt"),
+            ]
+        );
+        // A path with no file name has nowhere to put a translation.
+        assert_eq!(
+            translation_output_path(Path::new("/"), 0, Format::Srt, "en"),
+            None
+        );
+    }
+
+    /// `output_path_for` must not change when translation is on: the flag is not
+    /// even a parameter, which is the point (design §9).
+    #[test]
+    fn originals_are_never_affected_by_translation() {
+        let formats = vec![Format::Srt, Format::Vtt];
+        let without = derive_output_paths(Path::new("/media/clip.srt"), &formats, None);
+        let with = derive_output_paths(Path::new("/media/clip.srt"), &formats, Some("en"));
+
+        assert_eq!(with[..without.len()], without[..]);
+        assert!(with.len() > without.len(), "translated paths are additive");
+    }
+
+    /// A translated path must also survive the cancel cleanup, so a cancelled
+    /// run does not leave a newer file behind (T4-6).
+    #[test]
+    fn cancel_cleanup_covers_translated_paths() {
+        let dir = scratch_dir("cancel-translated");
+        let started = SystemTime::now();
+        let output = dir.join("clip.srt");
+
+        let outputs = derive_output_paths(&output, &[Format::Srt, Format::Txt], Some("en"));
+        assert!(outputs.contains(&dir.join("clip.en.srt")));
+        assert!(outputs.contains(&dir.join("clip.en.txt")));
+
+        for path in &outputs {
+            std::fs::write(path, b"partial").unwrap();
+            touch(path, 1);
+        }
+        // A translated file that pre-dates the run stays put.
+        let old = dir.join("clip.de.srt");
+        std::fs::write(&old, b"previous run").unwrap();
+        touch(&old, -600);
+
+        remove_partial_outputs(&outputs, started);
+        for path in &outputs {
+            assert!(!path.exists(), "{} must be removed", path.display());
+        }
+        assert!(old.is_file(), "a pre-existing file must survive the cleanup");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1422,10 +2255,47 @@ mod tests {
             let key = name.to_lowercase().replace(' ', "_");
             assert_eq!(
                 key,
-                ["extracting_audio", "loading_model", "transcribing", "writing_subtitle"][index]
+                [
+                    "extracting_audio",
+                    "loading_model",
+                    "transcribing",
+                    "writing_subtitle",
+                    "translating"
+                ][index]
             );
         }
-        assert_eq!(TOTAL_STEPS, STEP_NAMES.len() as u32);
+        assert_eq!(STEP_NAMES.len(), 5);
+        assert_eq!(STEPS_WITHOUT_TRANSLATION, 4);
+        assert_eq!(STEPS_WITH_TRANSLATION, 5);
+        assert_eq!(STEPS_WITH_TRANSLATION, STEP_NAMES.len() as u32);
+        // Out of range is still handled rather than panicking.
+        assert_eq!(step_name(0), "Extracting audio");
+        assert_eq!(step_name(9), "Processing");
+    }
+
+    /// The four existing step names must keep their exact spelling: the i18n
+    /// keys are derived from them, so a rename would blank a step on every file
+    /// (translation-design §7). `Translating` is the only addition.
+    #[test]
+    fn existing_step_names_are_unchanged_and_translating_is_appended() {
+        assert_eq!(
+            STEP_NAMES,
+            [
+                "Extracting audio",
+                "Loading model",
+                "Transcribing",
+                "Writing subtitle",
+                "Translating",
+            ]
+        );
+    }
+
+    /// The denominator is per-run: a translating run reports 5, everything else
+    /// keeps reporting 4 exactly as before.
+    #[test]
+    fn step_total_is_dynamic() {
+        assert_eq!(Steps::new(false).total, STEPS_WITHOUT_TRANSLATION);
+        assert_eq!(Steps::new(true).total, STEPS_WITH_TRANSLATION);
     }
 
     #[test]

@@ -42,7 +42,8 @@
     "extracting_audio": "Extracting audio",
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
-    "writing_subtitle": "Writing subtitle"
+    "writing_subtitle": "Writing subtitle",
+    "translating": "Translating"
   },
   "bottomBar": {
     "saveLocation": "Save to",
@@ -54,17 +55,15 @@
     "chinese": "Chinese",
     "english": "English",
     "multiSpeaker": "Multi-speaker",
-    "stop": "Stop"
+    "stop": "Stop",
+    "translationTarget": "Translate to:"
   },
   "settings": {
     "title": "Settings",
     "output": {
       "title": "Output",
       "format": "Subtitle Format",
-      "language": "Recognition Language",
-      "bilingual": "Bilingual Subtitles",
-      "bilingualDesc": "Generate translation alongside original",
-      "targetLanguage": "Translation Target"
+      "language": "Recognition Language"
     },
     "processing": {
       "title": "Processing",
@@ -98,6 +97,16 @@
     "modelsGroup": {
       "title": "Models"
     },
+    "translate": {
+      "title": "Translation",
+      "enable": "Translate Subtitles",
+      "enableDesc": "After recognition, translate every cue with a local translation model",
+      "targetLanguage": "Target Language",
+      "model": "Translation Model",
+      "modelDefault": "Automatic (catalogue default)",
+      "modelHint": "The translation is written next to the original as <name>.<language>.srt; the original file is never overwritten.",
+      "noModels": "No translation model is available in this build."
+    },
     "system": {
       "title": "System"
     }
@@ -129,10 +138,13 @@
     "pathFromEnv": "Set by the MONOSUB_MODELS_DIR environment variable.",
     "pathEnvOverrides": "MONOSUB_MODELS_DIR is set, so it overrides this setting.",
     "rescan": "Rescan",
-    "rescanHint": "Re-read install state from disk (use after copying models in by hand)"
+    "rescanHint": "Re-read install state from disk (use after copying models in by hand)",
+    "recognitionTitle": "Recognition models",
+    "translationTitle": "Translation models"
   },
   "errors": {
     "modelNotInstalled": "The speech model is not installed. Open Settings → Models to download it.",
+    "translationModelNotInstalled": "The translation model is not installed. Open Settings → Translation to download it.",
     "engineMissing": "The speech engine is missing or not executable. Reinstall MonoSub to restore it.",
     "engineFailed": "Speech recognition failed. See the logs for details.",
     "audioExtractFailed": "Could not extract audio from this file."

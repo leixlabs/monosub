@@ -239,6 +239,7 @@ mod tests {
             end_s: end,
             text: text.to_string(),
             speaker: None,
+            language: None,
         }
     }
 

@@ -84,6 +84,11 @@ impl std::error::Error for EngineError {}
 const CLI_BINARY: &str = "audiocpp_cli";
 /// Env override, mirroring `MONOSUB_FFMPEG_PATH` in `commands::video`.
 const CLI_PATH_ENV: &str = "MONOSUB_AUDIOCPP_PATH";
+/// llama.cpp server base name, bundled the same way as the audio.cpp CLI
+/// (translation-design §3.1).
+const LLAMACPP_BINARY: &str = "llama-server";
+/// Env override for the translation server (translation-design §3.1).
+const LLAMACPP_PATH_ENV: &str = "MONOSUB_LLAMACPP_PATH";
 /// `resolve_vad_path` fails without this file (spec §5.1).
 const VAD_MODEL_FILE: &str = "silero_vad_16k.safetensors";
 /// stderr kept for error reporting (spec §5.1).
@@ -92,6 +97,18 @@ const STDERR_TAIL_LINES: usize = 50;
 /// Resolve the bundled `audiocpp_cli-<target-triple>` binary.
 pub fn resolve_cli_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, EngineError> {
     resolve_bundled_binary(CLI_BINARY, CLI_PATH_ENV, app)
+}
+
+/// Resolve the bundled `llama-server-<target-triple>` binary used for local
+/// subtitle translation (translation-design §3.1).
+///
+/// Shares the audio.cpp resolution chain verbatim (env override → dev checkout
+/// `resources/bin` → executable dir → bundle `Resources` → PATH fallback): the
+/// two engines ship side by side in the same directory, so two implementations
+/// could only drift. A search that finds nothing yields the bare name, which the
+/// translation module then reports as `TranslateError::BinaryMissing`.
+pub fn resolve_llamacpp_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, EngineError> {
+    resolve_bundled_binary(LLAMACPP_BINARY, LLAMACPP_PATH_ENV, app)
 }
 
 /// Resolve the bundled silero VAD directory
@@ -293,7 +310,10 @@ fn describe_status(status: &std::process::ExitStatus) -> String {
 /// Resolution order mirrors `commands::video::resolve_binary_path`:
 /// env override → dev checkout → executable dir → app bundle Resources →
 /// PATH fallback.
-fn resolve_bundled_binary(
+///
+/// `pub(crate)` because `translate::server` resolves the llama.cpp server
+/// through the same chain (translation-design §9) rather than copying the rules.
+pub(crate) fn resolve_bundled_binary(
     binary_name: &str,
     env_var: &str,
     app: Option<&tauri::AppHandle>,
@@ -361,7 +381,7 @@ fn resolve_binary(
 
     tracing::warn!(
         binary = binary_name,
-        "audiocpp_cli not found; falling back to the bare name in PATH"
+        "bundled binary not found; falling back to the bare name in PATH"
     );
     Ok(PathBuf::from(binary_name))
 }
@@ -707,6 +727,62 @@ mod tests {
         assert_eq!(resolved.unwrap(), override_path);
     }
 
+    /// `MONOSUB_LLAMACPP_PATH` is honoured through the same chain the audio.cpp
+    /// CLI uses, so an operator can point at any llama-server build
+    /// (translation-design §3.1).
+    #[test]
+    fn resolve_llamacpp_binary_prefers_env_override() {
+        let override_path = PathBuf::from("/nowhere/llama-server");
+        let resolved = resolve_binary(
+            LLAMACPP_BINARY,
+            Some(override_path.clone()),
+            None,
+            Some(&repo_root()),
+        );
+
+        assert_eq!(resolved.unwrap(), override_path);
+    }
+
+    /// With no bundled candidate and no app bundle the name is passed through so
+    /// the OS can search PATH — exactly the bare `llama-server` that
+    /// `translate::server` turns into `TranslateError::BinaryMissing` when PATH
+    /// has nothing either.
+    #[test]
+    fn resolve_llamacpp_binary_without_any_candidate_yields_the_bare_name() {
+        let resolved = resolve_binary(LLAMACPP_BINARY, None, None, None).unwrap();
+
+        assert_eq!(resolved, PathBuf::from(LLAMACPP_BINARY));
+        assert_eq!(LLAMACPP_BINARY, "llama-server");
+        // The name carries no target triple, so `binary_candidates` must offer
+        // the suffixed variant too — that is the committed file name.
+        assert_eq!(
+            binary_candidates(LLAMACPP_BINARY),
+            vec![
+                "llama-server".to_string(),
+                format!("llama-server-{}", target_triple()),
+            ]
+        );
+    }
+
+    /// The translation server, when fetched, must be discoverable under the very
+    /// name resolution looks for. Skipped on a fresh clone (bin/ is gitignored).
+    #[test]
+    fn dev_bin_dir_resolves_committed_llamacpp_server() {
+        let dir = dev_resources_dir(Some(&repo_root()))
+            .expect("repo root is a dev checkout")
+            .join("bin");
+        let Some(found) = find_executable(&dir, &binary_candidates(LLAMACPP_BINARY)) else {
+            eprintln!("skip: bundled {LLAMACPP_BINARY} not present (run ./scripts/build/fetch-llamacpp.sh)");
+            return;
+        };
+
+        assert_eq!(
+            found,
+            dir.join(format!("llama-server-{}", target_triple()))
+        );
+        assert!(is_executable_file(&found), "{}", found.display());
+    }
+
     /// With no bundled candidate and no app bundle the name is passed through
     /// so the OS can search PATH, matching `commands::video`.
     #[test]
@@ -817,6 +893,43 @@ mod spawn_tests {
                 None => std::env::remove_var(self.key),
             }
         }
+    }
+
+    /// `resolve_llamacpp_path`'s env override, driven through the real entry
+    /// point: `MONOSUB_LLAMACPP_PATH` short-circuits the whole chain, which is
+    /// what lets an operator point at any llama.cpp build (design §3.1).
+    #[test]
+    fn resolve_llamacpp_path_honours_the_env_override() {
+        let _guard = SPAWN_LOCK.lock().unwrap();
+        let override_path = PathBuf::from("/nowhere/llama-server-custom");
+        let _env = EnvGuard::set(LLAMACPP_PATH_ENV, &override_path);
+
+        assert_eq!(LLAMACPP_PATH_ENV, "MONOSUB_LLAMACPP_PATH");
+        assert_eq!(
+            resolve_llamacpp_path(None).expect("env override always resolves"),
+            override_path
+        );
+    }
+
+    /// With no override and nothing bundled, the bare name is returned so the
+    /// OS can search PATH; `translate::server` turns a failed lookup into
+    /// `TranslateError::BinaryMissing`.
+    #[test]
+    fn resolve_llamacpp_path_never_errors() {
+        let _guard = SPAWN_LOCK.lock().unwrap();
+        // `EnvGuard` restores whatever was there before, so no test leaves an
+        // override behind for this one to pick up mid-run.
+        assert_eq!(std::env::var_os(LLAMACPP_PATH_ENV), None);
+
+        // Either the dev checkout has the fetched server (a real path comes
+        // back) or it does not (the bare name does). What matters is that
+        // resolution never fails: the caller reports the missing binary.
+        let resolved = resolve_llamacpp_path(None)
+            .expect("resolution never fails; the bare name is the fallback");
+        assert!(
+            resolved.as_os_str() == LLAMACPP_BINARY || resolved.is_absolute(),
+            "{resolved:?}"
+        );
     }
 
     fn repo_root() -> PathBuf {

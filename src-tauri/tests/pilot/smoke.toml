@@ -11,6 +11,17 @@
 # The selectors below were verified against a running app; the settings panel is
 # unique among the `div.glass-medium` elements because it carries
 # `glass-dark-strong`, while the welcome cards only use `glass-dark`.
+#
+# The translation steps use `[data-testid]` hooks instead of `nth-child`: the
+# settings sidebar is now a list of four groups (files / models / translation /
+# system), so a positional selector would silently retarget the wrong group the
+# next time one is added. The test ids are on the sidebar button and on the
+# translation switch itself (translation-design §7).
+#
+# The switch is a Radix `<button role="switch">`, not a native checkbox, and
+# `assert-checked` refuses anything that is not an `<input type="checkbox">` or
+# `<input type="radio">`. Its state is therefore read from the `data-state`
+# attribute Radix maintains (`checked` / `unchecked`).
 
 [scenario]
 name = "MonoSub smoke"
@@ -19,6 +30,21 @@ global_timeout_ms = 60000
 
 [[step]]
 name = "reset to the app root"
+action = "navigate"
+url = "http://localhost:5173/"
+
+# Start from default settings. A dev machine keeps `monosub-storage` in
+# localStorage, so without this the switch could already be on (or the panel
+# could open on the last-visited category) and the assertions below would test a
+# stale state rather than the shipped default. The second navigate is what makes
+# the deletion take effect: `zustand/persist` hydrates once per page load.
+[[step]]
+name = "clear the persisted store"
+action = "storage-delete"
+key = "monosub-storage"
+
+[[step]]
+name = "reload with default settings"
 action = "navigate"
 url = "http://localhost:5173/"
 
@@ -50,6 +76,32 @@ name = "settings lists the model section"
 action = "assert-contains"
 target = "div.glass-medium[class*=\"glass-dark-strong\"]"
 expected = "模型"
+
+[[step]]
+name = "open the translation settings group"
+action = "click"
+target = "[data-testid='settings-category-translate']"
+
+[[step]]
+name = "translation group shows the target-language control"
+action = "assert-contains"
+target = "div.glass-medium[class*=\"glass-dark-strong\"]"
+expected = "目标语言"
+
+[[step]]
+name = "translation starts disabled"
+action = "assert-exists"
+target = "[data-testid='translation-enable'][data-state='unchecked']"
+
+[[step]]
+name = "enable translation"
+action = "click"
+target = "[data-testid='translation-enable']"
+
+[[step]]
+name = "translation is now on"
+action = "assert-exists"
+target = "[data-testid='translation-enable'][data-state='checked']"
 
 [[step]]
 name = "close settings"

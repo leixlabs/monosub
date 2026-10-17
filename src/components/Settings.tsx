@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
   Cpu,
   ExternalLink,
+  Languages,
   Package,
   Download,
   FolderOpen,
@@ -20,6 +21,7 @@ import { supportedLanguages, toSupportedLanguage, UI_LANGUAGE_STORAGE_KEY } from
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { SettingsModelPlan } from '@/components/SettingsModelPlan';
 import { SettingsModelsDir } from '@/components/SettingsModelsDir';
+import { SettingsTranslation } from '@/components/SettingsTranslation';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -38,7 +40,9 @@ import {
   listModels,
   modelManifestSize,
   openModelsDir,
+  recognitionModels,
   removeModel,
+  translationModels,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
   type ModelDownloadProgressPayload,
@@ -46,17 +50,18 @@ import {
 } from '@/lib/models';
 
 /**
- * Three top-level groups (was six scattered categories):
- * * `files`  — interface language, subtitle format/language, processing
- * * `models` — recognition plan + model management
- * * `system` — notifications + about/updates
+ * Four top-level groups (translation added translation-design §7):
+ * * `files`     — interface language, subtitle format/language, processing
+ * * `models`    — recognition plan + model management
+ * * `translate` — local translation switch, target language, model
+ * * `system`    — notifications + about/updates
  */
-type SettingsCategory = 'files' | 'models' | 'system';
+type SettingsCategory = 'files' | 'models' | 'translate' | 'system';
 
 const RELEASES_URL = 'https://github.com/0xkamalei/monosub/releases';
 
 const isSettingsCategory = (value: string | null): value is SettingsCategory => {
-  return value === 'files' || value === 'models' || value === 'system';
+  return value === 'files' || value === 'models' || value === 'translate' || value === 'system';
 };
 
 /** Legacy category ids from before the regroup, mapped onto the new groups. */
@@ -77,6 +82,99 @@ interface GithubReleaseUpdateResult {
   releaseUrl: string;
   publishedAt?: string | null;
   hasUpdate: boolean;
+}
+
+interface ModelRowProps {
+  model: ModelStatus;
+  isDownloading: boolean;
+  percent: number;
+  onDownload: (id: string) => void;
+  onCancel: (id: string) => void;
+  onRemove: (id: string) => void;
+}
+
+/**
+ * One catalogue entry: metadata plus the install / download / remove action.
+ *
+ * Shared by the recognition and translation groups (translation-design §7), so
+ * both behave identically — the only difference is which list they sit in.
+ */
+function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemove }: ModelRowProps) {
+  const { t } = useTranslation();
+  const displayName = model.display_name || model.id;
+  const displaySize = model.installed && model.size_on_disk > 0
+    ? model.size_on_disk
+    : modelManifestSize(model);
+  const licenseLine = model.attribution
+    ? `${model.attribution} — ${model.license}`
+    : model.license;
+
+  return (
+    <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-text-primary dark:text-white truncate">
+              {displayName}
+            </p>
+            <GlassBadge variant={model.installed ? 'success' : 'warning'} size="sm">
+              {model.installed ? t('models.installed') : t('models.notInstalled')}
+            </GlassBadge>
+          </div>
+          <p className="text-xs text-text-secondary dark:text-gray-400 mt-1">
+            {t('models.size')}: {formatModelSize(displaySize)}
+          </p>
+          {licenseLine && (
+            <p
+              className="text-xxs text-text-secondary dark:text-gray-400 mt-0.5 truncate"
+              title={licenseLine}
+            >
+              {licenseLine}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {!model.installed && !isDownloading && (
+            <GlassButton variant="primary" size="sm" onClick={() => onDownload(model.id)}>
+              <Download className="w-4 h-4" />
+              {t('models.download')}
+            </GlassButton>
+          )}
+          {isDownloading && (
+            <GlassButton variant="outline" size="sm" onClick={() => onCancel(model.id)}>
+              <X className="w-4 h-4" />
+              {t('models.cancel')}
+            </GlassButton>
+          )}
+          {model.installed && (
+            <GlassButton
+              variant="ghost"
+              size="sm"
+              onClick={() => onRemove(model.id)}
+              className="text-text-secondary dark:text-gray-400 hover:text-danger"
+            >
+              <Trash2 className="w-4 h-4" />
+              {t('models.remove')}
+            </GlassButton>
+          )}
+        </div>
+      </div>
+
+      {isDownloading && (
+        <div className="space-y-1.5">
+          <div className="w-full bg-divider dark:bg-zinc-700 rounded-full h-1.5">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${percent}%` }}
+              className="bg-primary h-full rounded-full"
+            />
+          </div>
+          <p className="text-xxs text-text-secondary dark:text-gray-400">{percent}%</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Settings() {
@@ -348,6 +446,11 @@ export function Settings() {
     }))
   ), []);
 
+  // The catalogue mixes both engines; split it once per render pass so the two
+  // lists and their headers stay in step with the loaded models.
+  const recognition = useMemo(() => recognitionModels(models), [models]);
+  const translation = useMemo(() => translationModels(models), [models]);
+
   const handleUILanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
     localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, lang);
@@ -417,6 +520,7 @@ export function Settings() {
               {[
                 { id: 'files' as const, label: t('settings.files.title'), icon: SlidersHorizontal },
                 { id: 'models' as const, label: t('settings.modelsGroup.title'), icon: Package },
+                { id: 'translate' as const, label: t('settings.translate.title'), icon: Languages },
                 { id: 'system' as const, label: t('settings.system.title'), icon: Cpu },
               ].map((item) => {
                 const Icon = item.icon;
@@ -426,6 +530,7 @@ export function Settings() {
                     key={item.id}
                     variant={isActive ? 'default' : 'ghost'}
                     size="sm"
+                    data-testid={`settings-category-${item.id}`}
                     onClick={() => setActiveCategory(item.id)}
                     className={`w-full justify-start gap-2.5 px-3 h-9 ${isActive
                         ? 'text-text-primary dark:text-white'
@@ -447,6 +552,7 @@ export function Settings() {
                   {
                     files: t('settings.files.title'),
                     models: t('settings.modelsGroup.title'),
+                    translate: t('settings.translate.title'),
                     system: t('settings.system.title'),
                   }[activeCategory]
                 }
@@ -487,23 +593,6 @@ export function Settings() {
                         options={languageOptions}
                         className="w-[220px]"
                       />
-                    </div>
-
-                    <div className="flex items-center justify-between opacity-60">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
-                            {t('settings.output.bilingual')}
-                          </label>
-                          <GlassBadge variant="primary" size="sm">
-                            Coming Soon
-                          </GlassBadge>
-                        </div>
-                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
-                          {t('settings.output.bilingualDesc')}
-                        </p>
-                      </div>
-                      <GlassSwitch checked={false} disabled={true} />
                     </div>
                   </div>
 
@@ -584,95 +673,48 @@ export function Settings() {
                       <p className="text-xs text-text-secondary dark:text-gray-400">{t('models.empty')}</p>
                     )}
 
-                    {models.map((model) => {
-                      const isDownloading = downloadingId === model.id;
-                      const percent = downloadPercentById[model.id] ?? 0;
-                      const displayName = model.display_name || model.id;
-                      const displaySize = model.installed && model.size_on_disk > 0
-                        ? model.size_on_disk
-                        : modelManifestSize(model);
-                      const licenseLine = model.attribution
-                        ? `${model.attribution} — ${model.license}`
-                        : model.license;
+                    {/* The catalogue holds two unrelated kinds of model: the
+                        recognition plan (audio.cpp) and the local translation
+                        model (llama.cpp). They are grouped rather than merged,
+                        because picking a translation model is not part of
+                        solving the recognition plan (translation-design §9). */}
+                    {!isLoadingModels && !modelsError && recognition.length > 0 && (
+                      <>
+                        <h3 className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide pt-1">
+                          {t('models.recognitionTitle')}
+                        </h3>
+                        {recognition.map((model) => (
+                          <ModelRow
+                            key={model.id}
+                            model={model}
+                            isDownloading={downloadingId === model.id}
+                            percent={downloadPercentById[model.id] ?? 0}
+                            onDownload={(id) => void handleDownloadModel(id)}
+                            onCancel={(id) => void handleCancelModelDownload(id)}
+                            onRemove={(id) => void handleRemoveModel(id)}
+                          />
+                        ))}
+                      </>
+                    )}
 
-                      return (
-                        <div
-                          key={model.id}
-                          className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-3"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <p className="text-sm font-semibold text-text-primary dark:text-white truncate">
-                                  {displayName}
-                                </p>
-                                <GlassBadge variant={model.installed ? 'success' : 'warning'} size="sm">
-                                  {model.installed ? t('models.installed') : t('models.notInstalled')}
-                                </GlassBadge>
-                              </div>
-                              <p className="text-xs text-text-secondary dark:text-gray-400 mt-1">
-                                {t('models.size')}: {formatModelSize(displaySize)}
-                              </p>
-                              {licenseLine && (
-                                <p
-                                  className="text-xxs text-text-secondary dark:text-gray-400 mt-0.5 truncate"
-                                  title={licenseLine}
-                                >
-                                  {licenseLine}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-2 shrink-0">
-                              {!model.installed && !isDownloading && (
-                                <GlassButton
-                                  variant="primary"
-                                  size="sm"
-                                  onClick={() => void handleDownloadModel(model.id)}
-                                >
-                                  <Download className="w-4 h-4" />
-                                  {t('models.download')}
-                                </GlassButton>
-                              )}
-                              {isDownloading && (
-                                <GlassButton
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => void handleCancelModelDownload(model.id)}
-                                >
-                                  <X className="w-4 h-4" />
-                                  {t('models.cancel')}
-                                </GlassButton>
-                              )}
-                              {model.installed && (
-                                <GlassButton
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => void handleRemoveModel(model.id)}
-                                  className="text-text-secondary dark:text-gray-400 hover:text-danger"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                  {t('models.remove')}
-                                </GlassButton>
-                              )}
-                            </div>
-                          </div>
-
-                          {isDownloading && (
-                            <div className="space-y-1.5">
-                              <div className="w-full bg-divider dark:bg-zinc-700 rounded-full h-1.5">
-                                <motion.div
-                                  initial={{ width: 0 }}
-                                  animate={{ width: `${percent}%` }}
-                                  className="bg-primary h-full rounded-full"
-                                />
-                              </div>
-                              <p className="text-xxs text-text-secondary dark:text-gray-400">{percent}%</p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    {!isLoadingModels && !modelsError && translation.length > 0 && (
+                      <>
+                        <h3 className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide pt-1">
+                          {t('models.translationTitle')}
+                        </h3>
+                        {translation.map((model) => (
+                          <ModelRow
+                            key={model.id}
+                            model={model}
+                            isDownloading={downloadingId === model.id}
+                            percent={downloadPercentById[model.id] ?? 0}
+                            onDownload={(id) => void handleDownloadModel(id)}
+                            onCancel={(id) => void handleCancelModelDownload(id)}
+                            onRemove={(id) => void handleRemoveModel(id)}
+                          />
+                        ))}
+                      </>
+                    )}
 
                     {modelActionError && (
                       <p className="text-xs text-danger">{modelActionError}</p>
@@ -691,6 +733,17 @@ export function Settings() {
                     </p>
                   </div>
                 </section>
+              )}
+
+              {activeCategory === 'translate' && (
+                <SettingsTranslation
+                  models={models}
+                  downloadingId={downloadingId}
+                  downloadPercentById={downloadPercentById}
+                  onDownload={(id) => void handleDownloadModel(id)}
+                  onCancelDownload={(id) => void handleCancelModelDownload(id)}
+                  onRemove={(id) => void handleRemoveModel(id)}
+                />
               )}
 
               {activeCategory === 'system' && (

@@ -42,7 +42,8 @@
     "extracting_audio": "提取音频",
     "loading_model": "加载模型",
     "transcribing": "转录中",
-    "writing_subtitle": "生成字幕"
+    "writing_subtitle": "生成字幕",
+    "translating": "翻译中"
   },
   "bottomBar": {
     "saveLocation": "保存位置",
@@ -54,17 +55,15 @@
     "chinese": "中文",
     "english": "EN",
     "multiSpeaker": "多人识别",
-    "stop": "停止"
+    "stop": "停止",
+    "translationTarget": "翻译为:"
   },
   "settings": {
     "title": "设置",
     "output": {
       "title": "输出设置",
       "format": "字幕格式",
-      "language": "识别语言",
-      "bilingual": "双语字幕",
-      "bilingualDesc": "同时生成翻译字幕",
-      "targetLanguage": "翻译目标语言"
+      "language": "识别语言"
     },
     "processing": {
       "title": "处理设置",
@@ -98,6 +97,16 @@
     "modelsGroup": {
       "title": "模型"
     },
+    "translate": {
+      "title": "翻译",
+      "enable": "翻译字幕",
+      "enableDesc": "识别完成后，用本地翻译模型把每条字幕翻译成目标语言",
+      "targetLanguage": "目标语言",
+      "model": "翻译模型",
+      "modelDefault": "自动（目录默认）",
+      "modelHint": "译文会另存为 <名称>.<语言>.srt，不会覆盖原文字幕。",
+      "noModels": "当前版本没有可用的翻译模型。"
+    },
     "system": {
       "title": "系统"
     }
@@ -119,7 +128,8 @@
     "audioExtractFailed": "无法从该文件提取音频。",
     "engineFailed": "语音识别失败，详情请查看日志。",
     "engineMissing": "语音引擎缺失或无法执行。请重新安装 MonoSub。",
-    "modelNotInstalled": "语音识别模型尚未安装。请打开「设置 → 模型」下载。"
+    "modelNotInstalled": "语音识别模型尚未安装。请打开「设置 → 模型」下载。",
+    "translationModelNotInstalled": "翻译模型尚未安装。请打开「设置 → 翻译」下载。"
   },
   "models": {
     "cancel": "取消",
@@ -148,7 +158,9 @@
     "pathFromEnv": "由环境变量 MONOSUB_MODELS_DIR 指定。",
     "pathEnvOverrides": "已设置 MONOSUB_MODELS_DIR，环境变量会覆盖此处的设置。",
     "rescan": "重新检测",
-    "rescanHint": "重新从磁盘读取安装状态（手动拷入模型后可用）"
+    "rescanHint": "重新从磁盘读取安装状态（手动拷入模型后可用）",
+    "recognitionTitle": "识别模型",
+    "translationTitle": "翻译模型"
   },
   "modelPlan": {
     "title": "识别方案",

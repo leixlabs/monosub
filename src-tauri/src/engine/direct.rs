@@ -175,6 +175,11 @@ pub fn turns_into_chunks(turns: &[DiarTurn]) -> Vec<RawChunk> {
             speaker: labels
                 .as_ref()
                 .and_then(|labels| labels.get(&turn.speaker_id).cloned()),
+            // The passthrough model emits text + times + speakers, never a
+            // `<|lang|>` tag, so the source language stays unknown here. That is
+            // the documented "translate anyway" branch (translation-design §5),
+            // not a failure.
+            language: None,
         })
         .collect()
 }
@@ -257,5 +262,21 @@ mod tests {
         }];
         let chunks = turns_into_chunks(&turns);
         assert_eq!(chunks[0].text, "");
+        assert_eq!(chunks[0].language, None);
+    }
+
+    /// Regression: the passthrough path carries no language tag, and that must
+    /// be `None` rather than an error or a guess (T4-1).
+    #[test]
+    fn direct_path_reports_no_language() {
+        let turns = vec![turn(0.0, 2.0, "S01", "<|zh|>你好")];
+        let chunks = turns_into_chunks(&turns);
+
+        assert!(
+            chunks.iter().all(|chunk| chunk.language.is_none()),
+            "{chunks:?}"
+        );
+        // The raw tag stays in the text; downstream `clean_text` still strips it.
+        assert_eq!(chunks[0].text, "<|zh|>你好");
     }
 }

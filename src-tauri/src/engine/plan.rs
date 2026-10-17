@@ -11,7 +11,8 @@
 //! bias. There is deliberately no generic constraint solver (design §13 risk 7).
 
 use crate::engine::catalog::{
-    self, Capabilities, DiarizationGrade, ModelSpec, Role, Source, Speed, Tier, TimestampGrade,
+    self, Capabilities, DiarizationGrade, Engine, ModelSpec, Role, Source, Speed, Tier,
+    TimestampGrade,
 };
 use crate::engine::cli::Backend;
 
@@ -312,7 +313,14 @@ pub fn best_model_for_role<'a>(
 ) -> Option<&'a ModelSpec> {
     catalogue
         .iter()
-        .filter(|spec| spec.has_role(role) && language_ok(spec, &req.language))
+        .filter(|spec| {
+            // Only audio.cpp models can fill a recognition step; a llama.cpp
+            // translate entry must never be handed to `audiocpp_cli`
+            // (translation-design §9).
+            spec.engine == Engine::Audiocpp
+                && spec.has_role(role)
+                && language_ok(spec, &req.language)
+        })
         .min_by_key(|spec| {
             (
                 bias_rank(&req.language, spec),
@@ -517,6 +525,19 @@ pub fn solve(
     installed: &dyn Fn(&str) -> bool,
     req: &Requirements,
 ) -> Vec<ModelPlan> {
+    // Translation models are not recognition models (translation-design §9):
+    // they run on llama.cpp, not audio.cpp, and their "family" is only a prompt
+    // template name. Filtering once, here, is what guarantees a `translate` or
+    // `engine: llamacpp` entry can never enter a recognition plan — including
+    // through `gaps`/`suggest_model` download suggestions, which read the same
+    // slice.
+    let recognition: Vec<ModelSpec> = catalogue
+        .iter()
+        .filter(|spec| spec.engine == Engine::Audiocpp && !spec.has_role(Role::Translate))
+        .cloned()
+        .collect();
+    let catalogue: &[ModelSpec] = &recognition;
+
     let mut plans = Vec::new();
     // Steps that had no candidate, used to explain an empty result.
     let mut missing: Vec<StepKind> = Vec::new();
@@ -922,6 +943,8 @@ mod tests {
             attribution: None,
             capabilities_raw: Some(fake.capabilities),
             roles: fake.roles.to_vec(),
+            engine: Engine::Audiocpp,
+            prompt_template: None,
             speed: Some(fake.speed),
             source: Some(fake.source),
             tier: Some(fake.tier),
@@ -1422,6 +1445,129 @@ mod tests {
             memory_risk(&small, Backend::Metal),
             memory_risk(&small, Backend::Cpu),
             "a small file is not penalised for being on Metal"
+        );
+    }
+
+    /// Regression guard: a catalogue containing a translate model must solve
+    /// EXACTLY as the same catalogue without it. Translation is a separate,
+    /// post-ASR stage (translation-design §9); if it could enter the plan, the
+    /// app would hand `HY-MT1.5-1.8B-Q4_K_M.gguf` to `audiocpp_cli`, which
+    /// cannot load it.
+    #[test]
+    fn translate_models_never_enter_a_recognition_plan() {
+        let baseline = catalogue();
+        let installed = all_installed();
+        let req = req();
+
+        let mut with_translate = baseline.clone();
+        with_translate.push(spec(FakeModel {
+            id: "hy_mt_1_8b_q4_k_m",
+            // `family` is a prompt-template hint for this engine, not an
+            // audio.cpp family; a llama.cpp entry must be ignored wholesale.
+            family: "hy_mt",
+            roles: &[Role::Translate],
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::None,
+                diarization: DiarizationGrade::None,
+                produces_text: true,
+            },
+            speed: Speed::Fast,
+            source: Source::Other,
+            tier: Tier::Recommended,
+            languages: &["zh", "en", "ja"],
+            model_file: "HY-MT1.5-1.8B-Q4_K_M.gguf",
+            size: 1_133_080_512,
+        }));
+        // ...and one that is flagged on the engine alone, with a recognition-
+        // looking role, to prove the engine filter is what does the work.
+        with_translate.push(spec(FakeModel {
+            id: "llamacpp_asr_lookalike",
+            family: "sense_asr",
+            roles: &[Role::Asr],
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::Word,
+                diarization: DiarizationGrade::None,
+                produces_text: true,
+            },
+            speed: Speed::Fast,
+            source: Source::Tongyi,
+            tier: Tier::Recommended,
+            languages: SENSE_LANGS,
+            model_file: "lookalike.gguf",
+            size: 10,
+        }));
+        let last = with_translate.len() - 1;
+        with_translate[last].engine = Engine::Llamacpp;
+
+        for requirements in [
+            req.clone(),
+            Requirements {
+                diarization: true,
+                ..req.clone()
+            },
+            Requirements {
+                word_timestamps: true,
+                ..req.clone()
+            },
+        ] {
+            let expected = solve(&baseline, &installed, &requirements);
+            let actual = solve(&with_translate, &installed, &requirements);
+
+            let shape = |plans: &[ModelPlan]| {
+                plans
+                    .iter()
+                    .map(|plan| (plan.id.clone(), plan.model_ids.clone(), plan.steps.clone()))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                shape(&actual),
+                shape(&expected),
+                "translate/llamacpp entries changed the plan for {requirements:?}"
+            );
+            assert!(
+                actual
+                    .iter()
+                    .flat_map(|plan| plan.model_ids.iter())
+                    .all(|id| !id.contains("hy_mt") && !id.contains("lookalike")),
+                "a llama.cpp model leaked into a recognition plan: {:?}",
+                shape(&actual)
+            );
+        }
+    }
+
+    /// `best_model_for_role` is the seam the solver uses, so the engine filter is
+    /// pinned there too — `Role::Translate` models are not `Role::Asr` models
+    /// either, and neither is a llama.cpp entry that claims the role.
+    #[test]
+    fn best_model_for_role_ignores_non_audiocpp_models() {
+        let mut catalogue = catalogue();
+        let mut llama = spec(FakeModel {
+            id: "llamacpp_sense_asr",
+            family: "sense_asr",
+            roles: &[Role::Asr, Role::Translate],
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::Word,
+                diarization: DiarizationGrade::None,
+                produces_text: true,
+            },
+            speed: Speed::Fast,
+            source: Source::Tongyi,
+            tier: Tier::Recommended,
+            languages: SENSE_LANGS,
+            model_file: "lookalike.gguf",
+            size: 10,
+        });
+        llama.engine = Engine::Llamacpp;
+        catalogue.push(llama);
+
+        let installed = all_installed();
+        let best = best_model_for_role(&catalogue, &installed, Role::Asr, &req())
+            .expect("an audio.cpp ASR model is available");
+        assert_eq!(best.id, "sensevoice_small_q8");
+
+        assert!(
+            best_model_for_role(&catalogue, &installed, Role::Translate, &req()).is_none(),
+            "translation is not a recognition step"
         );
     }
 

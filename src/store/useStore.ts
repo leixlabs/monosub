@@ -5,6 +5,14 @@ export type VideoStatus = 'pending' | 'processing' | 'completed' | 'skipped' | '
 export type StorageMode = 'same' | 'custom'
 export type SubtitleFormat = 'srt' | 'vtt' | 'txt' | 'md' | string  // string allows multi-format like "srt,txt"
 export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 'pt' | 'zh-tw' | 'ko'
+/**
+ * Language a local translation model is asked for (translation-design §7).
+ *
+ * `auto` is deliberately absent: it is a *source*-detection value, and
+ * "translate into auto" has no meaning. The Rust side skips such a run rather
+ * than guessing (`translate::language::should_translate`).
+ */
+export type TranslateTargetLanguage = Exclude<OutputLanguage, 'auto'>
 /** Speed preference used only to rank same-capability models (design §5.3). */
 export type SpeedPreference = 'fast' | 'balanced' | 'accurate'
 /** Step roles a user may pin to a specific model id (design §8.1). */
@@ -61,6 +69,16 @@ export interface AppSettings {
    * can skip the diar model without changing the app-wide default.
    */
   defaultDiarization: boolean
+
+  // Translation (v4; translation-design §7). Translation is an enhancement: it
+  // is off by default, and a run that never enables it behaves exactly as it
+  // did before the feature existed.
+  /** Whether recognition is followed by a translation pass. */
+  translateEnabled: boolean
+  /** Language the subtitles are translated into (never `auto`). */
+  translateTargetLanguage: TranslateTargetLanguage
+  /** Pinned translation-model id; `''` means "use the catalogue default". */
+  translationModelId: string
 }
 
 const OUTPUT_LANGUAGES: OutputLanguage[] = ['auto', 'en', 'zh', 'es', 'ja', 'de', 'fr', 'pt', 'zh-tw', 'ko']
@@ -91,6 +109,12 @@ const defaultSettings: AppSettings = {
   requireWordTimestamps: false,
   speedPreference: 'balanced',
   defaultDiarization: true,
+  translateEnabled: false,
+  // `en` is the non-source default the design names (translation-design §7). The
+  // source is usually Chinese, so translating *into* English is the common case;
+  // a user whose source is already English picks another target.
+  translateTargetLanguage: 'en',
+  translationModelId: '',
 }
 
 const SPEED_PREFERENCES: SpeedPreference[] = ['fast', 'balanced', 'accurate']
@@ -98,6 +122,18 @@ const MODEL_OVERRIDE_SLOTS: ModelOverrideSlot[] = ['asr', 'vad', 'align', 'diar'
 
 const isSpeedPreference = (value: unknown): value is SpeedPreference =>
   typeof value === 'string' && (SPEED_PREFERENCES as string[]).includes(value)
+
+/**
+ * Targets the UI offers, ordered like the recognition languages above.
+ * A translation model may support more languages than this; these are the ones
+ * the app also knows how to name the translated file for (translation-design §5).
+ */
+export const TRANSLATE_TARGET_LANGUAGES: TranslateTargetLanguage[] = [
+  'en', 'zh', 'zh-tw', 'ja', 'ko', 'es', 'fr', 'de', 'pt',
+]
+
+const isTranslateTargetLanguage = (value: unknown): value is TranslateTargetLanguage =>
+  typeof value === 'string' && (TRANSLATE_TARGET_LANGUAGES as string[]).includes(value)
 
 interface AppState {
   // File queue management
@@ -149,9 +185,10 @@ type PersistedAppState = Pick<
   'storageMode' | 'customStoragePath' | 'settings' | 'modelOverrides'
 >
 
-// v3 adds the recognition-plan requirements and `modelOverrides` (design §10.3).
-// Unlike v1→v2 it must not drop anything.
-const PERSIST_VERSION = 3
+// v3 adds the recognition-plan requirements and `modelOverrides` (design §10.3);
+// v4 adds the translation settings (translation-design §7). Both must only ADD:
+// unlike v1→v2 they drop nothing.
+const PERSIST_VERSION = 4
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -171,6 +208,11 @@ const normalizeSettings = (value: unknown): AppSettings => {
     requireWordTimestamps: typeof persisted.requireWordTimestamps === 'boolean' ? persisted.requireWordTimestamps : defaultSettings.requireWordTimestamps,
     speedPreference: isSpeedPreference(persisted.speedPreference) ? persisted.speedPreference : defaultSettings.speedPreference,
     defaultDiarization: typeof persisted.defaultDiarization === 'boolean' ? persisted.defaultDiarization : defaultSettings.defaultDiarization,
+    // v3 blobs carry none of these; defaults are applied and nothing already
+    // present in the blob is dropped.
+    translateEnabled: typeof persisted.translateEnabled === 'boolean' ? persisted.translateEnabled : defaultSettings.translateEnabled,
+    translateTargetLanguage: isTranslateTargetLanguage(persisted.translateTargetLanguage) ? persisted.translateTargetLanguage : defaultSettings.translateTargetLanguage,
+    translationModelId: typeof persisted.translationModelId === 'string' ? persisted.translationModelId : defaultSettings.translationModelId,
   }
 }
 

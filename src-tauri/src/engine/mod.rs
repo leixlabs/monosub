@@ -26,6 +26,11 @@ pub struct RawChunk {
     /// Already-formatted speaker label (`Speaker A`), or `None` when the source
     /// produced no speaker information (design §6.5).
     pub speaker: Option<String>,
+    /// The ASR's own language tag (`<|zh|>` → `zh`), extracted before
+    /// `subtitle::postprocess::clean_text` deletes it (translation-design §5).
+    /// `None` when the source produced no tag — the passthrough model does not,
+    /// and that means "unknown", never an error.
+    pub language: Option<String>,
 }
 
 /// Options for one file's transcription run.
@@ -165,6 +170,10 @@ pub async fn transcribe(
         .map(|(chunk, text)| RawChunk {
             start_s: chunk.start_s(),
             end_s: chunk.end_s(),
+            // The language tag must be read BEFORE it is cleaned away further
+            // down the pipeline (translation-design §5); `clean_text` runs in
+            // `subtitle::postprocess`, not here, so `text` is still raw.
+            language: crate::subtitle::postprocess::extract_language_tag(&text),
             text,
             // The VAD-sequence path has no speaker model, so no label here.
             speaker: None,
