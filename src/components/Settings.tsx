@@ -9,6 +9,7 @@ import {
   Cpu,
   ExternalLink,
   Languages,
+  Link2,
   Package,
   Download,
   FolderOpen,
@@ -22,6 +23,7 @@ import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { SettingsModelPlan } from '@/components/SettingsModelPlan';
 import { SettingsModelsDir } from '@/components/SettingsModelsDir';
 import { SettingsTranslation } from '@/components/SettingsTranslation';
+import { SettingsUrlImport } from '@/components/SettingsUrlImport';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -54,14 +56,19 @@ import {
  * * `files`     — interface language, subtitle format/language, processing
  * * `models`    — recognition plan + model management
  * * `translate` — local translation switch, target language, model
+ * * `urlImport` — imported-subtitle directory, Bilibili cookie source, prefer-local
  * * `system`    — notifications + about/updates
  */
-type SettingsCategory = 'files' | 'models' | 'translate' | 'system';
+type SettingsCategory = 'files' | 'models' | 'translate' | 'urlImport' | 'system';
 
 const RELEASES_URL = 'https://github.com/0xkamalei/monosub/releases';
 
 const isSettingsCategory = (value: string | null): value is SettingsCategory => {
-  return value === 'files' || value === 'models' || value === 'translate' || value === 'system';
+  return value === 'files'
+    || value === 'models'
+    || value === 'translate'
+    || value === 'urlImport'
+    || value === 'system';
 };
 
 /** Legacy category ids from before the regroup, mapped onto the new groups. */
@@ -521,6 +528,7 @@ export function Settings() {
                 { id: 'files' as const, label: t('settings.files.title'), icon: SlidersHorizontal },
                 { id: 'models' as const, label: t('settings.modelsGroup.title'), icon: Package },
                 { id: 'translate' as const, label: t('settings.translate.title'), icon: Languages },
+                { id: 'urlImport' as const, label: t('settings.urlImport.title'), icon: Link2 },
                 { id: 'system' as const, label: t('settings.system.title'), icon: Cpu },
               ].map((item) => {
                 const Icon = item.icon;
@@ -553,6 +561,7 @@ export function Settings() {
                     files: t('settings.files.title'),
                     models: t('settings.modelsGroup.title'),
                     translate: t('settings.translate.title'),
+                    urlImport: t('settings.urlImport.title'),
                     system: t('settings.system.title'),
                   }[activeCategory]
                 }
@@ -745,6 +754,8 @@ export function Settings() {
                   onRemove={(id) => void handleRemoveModel(id)}
                 />
               )}
+
+              {activeCategory === 'urlImport' && <SettingsUrlImport />}
 
               {activeCategory === 'system' && (
                 <section className="space-y-4">
