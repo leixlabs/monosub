@@ -33,9 +33,24 @@ pub const PATH_ENV: &str = "MONOSUB_YTDLP_PATH";
 /// stderr kept for error reporting; same bound as `engine::cli`.
 const STDERR_TAIL_LINES: usize = 50;
 
-/// Flags every invocation carries (design §6.2). Pure data so a test can pin the
-/// exact list.
-pub const COMMON_ARGS: [&str; 4] = ["--ignore-config", "--no-playlist", "--newline", "--no-progress"];
+/// Flags every invocation carries (design §6.2), split into the always-on set and
+/// the one flag the audio stage must override.
+///
+/// `--no-progress` is NOT in [`ALWAYS_ARGS`]: measured with the bundled 2026.08.19
+/// binary, `--no-progress` together with `--progress-template` emits **zero**
+/// `PROG` lines. The flag does not merely suppress the default progress display,
+/// it suppresses the template too, which left the audio-download bar permanently
+/// indeterminate. Resolve and FetchSubtitles do not want progress, so they add it.
+pub const ALWAYS_ARGS: [&str; 3] = ["--ignore-config", "--no-playlist", "--newline"];
+
+/// Added only by the stages that want no progress output at all.
+pub const NO_PROGRESS_ARG: &str = "--no-progress";
+
+/// The full constant set for a quiet stage: [`ALWAYS_ARGS`] plus
+/// [`NO_PROGRESS_ARG`]. Kept as one name so a test can assert the whole list
+/// without rebuilding it.
+#[cfg(test)]
+pub const QUIET_ARGS: [&str; 4] = ["--ignore-config", "--no-playlist", "--newline", "--no-progress"];
 
 /// The progress template for the audio-download stage. `download:` is the
 /// prefix yt-dlp itself prints, `PROG` is ours (see `site::progress`).
@@ -98,7 +113,13 @@ pub fn escape_sub_lang(tag: &str) -> String {
 ///
 /// Pure so every stage's command line can be pinned by a test.
 pub fn build_argv(invocation: &Invocation) -> Vec<String> {
-    let mut argv: Vec<String> = COMMON_ARGS.iter().map(|arg| (*arg).to_string()).collect();
+    // The audio stage asks for progress, so it must NOT carry `--no-progress`:
+    // the two flags together suppress the template as well (see ALWAYS_ARGS).
+    let wants_progress = matches!(invocation.stage, Stage::DownloadAudio { .. });
+    let mut argv: Vec<String> = ALWAYS_ARGS.iter().map(|arg| (*arg).to_string()).collect();
+    if !wants_progress {
+        argv.push(NO_PROGRESS_ARG.to_string());
+    }
 
     if let Some(browser) = invocation
         .cookies_browser
@@ -138,8 +159,7 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
             argv.push(output_template(work_dir));
         }
         Stage::DownloadAudio { work_dir } => {
-            // The audio stage DOES want progress, so the constant `--no-progress`
-            // is overridden by an explicit template.
+            // No `--no-progress` here: it would silence the template below.
             argv.push("-f".to_string());
             argv.push(AUDIO_FORMAT.to_string());
             argv.push("--progress-template".to_string());
@@ -303,8 +323,8 @@ mod tests {
         }
     }
 
-    /// Every stage must carry the whole constant list — this is the one rule a
-    /// per-stage argv could quietly break.
+    /// Every stage must carry the always-on constant flags — this is the one rule
+    /// a per-stage argv could quietly break.
     #[test]
     fn every_stage_carries_the_constant_flags() {
         let dir = PathBuf::from("/tmp/import");
@@ -331,10 +351,68 @@ mod tests {
 
         for invocation in invocations {
             let argv = build_argv(&invocation);
-            for flag in COMMON_ARGS {
+            for flag in ALWAYS_ARGS {
                 assert!(argv.contains(&flag.to_string()), "{:?} is missing {flag}", invocation.stage);
             }
+            // `--no-progress` is per-stage, so only the quiet stages carry it.
+            let quiet = !matches!(invocation.stage, Stage::DownloadAudio { .. });
+            assert_eq!(
+                argv.contains(&NO_PROGRESS_ARG.to_string()),
+                quiet,
+                "{:?} got the wrong --no-progress handling",
+                invocation.stage
+            );
         }
+    }
+
+    /// Regression for a measured silent failure: `--no-progress` together with
+    /// `--progress-template` makes yt-dlp emit **zero** `PROG` lines, so asking
+    /// for both produced a permanently indeterminate download bar. The audio
+    /// stage must therefore not carry `--no-progress` at all.
+    #[test]
+    fn the_audio_stage_never_passes_no_progress() {
+        let argv = build_argv(&Invocation {
+            stage: Stage::DownloadAudio {
+                work_dir: PathBuf::from("/tmp/import"),
+            },
+            url: "u".to_string(),
+            cookies_browser: None,
+            ffmpeg: None,
+        });
+
+        assert!(!argv.iter().any(|arg| arg == NO_PROGRESS_ARG), "{argv:?}");
+        // Guard against a vacuous pass: it really is the audio stage.
+        assert!(argv.iter().any(|arg| arg == "--progress-template"), "{argv:?}");
+        assert!(argv.iter().any(|arg| arg == "-f"), "{argv:?}");
+    }
+
+    /// ...while the stages that do not want progress still suppress it.
+    #[test]
+    fn the_quiet_stages_still_suppress_progress() {
+        let resolve = build_argv(&resolve_invocation(None, None));
+        assert!(resolve.iter().any(|arg| arg == NO_PROGRESS_ARG), "{resolve:?}");
+
+        let fetch = build_argv(&Invocation {
+            stage: Stage::FetchSubtitles {
+                work_dir: PathBuf::from("/tmp"),
+                tag: "zh-CN".to_string(),
+            },
+            url: "u".to_string(),
+            cookies_browser: None,
+            ffmpeg: None,
+        });
+        assert!(fetch.iter().any(|arg| arg == NO_PROGRESS_ARG), "{fetch:?}");
+        // A quiet stage has no template to silence.
+        assert!(!fetch.iter().any(|arg| arg == "--progress-template"), "{fetch:?}");
+    }
+
+    /// The split between the always-on set and `--no-progress` must add up to the
+    /// documented quiet-stage list, so a future edit cannot silently drop a flag.
+    #[test]
+    fn quiet_stage_flags_are_exactly_the_documented_set() {
+        let mut rebuilt: Vec<&str> = ALWAYS_ARGS.to_vec();
+        rebuilt.push(NO_PROGRESS_ARG);
+        assert_eq!(rebuilt, QUIET_ARGS.to_vec());
     }
 
     /// Regression: `--no-warnings` would hide 412, "needs login" and

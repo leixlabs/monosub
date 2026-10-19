@@ -9,7 +9,8 @@
 
 Speech recognition runs through **audio.cpp** (`audiocpp_cli`) and translation through
 **llama.cpp** (`llama-server`), both C++ inference engines distributed as prebuilt binaries
-and run as **separate child processes** — neither is linked into the app. There is
+and run as **separate child processes** — neither is linked into the app. A third bundled
+binary, **yt-dlp**, downloads Bilibili subtitles or audio for URL import. There is
 **no Python** in the runtime.
 
 ### Key Features
@@ -21,6 +22,8 @@ and run as **separate child processes** — neither is linked into the app. Ther
   timestamps, speaker diarization, language); Tongyi/FunASR models preferred
 - 🌍 **Local subtitle translation** - Optional post-recognition pass with a dedicated
   translation model (HY-MT1.5-1.8B); writes `<stem>.<lang>.<ext>` and never touches the originals
+- 🔗 **URL import (Bilibili)** - Paste links to fetch the platform subtitle directly, or fall
+  back to downloading the audio and transcribing it locally
 - 📦 **In-app model management** - Download/remove models on demand; nothing large is bundled
 - 📝 **Multiple output formats** - SRT, VTT, TXT, MD (and JSON)
 - 🌐 **Bilingual UI** - Simplified Chinese and English (`zh-CN`, `en`)
@@ -49,7 +52,8 @@ and run as **separate child processes** — neither is linked into the app. Ther
 │  ├── Silero VAD segmentation (audiocpp_cli --task vad)          │
 │  ├── ASR orchestration (audiocpp_cli --task asr)                │
 │  ├── Subtitle post-processing + writers                         │
-│  └── Translation orchestration (llama-server over HTTP)         │
+│  ├── Translation orchestration (llama-server over HTTP)         │
+│  └── URL import: yt-dlp subtitle fetch / audio download         │
 └─────────────────────────────────────────────────────────────────┘
         │ spawns                    │ spawns
         ▼                           ▼
@@ -59,11 +63,16 @@ and run as **separate child processes** — neither is linked into the app. Ther
         │                           │
    recognition only            translation only
    (its own ggml)              (its own ggml)
+
+  … and a third child, `yt-dlp-<triple>` (~35 MB, Unlicense), for URL import only:
+  it fetches a platform subtitle or downloads the audio, and never runs inference.
 ```
 
-The two engines never share a process: audio.cpp and llama.cpp each embed their own
+The inference engines never share a process: audio.cpp and llama.cpp each embed their own
 ggml, so linking both into one binary would collide. `translate/server.rs` talks to the
-child over HTTP on `127.0.0.1` instead.
+child over HTTP on `127.0.0.1` instead. `yt-dlp` is spawned per URL-import stage and is a
+downloader, not an engine — it is listed here only so nobody assumes there are exactly two
+bundled binaries.
 
 ### Package Managers
 
@@ -85,12 +94,15 @@ monosub/
 │   │   ├── FileList.tsx
 │   │   ├── FileItem.tsx
 │   │   ├── BottomBar.tsx
-│   │   ├── Settings.tsx         # Includes the Models + Translation sections
+│   │   ├── Settings.tsx         # Settings shell + 5 sidebar groups
 │   │   ├── SettingsModelPlan.tsx
 │   │   ├── SettingsTranslation.tsx
+│   │   ├── SettingsUrlImport.tsx # urlImport group: dir, cookies, prefer-local
+│   │   ├── UrlImportDialog.tsx  # Paste links; per-URL errors; mirrors Settings
+│   │   ├── UrlImportItem.tsx    # One import row above FileList (not in files)
 │   │   └── ThemeToggle.tsx
 │   ├── store/
-│   │   └── useStore.ts          # Zustand state + persist v4 migration
+│   │   └── useStore.ts          # Zustand state + persist v5 migration
 │   ├── i18n/
 │   │   ├── index.ts
 │   │   └── locales/             # en.json + zh-CN.json (kept at parity)
@@ -101,6 +113,7 @@ monosub/
 │   │   ├── transcription.ts     # Start/cancel + MODEL_NOT_INSTALLED handling
 │   │   ├── license.ts
 │   │   ├── fileImport.ts
+│   │   ├── urlImport.ts         # parse/start/cancel + the url_import_* listeners
 │   │   └── utils.ts
 │   ├── App.tsx
 │   └── main.tsx
@@ -124,7 +137,20 @@ monosub/
 │   │   │   ├── prompt.rs        # Batched numbered prompts (template from models.json)
 │   │   │   ├── parse.rs         # Numbered-line / JSON response parsing (pure)
 │   │   │   ├── language.rs      # Tag normalisation, skip decision, script census
+│   │   │   ├── stage.rs         # Tauri-free half: gate, <stem>.<lang>.<ext> writes
 │   │   │   └── error.rs         # TranslateError + user-showable status
+│   │   ├── site/                # URL import (Bilibili): yt-dlp + subtitle hit/fallback
+│   │   │   ├── mod.rs           # Commands, IMPORT_TASKS, Semaphore(3), events, job stages
+│   │   │   ├── pipeline.rs      # The decision path: select → fetch → write → or fall back
+│   │   │   ├── deps.rs          # The seam pipeline runs against (RealDeps / FakeDeps)
+│   │   │   ├── url.rs           # parse_input: split/normalise/de-dupe/whitelist (pure)
+│   │   │   ├── ytdlp.rs         # Binary path, constant argv (pure), spawn, stderr ring
+│   │   │   ├── resolve.rs       # info dict → SiteMedia; multi-P verdict (pure)
+│   │   │   ├── lang.rs          # select(OutputLanguage, &SiteMedia) → Option<Pick>
+│   │   │   ├── srt.rs           # SRT text → Vec<Segment>, timeline untouched (pure)
+│   │   │   ├── naming.rs        # Title sanitising + `<title> [<id>].<ext>` (pure)
+│   │   │   ├── progress.rs      # `PROG` download-template line parsing (pure)
+│   │   │   └── error.rs         # ImportError + stderr classification → status
 │   │   ├── subtitle/            # Output generation
 │   │   │   ├── mod.rs           # Segment, postprocess, write
 │   │   │   ├── postprocess.rs   # Split / estimate / merge
@@ -139,8 +165,8 @@ monosub/
 │   │   └── logging.rs
 │   ├── resources/
 │   │   ├── models.json          # Model catalogue (v2: capabilities/roles/tier/engine)
-│   │   ├── licenses/            # audio.cpp Apache-2.0 + llama.cpp MIT + notices
-│   │   ├── bin/                 # fetched: ffmpeg, ffprobe, audiocpp_cli, lib/
+│   │   ├── licenses/            # audio.cpp, llama.cpp, yt-dlp + notices
+│   │   ├── bin/                 # fetched: ffmpeg, ffprobe, audiocpp_cli, yt-dlp, lib/
 │   │   │                        #   and llama-server-* + its lib*.dylib FLAT in bin/
 │   │   └── models/silero_vad/   # fetched: silero_vad_16k.safetensors
 │   ├── tests/fixtures/          # Python-generated subtitle goldens
@@ -151,8 +177,9 @@ monosub/
 │   ├── build/
 │   │   ├── fetch-audiocpp.sh    # Pinned download + SHA256 of CLI + VAD model
 │   │   ├── fetch-llamacpp.sh    # Pinned download + SHA256 of llama-server + dylibs
+│   │   ├── fetch-ytdlp.sh       # Pinned download + SHA256 of yt-dlp + its licences
 │   │   ├── prepare-ffmpeg.sh
-│   │   └── prepare-resources.sh # Orchestrates the above; regenerates MANIFEST
+│   │   └── prepare-resources.sh # Runs the fetches, then regenerates MANIFEST
 │   ├── release/
 │   │   ├── build-macos-app.sh
 │   │   ├── sign-app.sh          # Signs bundled binaries, then the app
@@ -189,8 +216,8 @@ Python/`uv` are **no longer required**.
 # 1. Install frontend dependencies
 bun install
 
-# 2. Fetch the bundled runtimes (audiocpp_cli + silero VAD, llama-server + dylibs)
-#    and ffmpeg
+# 2. Fetch the bundled runtimes: ffmpeg, audiocpp_cli + silero VAD, llama-server
+#    + dylibs, and yt-dlp (URL import). One command, all of them.
 ./scripts/build/prepare-resources.sh
 ```
 
@@ -294,6 +321,11 @@ Rust emits events → React updates the UI
 Translation is an **enhancement, never a precondition**: the original subtitle files are
 written before step 5 starts, so a translation failure is logged as a warning and the task
 still completes. It never reaches `transcribe_error`.
+
+A file that came from a **URL import** is an ordinary file by this point: the fallback path
+downloads its audio before the row is queued, so the flow above is entered at the top with
+a real local path. A **subtitle hit** never enters this flow at all — no WAV, no plan, no
+model (see [URL Import](#url-import-bilibili)).
 
 ### Model plans (capability-driven model selection)
 
@@ -481,6 +513,171 @@ subtitle is written first and the translated files are additive.
 
 ---
 
+## URL Import (Bilibili)
+
+Pasting a link is **not** a transcription job with a different input. It is a subtitle
+lookup that may degrade into one, and that shape is why `src-tauri/src/site/` exists
+beside (not inside) `engine/` and `translate/`. Design:
+`docs/tech-spec/url-import-design.md`; task list: `docs/tech-spec/url-import-tasks.md`.
+
+### The two paths
+
+- **Subtitle hit.** `site/pipeline.rs::run` resolves the video, `site/lang.rs::select`
+  picks exactly one track, and the SRT is written straight through `subtitle::write`. This
+  path **never enters `start_transcription`**: that command takes an audio path, needs a
+  model plan and reports `transcribe_*`, none of which a platform subtitle has. It reports
+  `url_import_*` instead.
+- **Audio fallback.** No usable track → `-f ba[ext=m4a]/ba/b` downloads the audio to
+  `<app_cache_dir>/url-import/<id>/`, then the job ends with `Queued`. The frontend queues
+  that path through the existing `fileImport` flow, so `extract_wav`, `get_video_metadata`,
+  `generate_thumbnail` and `TranscribeRequest` need no change — the path always exists by
+  the time it is queued. A previously downloaded file is reused rather than fetched again.
+- **The decision path runs against a seam** (`site/deps.rs::Deps`: resolve / fetch /
+  download / translate / progress; `RealDeps` shells out, `FakeDeps` records). Every
+  branch — hit, fetch from the info dict, skip, translate, fall back, fail — is a unit test
+  with no process and no network. New branching belongs in `pipeline.rs`; `mod.rs` stays
+  commands, `IMPORT_TASKS`, the `Semaphore(3)` and the event payloads.
+- **`parse_url_input` lives in Rust** (`site/url.rs`): that is the only way the
+  split / normalise / de-duplicate / whitelist rules get tests, and `start_url_import`
+  trusts its input. Tracking parameters are dropped, `p` is kept (it selects a part), and
+  `/bangumi/`, `/cheese/`, `/space/`, `/favlist` are rejected as `unsupported_kind`.
+- **The subtitle fetch re-serialises the info dict** instead of re-running Resolve, and the
+  verdict is the file on disk: an unmatched `--sub-langs` exits **0** and writes nothing, so
+  `RunOutput::success()` must never be used as the "did we get a subtitle?" test.
+
+### The module split
+
+`site/` is a peer of `engine/` and `translate/`, and the split is by testability:
+
+| File | Owns |
+|---|---|
+| `mod.rs` | the four commands, `UrlImportRequest`, `IMPORT_TASKS`, `Semaphore(3)`, cancel + `Drop` cleanup, the three event payloads, audio download and its cache |
+| `pipeline.rs` | the decision path (select → fetch → write → translate, else `Queued`), written against `Deps` |
+| `deps.rs` | that seam: `RealDeps` (yt-dlp + events) and `FakeDeps` (tests) |
+| `url.rs` | `parse_input`: split, normalise, de-duplicate, whitelist |
+| `ytdlp.rs` | binary resolution, constant argv, spawn, per-line stdout, stderr ring buffer |
+| `resolve.rs` | info dict → `SiteMedia`, multi-P verdict |
+| `lang.rs` | `select` → at most one `Pick` |
+| `srt.rs` | SRT text → `Vec<Segment>` |
+| `naming.rs` | title sanitising and the output path |
+| `progress.rs` | the `PROG` line parser |
+| `error.rs` | `ImportError`, stderr classification, the login hint |
+
+The parts that can silently deliver the wrong file — language choice (`lang`), the info-dict
+parse (`resolve`), the timeline (`srt`), the file name (`naming`), the `PROG` line
+(`progress`) — are pure functions with fixture tests rather than integration runs against a
+real video. Only `ytdlp::run` and `resolve::run` spawn a process, and only `mod.rs`,
+`deps.rs`, `resolve.rs` and `ytdlp.rs` mention `AppHandle` at all.
+
+### yt-dlp: bundled, pinned, and what the invocation may not do
+
+- **Bundled and pinned: 2026.08.19 + SHA256, no self-update.**
+  `scripts/build/fetch-ytdlp.sh` downloads the official platform executable, verifies it and
+  installs it as `resources/bin/yt-dlp-<target-triple>` (macOS: `yt-dlp_macos`, one
+  Universal file serving both triples). Bilibili's extractor changes quickly, so a
+  user-installed yt-dlp produces "the version is wrong" reports nobody can diagnose.
+  `MONOSUB_YTDLP_PATH` overrides the path for debugging and hot-fixing only. Like every
+  bundled binary it is signed by `sign-app.sh`, and it runs as a `kill_on_drop` child with
+  `stdin` closed.
+- **Constant argv, pinned by tests** (`site/ytdlp.rs::build_argv`): `--ignore-config` (a
+  user's yt-dlp config can change the output template, format or subtitle options, and every
+  judgement here is based on files on disk), `--no-playlist`, `--newline` (progress is read
+  line by line), and `--ffmpeg-location <bundled>` (needed only for a merge, but it must
+  never pick up a stray system ffmpeg). `--no-progress` is NOT part of that always-on set —
+  see the measured trap below. **`--no-warnings` is never passed**: 412, "needs login" and
+  region notices arrive as warnings, which is exactly what `site/error.rs` classifies. The
+  URL is one argv element, never a shell string.
+- **Measured facts from U0-9 that are load-bearing** (re-checked against the bundled
+  2026.08.19 binary except where a bullet says otherwise):
+  - **`--list-subs` is required.** yt-dlp extracts subtitles lazily; with `--print-json`
+    alone Bilibili reports `subtitles: {}`. With it, stdout is a human-readable table
+    followed by the info dict, so the parser takes the first line that is a JSON **object**
+    with a string `id` — a table cell such as `123` is valid JSON on its own.
+  - **`subtitles[].data` is inlined SRT.** Bilibili's extractor runs `json2srt` and puts the
+    text in `data` with no `url`, so a hit costs one network call. (This is the design's
+    U0-9 finding: the anonymous probe here returned only a `danmaku` track, so the inlined
+    shape was not re-verified end to end.) `--load-info-json … --write-subs --sub-langs
+    <escaped tag> --sub-format srt/best` is only the fallback for a track without `data`.
+    `--convert-subs` is never used: Bilibili already serves SRT.
+  - **`--progress-template` must not be combined with `--no-progress`.** Measured with the
+    bundled 2026.08.19 binary: the pair emits **zero** `PROG` lines — the template is dropped
+    silently rather than rejected, so the download bar would stay indeterminate forever. The
+    flags are therefore split: `ALWAYS_ARGS` (`--ignore-config`, `--no-playlist`,
+    `--newline`) plus `NO_PROGRESS_ARG`, which `build_argv` adds for `Resolve` and
+    `FetchSubtitles` but **not** for `DownloadAudio`. Two tests pin the split
+    (`the_audio_stage_never_passes_no_progress`, `the_quiet_stages_still_suppress_progress`),
+    because the failure is silent: nothing errors, progress simply never arrives.
+  - **An unmatched `--sub-langs` exits 0**, printing only "There are no subtitles for the
+    requested languages" and writing no subtitle file. The verdict is therefore the
+    non-empty `<id>.<tag>.srt` on disk — never the exit code, never the message.
+  - **A URL without `?p=` silently yields part 1**: the id becomes `<BV>_p1` and the title
+    gains ` p01 <part name>`, even with `--no-playlist`. Converting P1 and calling it the
+    video is silently wrong and expanding to every part would create dozens of jobs, so
+    `resolve::check_multipart` fails with `urlImport.multiPart` unless the URL carries `p=`.
+
+### Selection, output, translation and UI
+
+Language choice, naming and translation are the parts a user would notice going wrong, so each
+rule below is a product promise rather than an implementation detail.
+
+- **Language selection is strict** (`site/lang.rs`) because the wrong track delivers a file
+  in the wrong language that the user cannot notice before reading it. `zh` and `zh-tw`
+  **never** fall back to each other; `ai-zh` is accepted for `zh` only (it is Bilibili's own
+  ASR of the original audio, while the other `ai-*` tracks are machine translations *of* it);
+  human tracks outrank AI ones; `auto` selects nothing and goes straight to recognition
+  ("let the engine decide" cannot answer which subtitle language was asked for); `danmaku`
+  is XML bullet comments and is never a subtitle. `--sub-langs` is a regex, so the tag is
+  escaped. The result is exactly one `Pick { tag, kind, source_lang }`, and `source_lang`
+  is what makes the translation skip exact instead of script-guessed.
+- **Login**: stderr is classified, and `HTTP Error 412` maps to the
+  `URL_IMPORT_NEEDS_COOKIES` sentinel, which the row turns into a browser picker
+  (Chrome / Edge / Firefox / Safari) that writes `settings.bilibiliCookiesBrowser` and
+  retries; Settings → URL import holds the same three controls persistently. The softer
+  "Subtitles are only available when logged in" **warning** is not an error: the run
+  falls back to recognition as usual and only sets `login_hint: true`, so the row can say
+  that logging in would have skipped recognition entirely. Matching stderr prose is the one
+  exception to "never parse text", and it is unavoidable because yt-dlp is not localised;
+  every matched string is a constant with a fixture test.
+- **Naming**: `<sanitized title> [<id>].<ext>`. The id is what makes the name unique and
+  idempotent — two videos cannot collide, re-importing the same URL produces the same path,
+  and `skipExistingSubtitle` therefore behaves exactly as it does for local files. Titles
+  are sanitised (`/ \ : * ? " < > |` and control characters → `_`, whitespace collapsed,
+  leading/trailing dots and spaces trimmed, truncated to 120 **characters**); an empty
+  result becomes `[<id>]`. Subtitles are written to `urlImportOutputDir`
+  (`~/Downloads/MonoSub` by default, `customStoragePath` in `custom` mode) and **never** into
+  the cache directory, which holds only intermediate audio under
+  `<app_cache_dir>/url-import/<id>/`.
+- **No post-processing and no `words.json`**: platform cues are already split by the
+  uploader, so `site/srt.rs` only converts the format and keeps the timeline verbatim;
+  re-splitting at 50 chars / 10 s would destroy the author's cue boundaries. A subtitle hit
+  writes no word sidecar.
+- **Translation is the same stage on both paths.** The hit path calls
+  `translate::stage::translate_and_write` — the function `commands/transcribe.rs` also
+  calls — with `Pick.source_lang` and the primary output path, so `<stem>.<lang>.<ext>`
+  naming and "a translation failure is a warning, never a task failure" cannot drift.
+  `translate::stage` also owns the pre-flight gate, which the import runs **before** Resolve
+  so a missing model reports `MODEL_NOT_INSTALLED:<id>` without a network call.
+- **The UI side**: `Toolbar.tsx` adds the entry (`data-testid="toolbar-import-url"`),
+  `UrlImportDialog.tsx` is the paste panel, `UrlImportItem.tsx` renders one row above
+  `FileList`, and `SettingsUrlImport.tsx` is the fifth Settings group (sidebar id
+  `urlImport`, between `translate` and `system` — the sidebar button's test id is generated
+  from the id, so it renders as `settings-category-urlImport`). Language and output directory
+  are mirrored from Settings rather than editable in the dialog, because a second place to
+  set them would be a second source of truth. The offline pilot scenario for this panel is
+  `src-tauri/tests/pilot/url-import.toml` (22 steps, no network): it asserts per-link
+  rejection, that the two rejection kinds use different wording, that the panel stays open,
+  and that a rejected link creates no import row. The online cases live in
+  `docs/tech-spec/url-import-verification.md`.
+- **Scope**: only Bilibili is supported — `bilibili.com` (with or without `www.`/`m.`)
+  `/video/BV…|av…`, a bare `BV…`/`av…` id, and `b23.tv` short links. The three video hosts
+  are rewritten to `www.bilibili.com` before de-duplication, so the mobile and desktop links
+  to one video collapse into one row; a `b23.tv` link is passed through untouched, because
+  only the redirect knows which video it is. YouTube is deferred, not half-supported: it needs
+  a bundled JS runtime, `-orig` track rules to avoid machine-translated captions, and proxy
+  support (`docs/tech-spec/url-import-design.md` §10).
+
+---
+
 ## IPC Communication Pattern
 
 ### Frontend → Backend (Tauri Commands)
@@ -502,6 +699,10 @@ subtitle is written first and the translated files are additive.
 | `check_github_release_update` | Update check |
 | `update_tray_menu` | Localise tray labels |
 | `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
+| `parse_url_input` | `text → Vec<ParsedUrl>`: split, normalise, de-dupe, whitelist (pure Rust) |
+| `start_url_import` | `request: UrlImportRequest`; registers the job and returns immediately |
+| `cancel_url_import` | `task_id`; aborts the import stage only (not a queued file) |
+| `default_url_import_dir` | `~/Downloads/MonoSub`, resolved from Rust (Tauri knows the home dir) |
 
 The catalogue contains both engines, but only audio.cpp entries can fill a recognition
 plan; `translate` entries are grouped separately by `role` in the UI.
@@ -516,6 +717,9 @@ plan; `translate` entries are grouped separately by `role` in the UI.
 | `model_download_progress` | `{id, downloaded, total}` | Throttled to ≥200 ms |
 | `model_download_complete` | `{id}` | Model ready |
 | `model_download_error` | `{id, message}` | Download failed |
+| `url_import_progress` | `{task_id, stage, progress?}` | Parallel to `transcribe_progress`, but its own namespace |
+| `url_import_complete` | `{task_id, outcome}` | One URL converged: subtitle written, or audio ready to queue |
+| `url_import_error` | `{task_id, status}` | One URL failed; `status` is a sentinel, i18n key or message |
 
 `step` is `{current_step, total_steps, step_name, step_elapsed, total_elapsed}` with
 `step_name` from the frozen set `Extracting audio` / `Loading model` / `Transcribing` /
@@ -529,6 +733,40 @@ denominator per run, and the first step event already carries the right one.
 that sends none of them translates nothing: `translate_enabled`, `target_language`, and
 `translation_model` (the UI sends `''`/absent for "catalogue default").
 
+**URL import is a separate namespace.** The `url_import_*` events are constructed and
+emitted only in `site/`, and the four URL-import commands (`parse_url_input`,
+`start_url_import`, `cancel_url_import`, `default_url_import_dir`) live there too;
+`transcribe_*`, `TranscribeRequest` and `STEP_NAMES` are untouched by them (design §5.9
+forbids adding a URL stage to `STEP_NAMES` — a platform subtitle has no engine step to
+report). The payload shapes are the ones `site/mod.rs` serialises:
+
+```ts
+// url_import_progress — `stage` is a frozen set, snake_case
+{ task_id, stage: 'resolving' | 'fetching_subtitles' | 'downloading_audio'
+              | 'writing' | 'translating',
+  progress?: number }   // 0…100; the key is OMITTED (not null) when indeterminate
+
+// url_import_complete — `Outcome` is an internally tagged enum, tag name `outcome`
+{ task_id, outcome:
+  | { outcome: 'subtitle', paths: string[], translated_paths: string[], tag: string,
+      kind: 'human' | 'ai', source_lang: string, skipped: boolean }
+  | { outcome: 'queued', path: string, title: string, name: string,
+      duration: number | null, login_hint: boolean } }
+
+// url_import_error
+{ task_id, status: string }
+```
+
+Two naming traps, both pinned by a serialisation test in `site/mod.rs`: the enum tag is
+`outcome` (not `kind`), and `kind` is the **`SubKind` field** of the subtitle arm — so the two
+coexist in one payload (`{outcome: "subtitle", kind: "human"}`). `progress` is omitted rather
+than serialised as `null` when absent.
+
+`status` is a sentinel the UI routes on (`URL_IMPORT_NEEDS_COOKIES`,
+`MODEL_NOT_INSTALLED:<id>`), an i18n key (`urlImport.multiPart`), or `key:detail`. A
+`Queued` outcome is not a transcription task: the frontend queues `path` through the
+existing `fileImport` flow, so the follow-up run reports `transcribe_*` as usual.
+
 There is no stdout protocol any more — the engine is called directly, not via a
 line-parsing subprocess.
 
@@ -539,11 +777,15 @@ line-parsing subprocess.
 | Path | Purpose |
 |------|---------|
 | `src/App.tsx` | Event listeners for progress/completion/error |
-| `src/store/useStore.ts` | Zustand state, `persist` v4 + migrate |
+| `src/store/useStore.ts` | Zustand state, `persist` v5 + migrate; `urlImports` is not persisted |
 | `src/lib/models.ts` | Model commands/events, `MODEL_NOT_INSTALLED_ERROR` |
-| `src/components/Settings.tsx` | Settings incl. the Models + Translation groups |
+| `src/components/Settings.tsx` | Settings shell + its five sidebar groups: `files` / `models` / `translate` / `urlImport` / `system` |
 | `src/components/SettingsModelPlan.tsx` | Model-plan requirements + live preview + manual overrides |
 | `src/components/SettingsTranslation.tsx` | Translation switch, target language, translation-model download |
+| `src/components/SettingsUrlImport.tsx` | The `urlImport` Settings group (output dir, Bilibili cookie browser, prefer-local) |
+| `src/components/UrlImportDialog.tsx` | "From a link" panel: paste, per-row errors, language/output dir mirrored from Settings |
+| `src/components/UrlImportItem.tsx` | One import row rendered above `FileList`; never a member of `files` |
+| `src/lib/urlImport.ts` | `parse_url_input` / `start_url_import` wrappers + the `url_import_*` listeners |
 | `src-tauri/src/engine/mod.rs` | The transcription pipeline (dispatches on the plan) |
 | `src-tauri/src/engine/plan.rs` | Requirement → ModelPlan solver |
 | `src-tauri/src/engine/direct.rs` | Passthrough (one-shot) inference path |
@@ -558,6 +800,12 @@ line-parsing subprocess.
 | `src-tauri/src/translate/prompt.rs` | Batched numbered prompts; template comes from `models.json` |
 | `src-tauri/src/translate/parse.rs` | Numbered-line response parsing |
 | `src-tauri/src/translate/language.rs` | Tag normalisation, `zh` vs `zh-tw`, skip decision |
+| `src-tauri/src/translate/stage.rs` | Tauri-free translation stage: `resolve`/`will_translate` gate, `translate_and_write`, `<stem>.<lang>.<ext>` naming — shared by transcription and URL import |
+| `src-tauri/src/site/mod.rs` | URL-import commands, `IMPORT_TASKS`, `Semaphore(3)`, `url_import_*` payloads |
+| `src-tauri/src/site/pipeline.rs` | Import decision path (select → fetch → write → translate, else fall back) over `site/deps.rs` |
+| `src-tauri/src/site/ytdlp.rs` | yt-dlp resolution, constant argv, spawn + line reading, stderr ring buffer |
+| `src-tauri/src/site/url.rs` | `parse_input`: split, normalise (`p` kept), de-duplicate, Bilibili whitelist |
+| `src-tauri/src/site/lang.rs` | `select`: strict language → one `Pick { tag, kind, source_lang }` |
 | `src-tauri/src/subtitle/writer.rs` | Format writers |
 | `src-tauri/resources/models.json` | Model catalogue (v2 schema, incl. `engine` / `translate` role) |
 | `docs/tech-spec/model-selection-design.md` | Requirement → ModelPlan design |
@@ -566,6 +814,9 @@ line-parsing subprocess.
 | `src-tauri/tests/fixtures/` | Subtitle goldens (+ their generator) |
 | `scripts/build/fetch-audiocpp.sh` | Pinned upstream binary + VAD download |
 | `scripts/build/fetch-llamacpp.sh` | Pinned llama.cpp `llama-server` + dylib download |
+| `scripts/build/fetch-ytdlp.sh` | Pinned yt-dlp download (+ its LICENSE / THIRD_PARTY_LICENSES.txt) |
+| `docs/tech-spec/url-import-design.md` | URL import design (flow, language rules, IPC, packaging) |
+| `docs/tech-spec/url-import-tasks.md` | URL import task list (U0–U5) |
 
 ---
 
@@ -592,21 +843,23 @@ line-parsing subprocess.
 
 ```typescript
 files: VideoFile[]              // File queue
-storageMode: 'same' | 'custom'  // Output location
-customStoragePath: string       // Custom output directory
 settings: AppSettings           // User preferences (persisted)
+modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>  // persisted
+storageMode: 'same' | 'custom'  // Output location (persisted)
+customStoragePath: string       // Custom output directory (persisted)
 isProcessing: boolean           // Global processing state
 currentTaskId: string | null    // Active task
+urlImports: Record<string, UrlImportState>  // In-flight URL imports (NOT persisted)
+autoStartImports: boolean       // Dialog checkbox; auto-start is pure frontend (NOT persisted)
 ```
 
-Persisted to `localStorage` as `monosub-storage` at `version: 4`. The `migrate` function
+Persisted to `localStorage` as `monosub-storage` at `version: 5`. The `migrate` function
 **drops** `enableNoiseReduction`, `enableVolumeNormalization`, `enableBilingual` and
 `bilingualTargetLang`: those
 settings never reached the engine in the old code either (the Python engine hardcoded
 the filters), so they were dead. The equivalent ffmpeg filters are now always applied.
 
-The v3 step **adds** model-plan defaults and must not drop anything; the v4 step adds the
-translation defaults the same way:
+The v3, v4 and v5 steps **add** fields and must not drop anything:
 
 ```ts
 // settings (added in v3)
@@ -619,7 +872,17 @@ modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>
 translateEnabled: boolean                 // false
 translateTargetLanguage: TranslateTargetLanguage // 'en' (never 'auto')
 translationModelId: string                // '' means "catalogue default"
+
+// settings (added in v5; URL import)
+urlImportOutputDir: string                // '' means ~/Downloads/MonoSub
+bilibiliCookiesBrowser: CookiesBrowser    // '' = not configured → no cookie flag at all
+preferLocalRecognition: boolean           // false: take the platform subtitle when offered
 ```
+
+`urlImports` is the one deliberately **non-persisted** slice: an import is an in-flight
+network job, so a reload must start with nothing rather than with rows whose task ids no
+longer exist. Its rows feed `UrlImportItem` and never `files`, so an import in progress
+is not counted by "start all" or by the batch counters.
 
 `settings.defaultDiarization` keeps the meaning the old `enableSpeakerDiarization` had; it
 now maps to `Requirements.diarization` and seeds each newly queued file's own toggle instead
@@ -633,19 +896,21 @@ into auto" has no meaning, so the Rust side skips such a run rather than guessin
 
 ### Binary Path Resolution
 
-Bundled binaries (`ffmpeg`, `ffprobe`, `audiocpp_cli`, `llama-server`) are resolved in this
-order by the single `engine/cli.rs::resolve_bundled_binary` (`pub(crate)`, shared by both
-engines so the rules cannot drift):
+Bundled binaries (`ffmpeg`, `ffprobe`, `audiocpp_cli`, `llama-server`, `yt-dlp`) are
+resolved in this order by the single `engine/cli.rs::resolve_bundled_binary`
+(`pub(crate)`, shared by every bundled binary so the rules cannot drift):
 
 1. `MONOSUB_FFMPEG_PATH` / `MONOSUB_FFPROBE_PATH` / `MONOSUB_AUDIOCPP_PATH` /
-   `MONOSUB_LLAMACPP_PATH` override
+   `MONOSUB_LLAMACPP_PATH` / `MONOSUB_YTDLP_PATH` override
 2. Dev checkout: `src-tauri/resources/bin/`
 3. Next to the executable
 4. `<Contents>/Resources/resources/bin/` (app bundle)
 5. System paths / `PATH` (ffmpeg only)
 
 Names use the `<name>-<target-triple>` convention, e.g.
-`audiocpp_cli-aarch64-apple-darwin` and `llama-server-aarch64-apple-darwin`.
+`audiocpp_cli-aarch64-apple-darwin`, `llama-server-aarch64-apple-darwin`, and
+`yt-dlp-aarch64-apple-darwin`. `site/ytdlp.rs::resolve_path` only supplies the base name
+and env var to that shared resolver — it deliberately does not re-implement the chain.
 
 `llama-server`'s libraries must sit **flat in `resources/bin/`**, next to the executable —
 its only `LC_RPATH` is `@loader_path`. ffmpeg's dylibs live in `bin/lib/` and are resolved
@@ -665,14 +930,18 @@ every startup is not acceptable. Hashing happens once, after download.
 
 ### Output Naming
 
-The original files are derived by `output_path_for` and are **never touched by
-translation**: the first format writes to `output_path` verbatim, later ones replace only
-the extension. Translated files are additive and go through a separate function
-`translation_output_path`, producing `<stem>.<lang>.<ext>` next to the original
-(`video.srt` → `video.en.srt`). The `<lang>` is `language::file_tag`: canonicalised
+The original files are derived by `subtitle::output_path_for` (moved out of
+`commands/transcribe.rs` so the URL import's per-format loop cannot re-implement the rule)
+and are **never touched by translation**: the first format writes to `output_path` verbatim,
+later ones replace only the extension. Translated files are additive and go through a
+separate function `translation_output_path`, producing `<stem>.<lang>.<ext>` next to the
+original (`video.srt` → `video.en.srt`). The `<lang>` is `language::file_tag`: canonicalised
 (`zh-tw` → `zh-Hant`) and reduced to `[A-Za-z0-9-]`, so it can never contain a path
 separator or a second dot. `derive_output_paths` returns originals first and translated
 paths second, which is what makes a cancelled run clean up both.
+
+URL imports have their own stem (`site::naming`, `<title> [<id>]`) but the same per-format
+extension swap.
 
 ### The `audiocpp_cli` Contract (hard-won; PoC §4.1/§4.2)
 
@@ -727,6 +996,18 @@ task start**, so a pre-existing subtitle the user already had is not destroyed. 
 list is `derive_output_paths`, which includes the translated `<stem>.<lang>.<ext>` paths
 when translation is on — so a cancelled run does not leave a newer translated file behind.
 
+`cancel_url_import` is the same shape in a **separate registry**: it aborts, awaits, then
+removes the job's scratch directory (the task's `WorkDirGuard` would have done it anyway) and,
+separately, the `.part` / `.ytdl` / `.temp` files under the **per-video cache directory**
+(`<cache>/url-import/<id>/`). Both locations are swept because a download in progress writes
+its `.part` into the cache, not into the scratch directory — sweeping only the latter was the
+first cut's bug. `ImportEntry` therefore records both `work_dir` and `cache_dir`, and the
+cache path comes from a sanitised video-id hint (so a percent-encoded `..%2F..%2Fetc` in the
+URL cannot escape it). It acts on the import stage alone — once a `Queued` outcome has been
+emitted the job is finished and cancelling means `cancel_transcription` or removing the queue
+row — and it deliberately keeps an already downloaded audio file so re-importing the same URL
+reuses it: only the partial extensions are removed, never the finished media.
+
 ### Stale Closure Prevention
 
 `App.tsx` uses a refs pattern for event listeners:
@@ -751,6 +1032,7 @@ useEffect(() => {
 | `MONOSUB_FFPROBE_PATH` | Override the FFprobe binary path |
 | `MONOSUB_AUDIOCPP_PATH` | Override the audio.cpp CLI path |
 | `MONOSUB_LLAMACPP_PATH` | Override the llama.cpp `llama-server` path |
+| `MONOSUB_YTDLP_PATH` | Override the bundled `yt-dlp` path (debugging / hot-fix only) |
 | `MONOSUB_MODELS_DIR` | Override the models directory (wins over the in-app setting) |
 | `APPLE_SIGNING_IDENTITY` | Code signing identity (optional) |
 | `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Notarization credentials (optional) |
@@ -764,9 +1046,13 @@ useEffect(() => {
 3. **Path safety**: model file paths are validated against directory traversal before
    any download destination or deletion is honoured
 4. **File system access**: limited to user-selected directories and app data
-5. **Subprocess isolation**: both inference binaries run as separate child processes with
-   `stdin` closed and no inherited environment secrets; `llama-server` listens only on
-   `127.0.0.1` and is killed with its task
+5. **Subprocess isolation**: every bundled binary (`audiocpp_cli`, `llama-server`, `yt-dlp`)
+   runs as a separate child process with `stdin` closed and no inherited environment
+   secrets; `llama-server` listens only on `127.0.0.1`, and every child is `kill_on_drop` so
+   it dies with its task
+6. **Cookies are opt-in**: the URL import reads Bilibili cookies from a browser only after the
+   user picks one in Settings or in the 412 prompt (`--cookies-from-browser`); the default is
+   "not configured", so no browser data is touched unasked
 
 ---
 
@@ -784,6 +1070,12 @@ What still matters is honesty about provenance:
   see `src-tauri/resources/licenses/`.
 - `llama-server` (and its dylibs) is **MIT**; its LICENSE text ships with the app as
   `resources/licenses/llama.cpp-LICENSE`.
+- `yt-dlp` is **Unlicense**, but statically bundles third-party code, so **two** files
+  ship: `resources/licenses/yt-dlp-LICENSE` and
+  `resources/licenses/yt-dlp-THIRD_PARTY_LICENSES.txt` (both fetched by
+  `fetch-ytdlp.sh`). The binary is bundled as `bin/yt-dlp-<target-triple>` and is used
+  only against Bilibili; YouTube support is deferred, not shipped
+  (`docs/tech-spec/url-import-design.md` §10).
 - **HY-MT1.5-1.8B** is *not* bundled: it is downloaded on demand and recorded for
   attribution only (`Tencent HY Community License Agreement`, release date 2025-12-30,
   licence text: <https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/blob/main/License.txt>).
@@ -817,6 +1109,16 @@ What still matters is honesty about provenance:
 ```bash
 ./scripts/build/fetch-llamacpp.sh
 ```
+
+**yt-dlp missing / URL import reports `urlImport.engineMissing`:**
+```bash
+./scripts/build/fetch-ytdlp.sh
+```
+
+**URL import fails with `URL_IMPORT_NEEDS_COOKIES`:** pick a browser in the row's own picker
+(that writes `settings.bilibiliCookiesBrowser` and retries). `HTTP Error 412` is Bilibili's
+response to an anonymous request. A "needs login" *warning* is different: the import still
+succeeds by falling back to transcription and only flags `login_hint`.
 
 **Model missing:** the app reports `MODEL_NOT_INSTALLED`; download it from
 Settings → Models. A missing *translation* model reports the same sentinel with its id
@@ -852,6 +1154,7 @@ cd src-tauri && cargo clean && cargo build
 - [Tauri Documentation](https://tauri.app/)
 - [audio.cpp](https://github.com/0xShug0/audio.cpp) — the recognition engine
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) — the translation engine
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — the URL-import downloader (bundled, pinned)
 - [FunASR / SenseVoice](https://github.com/modelscope/FunASR) — model family
 - [Hunyuan MT](https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF) — the translation model
 - [Tailwind CSS](https://tailwindcss.com/)
@@ -861,3 +1164,5 @@ cd src-tauri && cargo clean && cargo build
 - `docs/tech-spec/audiocpp-accuracy-p1-23.md` — accuracy + VAD tuning evidence
 - `docs/tech-spec/translation-design.md` — translation design
 - `docs/tech-spec/translation-poc.md` — measured llama.cpp / HY-MT behaviour
+- `docs/tech-spec/url-import-design.md` — URL import design (flow, language rules, IPC)
+- `docs/tech-spec/url-import-tasks.md` — URL import task list

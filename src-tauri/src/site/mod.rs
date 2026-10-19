@@ -168,6 +168,13 @@ struct ImportEntry {
     /// The job's scratch directory; removed when the `Drop` guard inside the task
     /// runs, which an abort triggers.
     work_dir: PathBuf,
+    /// The per-video cache directory partial downloads land in.
+    ///
+    /// Separate from `work_dir` because a partial `<id>.m4a.part` is written
+    /// under `<app_cache_dir>/url-import/<id>/`, not in the scratch directory: a
+    /// cancel has to sweep both or it leaves the `.part` behind, which is exactly
+    /// what design §5.8 promises not to do.
+    cache_dir: PathBuf,
 }
 
 type ImportMap = Arc<Mutex<HashMap<String, ImportEntry>>>;
@@ -234,6 +241,13 @@ pub async fn start_url_import(
         return Ok(());
     }
 
+    // The cache root is where yt-dlp writes media and partial files. It is
+    // recorded now (not when the download starts) so a cancel during resolve or
+    // the subtitle fetch can still sweep a leftover from an earlier attempt.
+    let cache_dir = import_root(&app)
+        .map(|root| root.join(video_id_hint(&request.url)))
+        .unwrap_or_else(|_| work_dir.clone());
+
     let params = JobParams {
         request,
         formats,
@@ -250,7 +264,14 @@ pub async fn start_url_import(
         // A stale finished entry for the same id must not wedge the new one.
         tasks.remove(&task_id);
     }
-    tasks.insert(task_id, ImportEntry { handle, work_dir });
+    tasks.insert(
+        task_id,
+        ImportEntry {
+            handle,
+            work_dir,
+            cache_dir,
+        },
+    );
 
     Ok(())
 }
@@ -277,8 +298,15 @@ pub async fn cancel_url_import(task_id: String) -> Result<(), String> {
     let _ = entry.handle.await;
     let _ = tokio::task::yield_now().await;
 
+    // Sweep BOTH locations. The scratch directory holds the info dict and any
+    // subtitle file; the cache directory holds the media and its `.part`. Only
+    // partial files are removed from the cache: a *finished* download is kept so
+    // the same URL can be retried without downloading again (design §5.8).
     remove_partial_downloads(&entry.work_dir);
     let _ = std::fs::remove_dir_all(&entry.work_dir);
+    if entry.cache_dir != entry.work_dir && entry.cache_dir.is_dir() {
+        remove_partial_downloads(&entry.cache_dir);
+    }
 
     Ok(())
 }
@@ -705,6 +733,36 @@ where
     last
 }
 
+/// The video id a URL names, from the path (`/video/BV…` or `/video/av…`).
+///
+/// Only used to point the cancel sweep at the right cache directory; it never
+/// decides where output is written, and a failure is harmless (the sweep then
+/// covers the scratch directory only).
+///
+/// The segment is percent-DECODED by `url`, so `..%2F..%2Fetc` arrives as
+/// `../../etc` — a path-traversal attempt smuggled through an encoding. Since
+/// this value is joined onto a cache path, it is filtered down to characters a
+/// Bilibili id can actually contain; anything else yields `unknown`.
+fn video_id_hint(url: &str) -> String {
+    let raw = ::url::Url::parse(url).ok().and_then(|parsed| {
+        parsed
+            .path_segments()
+            .and_then(|mut segments| segments.nth(1).map(str::to_string))
+    });
+
+    match raw {
+        Some(id)
+            if !id.is_empty()
+                && id
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '-') =>
+        {
+            id
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
 fn unique_suffix() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -881,6 +939,68 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Regression for a gap the design promises but the first cut missed: a
+    /// partial download lives under the per-video CACHE directory, not in the
+    /// scratch directory, so a cancel has to sweep both.
+    #[test]
+    fn cancelling_sweeps_partials_in_the_cache_directory_too() {
+        let work = scratch_dir("cancel-work");
+        let cache = scratch_dir("cancel-cache");
+
+        // What a download in progress leaves behind.
+        touch(&cache.join("BV1.m4a.part"), "half");
+        touch(&cache.join("BV1.webm.ytdl"), "{}");
+        // What a finished earlier download leaves behind: must survive.
+        touch(&cache.join("BV1.m4a"), "audio");
+        // Scratch artefacts.
+        touch(&work.join("info.json"), "{}");
+        touch(&work.join("BV1/partial.srt.part"), "half");
+
+        // The same two calls `cancel_url_import` makes when the dirs differ.
+        remove_partial_downloads(&work);
+        let _ = std::fs::remove_dir_all(&work);
+        if cache != work && cache.is_dir() {
+            remove_partial_downloads(&cache);
+        }
+
+        assert!(!work.exists(), "the scratch directory must be gone");
+        assert!(!cache.join("BV1.m4a.part").exists(), ".part must be cleaned from the cache");
+        assert!(!cache.join("BV1.webm.ytdl").exists(), ".ytdl must be cleaned from the cache");
+        assert!(
+            cache.join("BV1.m4a").is_file(),
+            "a finished download must survive so a retry costs no network"
+        );
+
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    /// The cache directory the cancel sweep targets is named after the video id in
+    /// the URL; an unparseable URL must not produce a path that escapes the root.
+    #[test]
+    fn the_video_id_hint_only_ever_yields_a_single_path_segment() {
+        assert_eq!(
+            video_id_hint("https://www.bilibili.com/video/BV1GJ411x7h7"),
+            "BV1GJ411x7h7"
+        );
+        assert_eq!(
+            video_id_hint("https://www.bilibili.com/video/BV1GJ411x7h7?p=3"),
+            "BV1GJ411x7h7"
+        );
+        assert_eq!(
+            video_id_hint("https://www.bilibili.com/video/av80433022"),
+            "av80433022"
+        );
+        for hostile in [
+            "not a url",
+            "https://b23.tv/",
+            "https://www.bilibili.com/video/..%2F..%2Fetc/passwd",
+        ] {
+            let hint = video_id_hint(hostile);
+            assert!(!hint.contains('/'), "{hostile} -> {hint}");
+            assert!(!hint.contains(".."), "{hostile} -> {hint}");
+        }
+    }
+
     /// The work-dir guard is what makes a cancel clean: dropping it (which an
     /// abort does) removes the whole scratch directory.
     #[test]
@@ -926,6 +1046,7 @@ mod tests {
                 ImportEntry {
                     handle,
                     work_dir: PathBuf::from(format!("/tmp/{}", id)),
+                    cache_dir: PathBuf::from(format!("/tmp/cache/{}", id)),
                 },
             );
         }

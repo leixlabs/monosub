@@ -4,7 +4,7 @@
 #
 # Bundled resources are: bin/ffmpeg-*, bin/ffprobe-*, bin/audiocpp_cli-*, the
 # ffmpeg dylibs in bin/lib/, bin/llama-server-* plus its lib*.dylib (flat in
-# bin/, see fetch-llamacpp.sh for why), and
+# bin/, see fetch-llamacpp.sh for why), bin/yt-dlp-* (URL import), and
 # models/silero_vad/silero_vad_16k.safetensors.
 
 set -e
@@ -22,8 +22,8 @@ log_info "1. 清理已废弃的 Python/uv/旧引擎资源..."
 # Paths from the v1 Python/FunASR packaging. A checkout that still has them would
 # otherwise be bundled by Tauri's `resources/**/*` glob. Enumerated explicitly so
 # the fetched artifacts (bin/ffmpeg*, bin/ffprobe*, bin/audiocpp_cli*,
-# bin/llama-server*, bin/lib/*.dylib, bin/libllama*.dylib, bin/libggml*.dylib,
-# bin/libmtmd*.dylib, models/silero_vad/*) are never touched.
+# bin/llama-server*, bin/yt-dlp*, bin/lib/*.dylib, bin/libllama*.dylib,
+# bin/libggml*.dylib, bin/libmtmd*.dylib, models/silero_vad/*) are never touched.
 for obsolete in python python-venv core-engine lib uv; do
     if [ -e "$RESOURCES_DIR/$obsolete" ]; then
         log_info "  移除 $obsolete/"
@@ -43,7 +43,10 @@ bash "$SCRIPT_DIR/fetch-audiocpp.sh"
 log_info "4. 获取 llama.cpp 运行时 (llama-server + dylib)..."
 bash "$SCRIPT_DIR/fetch-llamacpp.sh"
 
-log_info "5. 生成资源清单..."
+log_info "5. 获取 yt-dlp (URL 导入的字幕/音频下载器)..."
+bash "$SCRIPT_DIR/fetch-ytdlp.sh"
+
+log_info "6. 生成资源清单..."
 # MANIFEST.txt documents what the build actually bundles. Generated rather than
 # hand-maintained so it cannot drift; no timestamp, so re-runs are byte-identical.
 # It walks resources/ recursively, so newly fetched artifacts (the flat llama

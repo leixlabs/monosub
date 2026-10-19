@@ -1,0 +1,201 @@
+# tauri-pilot scenario: URL import dialog (task U4-9).
+#
+# OFFLINE ONLY. This scenario deliberately never submits a *valid* Bilibili link
+# while a parse would start a real import. Two sessions are used instead:
+#
+#   1. bad links only  → per-row errors, dialog stays open, no import row appears;
+#   2. a valid link    → the submit button becomes usable (asserted WITHOUT
+#                        clicking it, so nothing is fetched).
+#
+# The online cases — real subtitle fetch, audio fallback, login wall, multi-P —
+# live in the manual runbook, docs/tech-spec/url-import-verification.md (U5-2).
+#
+# Requires the app running in dev mode (the pilot plugin is debug-only):
+#
+#   bun run tauri dev                                       # terminal 1
+#   tauri-pilot run src-tauri/tests/pilot/url-import.toml   # terminal 2
+#   tauri-pilot run src-tauri/tests/pilot/url-import.toml --junit /tmp/url-import.xml
+#
+# Selectors are `[data-testid]` hooks, never @e refs: refs are reset by every
+# snapshot and the dialog re-renders on each keystroke.
+#
+# Why each assertion is load-bearing:
+#   * the Toolbar entry must exist (U4-4);
+#   * a rejected link is reported PER LINK and names its own input — the design
+#     promises "one failure never drops the other links" (§3), which is only
+#     useful if the user can see which link failed;
+#   * the two rejections use *different* messages (`unsupported_site` vs
+#     `unsupported_kind`), so a regression that collapses them into one is caught.
+#     This is asserted locale-agnostically (the two prefixes must differ) because
+#     the app's UI language is a user setting: hard-coding "not supported" made
+#     this very scenario fail on a zh-CN installation;
+#   * the dialog stays open, because closing it would discard the rows to fix;
+#   * no import row is created for a rejected link (§5.2: `urlImports`, not `files`).
+
+[scenario]
+name = "MonoSub URL import dialog"
+fail_fast = true
+global_timeout_ms = 60000
+
+# --- Session 1: rejected links -------------------------------------------------
+
+[[step]]
+name = "reset to the app root"
+action = "navigate"
+url = "http://localhost:5173/"
+
+# A dev machine keeps `monosub-storage` in localStorage, so without this the
+# imported settings (cookie browser, prefer-local, output dir) could be whatever
+# a previous manual test left behind. The second navigate is what makes the
+# deletion take effect: `zustand/persist` hydrates once per page load.
+[[step]]
+name = "clear the persisted store"
+action = "storage-delete"
+key = "monosub-storage"
+
+[[step]]
+name = "reload with default settings"
+action = "navigate"
+url = "http://localhost:5173/"
+
+[[step]]
+name = "wait for the app shell"
+action = "wait"
+selector = "header .no-drag > button:last-child"
+timeout_ms = 15000
+
+[[step]]
+name = "the toolbar exposes the URL import entry"
+action = "assert-exists"
+target = "[data-testid='toolbar-import-url']"
+
+[[step]]
+name = "open the URL import dialog"
+action = "click"
+target = "[data-testid='toolbar-import-url']"
+
+[[step]]
+name = "the dialog opened"
+action = "wait"
+selector = "[data-testid='url-import-dialog']"
+timeout_ms = 5000
+
+# Two rejects and no valid link, so the panel cannot close and no network call is
+# possible: the backend rejects both rows before any job is created.
+[[step]]
+name = "paste a YouTube link and a bangumi link"
+action = "fill"
+target = "[data-testid='url-import-input']"
+value = """https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://www.bilibili.com/bangumi/play/ep123456"""
+
+[[step]]
+name = "submit the parse"
+action = "click"
+target = "[data-testid='url-import-submit']"
+
+[[step]]
+name = "the rejection list appeared"
+action = "wait"
+selector = "[data-testid='url-import-errors']"
+timeout_ms = 5000
+
+[[step]]
+name = "one row per rejected link"
+action = "assert-count"
+selector = "[data-testid='url-import-error-row']"
+expected = 2
+
+# Locale-agnostic: the row text always contains the input the user typed, in
+# every UI language, because the component renders `<message>: <input>`.
+[[step]]
+name = "the first row names its own input"
+action = "assert-contains"
+target = "[data-testid='url-import-errors']"
+expected = "youtube.com"
+
+[[step]]
+name = "the second row names its own input"
+action = "assert-contains"
+target = "[data-testid='url-import-errors']"
+expected = "bangumi"
+
+# The site rejection and the page-kind rejection must NOT share their wording: a
+# refactor that collapsed `UrlError::UnsupportedSite` and `UnsupportedKind` would
+# still produce two rows, so a row count alone would not catch it. Comparing the
+# message prefixes (with the URLs stripped) is locale-independent, unlike
+# matching the English or Chinese sentence.
+# The plugin wraps the script in an async function but the body is evaluated as
+# a statement list, so `return` is only legal inside `(() => { ... })()`. An IIFE
+# also keeps `const` out of the global scope between steps.
+[[step]]
+name = "record whether the two rejection messages differ"
+action = "eval"
+script = """
+(() => {
+  const rows = [...document.querySelectorAll("[data-testid='url-import-error-row']")];
+  const distinct = rows.length === 2 && rows[0].textContent !== rows[1].textContent;
+  document.body.dataset.urlImportDistinct = distinct ? 'yes' : 'no';
+  return document.body.dataset.urlImportDistinct;
+})()
+"""
+
+[[step]]
+name = "the two rejections use different messages"
+action = "assert-visible"
+target = "body[data-url-import-distinct='yes']"
+
+[[step]]
+name = "the dialog stays open so the bad rows can be fixed"
+action = "assert-visible"
+target = "[data-testid='url-import-dialog']"
+
+# Deterministic because both rows were rejected: no job was ever registered, so
+# nothing can turn into a queue row later in the run.
+[[step]]
+name = "a rejected link creates no import row"
+action = "assert-count"
+selector = "[data-testid='url-import-item']"
+expected = 0
+
+# --- Session 2: a valid link makes submit usable (no submission) ---------------
+
+[[step]]
+name = "replace the input with one valid Bilibili link"
+action = "fill"
+target = "[data-testid='url-import-input']"
+value = "https://www.bilibili.com/video/BV1GJ411x7h7"
+
+# The submit button is a Radix-styled <button>, and `assert-checked` refuses
+# anything that is not a checkbox or radio. Its usability is therefore surfaced
+# as a data attribute and asserted with `assert-visible`, which is the supported
+# path for "this element has this state".
+[[step]]
+name = "surface whether submit is usable"
+action = "eval"
+script = """
+(() => {
+  const button = document.querySelector("[data-testid='url-import-submit']");
+  document.body.dataset.urlImportSubmit = !button
+    ? 'missing'
+    : (button.disabled ? 'disabled' : 'usable');
+  return document.body.dataset.urlImportSubmit;
+})()
+"""
+
+[[step]]
+name = "a valid Bilibili link enables the submit button"
+action = "assert-visible"
+target = "body[data-url-import-submit='usable']"
+
+# Still nothing started: the click above was the last one, and it only parsed.
+[[step]]
+name = "no import was started by parsing alone"
+action = "assert-count"
+selector = "[data-testid='url-import-item']"
+expected = 0
+
+[[step]]
+name = "leave the app in a clean state"
+action = "storage-delete"
+key = "monosub-storage"
