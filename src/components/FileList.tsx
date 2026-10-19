@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { FileItem } from './FileItem';
+import { UrlImportItem } from './UrlImportItem';
 import { Film, Subtitles } from 'lucide-react';
 import { addPathsToQueue } from '@/lib/fileImport';
 
@@ -8,6 +9,11 @@ export function FileList() {
   const { t } = useTranslation();
   const files = useStore((state) => state.files);
   const addFiles = useStore((state) => state.addFiles);
+  // URL imports live in their own slice: they are neither files nor part of
+  // "start all", but they render above the queue so the user sees them start
+  // (url-import-design §5.2).
+  const urlImports = useStore((state) => state.urlImports);
+  const importRows = Object.values(urlImports);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -39,7 +45,7 @@ export function FileList() {
     }
   };
 
-  if (files.length === 0) {
+  if (files.length === 0 && importRows.length === 0) {
     return (
       <div
         className="flex-1 min-h-0 flex items-center justify-center p-8"
@@ -121,6 +127,15 @@ export function FileList() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-6">
       <div className="space-y-3">
+        {importRows.map((urlImport, index) => (
+          <div
+            key={urlImport.taskId}
+            style={{ animationDelay: `${index * 50}ms` }}
+            className="animate-in"
+          >
+            <UrlImportItem urlImport={urlImport} />
+          </div>
+        ))}
         {files.map((file, index) => (
           <div
             key={file.id}

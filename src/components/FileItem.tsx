@@ -1,4 +1,4 @@
-import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users } from 'lucide-react';
+import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
@@ -236,8 +236,20 @@ export function FileItem({ file }: FileItemProps) {
               )}
             </div>
           </div>
-          <div className="mt-2">
+          <div className="mt-2 space-y-1.5">
             {getStatusBadge()}
+            {/* URL imports only: the platform had a subtitle behind a login, so
+                this file is being recognised only because cookies are not set up
+                (url-import-design §4.5). A hint, never an error. */}
+            {file.loginHint && file.status !== 'completed' && (
+              <p
+                className="flex items-start gap-1.5 text-xs text-text-tertiary dark:text-gray-500"
+                data-testid="file-login-hint"
+              >
+                <Info className="w-3 h-3 mt-0.5 shrink-0" />
+                {t('urlImport.login.queuedHint')}
+              </p>
+            )}
           </div>
         </div>
 

@@ -14,7 +14,8 @@
     "processing": "处理中",
     "completed": "已完成",
     "clear": "清空",
-    "startAll": "全部开始"
+    "startAll": "全部开始",
+    "importUrl": "从链接添加"
   },
   "fileList": {
     "emptyTitle": "开始生成字幕",
@@ -109,6 +110,9 @@
     },
     "system": {
       "title": "系统"
+    },
+    "urlImport": {
+      "title": "链接导入"
     }
   },
   "notification": {
@@ -195,5 +199,75 @@
     "slotVadHint": "在转写前把音频切成语音片段。Silero VAD 随 App 内置，一般无需修改。",
     "slotAsrHint": "把每个语音片段转成文字。识别准确度与支持语种由这个模型决定。",
     "slotDiarHint": "判断谁在什么时候说话，以便给字幕加上「说话人 A/B」标签。需要分离模型；没有它字幕不带说话人标签。"
+  },
+  "urlImport": {
+    "title": "从链接导入",
+    "placeholder": "https://www.bilibili.com/video/BV…\nhttps://b23.tv/…",
+    "hint": "一行一个，或用空格分隔。目前仅支持 B 站视频。",
+    "subtitleLanguage": "字幕语言",
+    "followingSettings": "{{value}}（跟随设置）",
+    "outputDir": "保存到",
+    "outputDirDefault": "跟随设置",
+    "autoStart": "下载完成后自动开始转录",
+    "autoStartHint": "视频没有平台字幕时，下载音频后立即开始识别",
+    "submit": "导入",
+    "cancel": "取消",
+    "stage": {
+      "pending": "等待中…",
+      "resolving": "获取视频信息…",
+      "fetching_subtitles": "下载字幕…",
+      "downloading_audio": "下载音频…",
+      "writing": "写入字幕…",
+      "translating": "翻译中…"
+    },
+    "row": {
+      "subtitleHuman": "已获取字幕（{{language}} · 平台）",
+      "subtitleAi": "已获取字幕（{{language}} · 平台 AI）",
+      "human": "人工",
+      "ai": "AI",
+      "translated": "已翻译为 {{language}}",
+      "skipped": "已存在，已跳过",
+      "retry": "重试"
+    },
+    "login": {
+      "explain": "B 站需要登录才会提供这条字幕。选择你已登录的浏览器，然后重试。",
+      "privacy": "MonoSub 只会读取所选浏览器中 bilibili.com 的 cookie，且仅用于本机请求。",
+      "safariHint": "使用 Safari 时，还需要在「系统设置 → 隐私与安全性」中为 MonoSub 授予「完全磁盘访问权限」。Chrome 与 Edge 会弹出钥匙串授权。",
+      "browsers": {
+        "chrome": "Chrome",
+        "edge": "Edge",
+        "firefox": "Firefox",
+        "safari": "Safari"
+      },
+      "queuedHint": "该视频的字幕仅对已登录用户开放。可在「设置 → 链接导入」中配置 cookie，下次就能直接取字幕。"
+    },
+    "errors": {
+      "unsupported_site": "不支持该链接",
+      "unsupported_kind": "不支持该类型的页面",
+      "needsCookies": "该视频需要登录 B 站",
+      "multiPart": "这是多 P 视频，请粘贴具体分 P 的链接。",
+      "network": "网络异常，请重试",
+      "rateLimited": "B 站暂时限制了请求频率，请稍后再试",
+      "engineMissing": "下载器（yt-dlp）缺失，请重新安装 MonoSub。",
+      "subtitleUnusable": "无法读取该视频的字幕",
+      "outputDirFailed": "无法创建输出目录",
+      "writeFailed": "无法写入字幕文件",
+      "cacheDirFailed": "无法创建缓存目录",
+      "downloadFailed": "音频下载失败",
+      "infoJsonFailed": "无法准备字幕下载",
+      "failed": "导入失败"
+    },
+    "settings": {
+      "title": "链接导入",
+      "outputDir": "导入字幕保存位置",
+      "outputDirHint": "导入的字幕会存到这里，而不是源文件旁边（源文件在缓存目录里）。留空则使用 ~/Downloads/MonoSub。",
+      "chooseFolder": "选择目录",
+      "cookiesBrowser": "B 站 cookie 来源",
+      "cookiesBrowserHint": "只有在视频字幕需要登录时才需要配置。",
+      "cookiesNone": "未配置",
+      "preferLocal": "优先本地识别",
+      "preferLocalHint": "忽略平台字幕，始终走本地语音识别，结果与本地文件一致。",
+      "privacy": "只有在你选择浏览器后才会读取 cookie，且只读取 bilibili.com 的 cookie、仅在本机使用。"
+    }
   }
 }

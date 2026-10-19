@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -17,6 +17,8 @@ import { useStore } from './store/useStore';
 import { processQueueBatch, isModelNotInstalledError } from './lib/transcription';
 import { openModelsSettings } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
+import { UrlImportDialog } from './components/UrlImportDialog';
+import { ensureUrlImportListeners } from './lib/urlImport';
 
 interface StepInfoPayload {
   current_step: number;
@@ -47,6 +49,7 @@ const getNotificationIconPath = async (): Promise<string | undefined> => {
 
 function App() {
   const { t } = useTranslation();
+  const [isUrlImportOpen, setIsUrlImportOpen] = useState(false);
   const updateFile = useStore((state) => state.updateFile);
   const setIsProcessing = useStore((state) => state.setIsProcessing);
   const incrementProcessedCount = useStore((state) => state.incrementProcessedCount);
@@ -80,6 +83,11 @@ function App() {
       void listener?.unregister();
     };
   }, []);
+
+  // URL import events live in their own namespace (`url_import_*`), so they are
+  // attached once here and never touch the frozen `transcribe_*` contract
+  // (url-import-design §5.9).
+  useEffect(() => ensureUrlImportListeners(), []);
 
   // Sync tray menu labels with current language
   useEffect(() => {
@@ -265,10 +273,14 @@ function App() {
       <ThemeProvider>
         <div className="h-screen overflow-hidden bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
           <Header />
-          <Toolbar />
+          <Toolbar onImportUrl={() => setIsUrlImportOpen(true)} />
           <FileList />
           <BottomBar />
           <Settings />
+          <UrlImportDialog
+            isOpen={isUrlImportOpen}
+            onClose={() => setIsUrlImportOpen(false)}
+          />
         </div>
       </ThemeProvider>
       {process.env.NODE_ENV === "development" && <Agentation />}

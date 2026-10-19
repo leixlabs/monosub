@@ -197,6 +197,61 @@ pub fn write(
         .map_err(|error| crate::engine::EngineError::Io(format!("{}: {}", output_path.display(), error)))
 }
 
+/// The first format writes to `output_path` verbatim, each later one replaces
+/// only the extension (`os.path.splitext` semantics).
+///
+/// Task: U1-12. Moved here from `commands/transcribe.rs` because a second caller
+/// now needs the same rule: the URL-import subtitle-hit path writes through the
+/// same writers (url-import-design §5.4). Two copies of an output-naming rule is
+/// how the two paths would quietly start naming files differently.
+pub fn output_path_for(output_path: &std::path::Path, index: usize, format: Format) -> std::path::PathBuf {
+    if index == 0 {
+        return output_path.to_path_buf();
+    }
+    let mut path = output_path.to_path_buf();
+    path.set_extension(format.extension());
+    path
+}
+
+/// Parse a comma-separated `format` field: trim, lowercase, drop empties,
+/// reject unknown values, deduplicate preserving order.
+///
+/// Shared so the URL-import path accepts exactly what the transcription path
+/// accepts: a format list the user saved in Settings must mean the same thing on
+/// both paths (url-import-design §5.4).
+pub fn parse_formats(value: &str) -> Result<Vec<Format>, String> {
+    let mut formats: Vec<Format> = Vec::new();
+    for raw in value.split(',') {
+        let token = raw.trim().to_lowercase();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(format) = Format::parse(&token) else {
+            return Err(format!("Unsupported subtitle format: {}", token));
+        };
+        if !formats.contains(&format) {
+            formats.push(format);
+        }
+    }
+
+    if formats.is_empty() {
+        return Err("No valid subtitle format specified".to_string());
+    }
+    Ok(formats)
+}
+
+/// One path per requested format, derived from the primary output path.
+pub fn output_paths_for(
+    output_path: &std::path::Path,
+    formats: &[Format],
+) -> Vec<std::path::PathBuf> {
+    formats
+        .iter()
+        .enumerate()
+        .map(|(index, format)| output_path_for(output_path, index, *format))
+        .collect()
+}
+
 /// Localized error when `json` is requested without word-level data, matching
 /// the Python `ValueError` message.
 ///

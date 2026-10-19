@@ -14,7 +14,8 @@
     "processing": "Processing",
     "completed": "Completed",
     "clear": "Clear",
-    "startAll": "Start All"
+    "startAll": "Start All",
+    "importUrl": "Import from Link"
   },
   "fileList": {
     "emptyTitle": "Generate Subtitles",
@@ -109,6 +110,9 @@
     },
     "system": {
       "title": "System"
+    },
+    "urlImport": {
+      "title": "URL Import"
     }
   },
   "models": {
@@ -195,5 +199,75 @@
     "slotVadHint": "Splits the audio into speech segments before transcription. Silero VAD ships with the app, so this is rarely changed.",
     "slotAsrHint": "Turns each speech segment into text. This is the model that decides recognition accuracy and language support.",
     "slotDiarHint": "Detects who spoke when, so cues can be labelled Speaker A/B. Needs a diarization model; without it the transcript has no speaker labels."
+  },
+  "urlImport": {
+    "title": "Import from a link",
+    "placeholder": "https://www.bilibili.com/video/BV…\nhttps://b23.tv/…",
+    "hint": "One link per line, or separated by spaces. Bilibili videos only for now.",
+    "subtitleLanguage": "Subtitle language",
+    "followingSettings": "{{value}} (follows Settings)",
+    "outputDir": "Save to",
+    "outputDirDefault": "Follow Settings",
+    "autoStart": "Start transcribing automatically",
+    "autoStartHint": "When a video has no platform subtitle, download its audio and start right away",
+    "submit": "Import",
+    "cancel": "Cancel",
+    "stage": {
+      "pending": "Waiting…",
+      "resolving": "Fetching video info…",
+      "fetching_subtitles": "Downloading subtitles…",
+      "downloading_audio": "Downloading audio…",
+      "writing": "Writing subtitle…",
+      "translating": "Translating…"
+    },
+    "row": {
+      "subtitleHuman": "Subtitle fetched ({{language}} · platform)",
+      "subtitleAi": "Subtitle fetched ({{language}} · platform AI)",
+      "human": "Human",
+      "ai": "AI",
+      "translated": "Translated to {{language}}",
+      "skipped": "Already exists, skipped",
+      "retry": "Retry"
+    },
+    "login": {
+      "explain": "Bilibili needs a login to hand out this subtitle. Pick the browser you are signed in with, then retry.",
+      "privacy": "MonoSub reads only bilibili.com cookies from the browser you pick, and only for the request on this machine.",
+      "safariHint": "Safari also needs Full Disk Access for MonoSub in System Settings → Privacy & Security. Chrome and Edge will ask for your keychain.",
+      "browsers": {
+        "chrome": "Chrome",
+        "edge": "Edge",
+        "firefox": "Firefox",
+        "safari": "Safari"
+      },
+      "queuedHint": "Bilibili only offers this video's subtitle to signed-in users. Settings → URL Import can add your cookies to skip recognition next time."
+    },
+    "errors": {
+      "unsupported_site": "This link is not supported",
+      "unsupported_kind": "This page type is not supported",
+      "needsCookies": "Bilibili requires a login for this video",
+      "multiPart": "This is a multi-part video. Paste the link of the part you want.",
+      "network": "Network problem, please try again",
+      "rateLimited": "Bilibili is rate-limiting requests, please try again later",
+      "engineMissing": "The downloader (yt-dlp) is missing. Reinstall MonoSub.",
+      "subtitleUnusable": "This video's subtitle could not be read",
+      "outputDirFailed": "Could not create the output folder",
+      "writeFailed": "Could not write the subtitle file",
+      "cacheDirFailed": "Could not create the cache folder",
+      "downloadFailed": "The audio download failed",
+      "infoJsonFailed": "Could not prepare the subtitle download",
+      "failed": "The import failed"
+    },
+    "settings": {
+      "title": "URL import",
+      "outputDir": "Save imported subtitles to",
+      "outputDirHint": "Imported subtitles go here instead of next to the source, which is a cache file. Leave empty for ~/Downloads/MonoSub.",
+      "chooseFolder": "Choose folder",
+      "cookiesBrowser": "Bilibili cookies",
+      "cookiesBrowserHint": "Needed only for videos whose subtitles require a login.",
+      "cookiesNone": "Not configured",
+      "preferLocal": "Always recognise locally",
+      "preferLocalHint": "Ignore platform subtitles and always run speech recognition, so the result matches a local file.",
+      "privacy": "Reading cookies only happens when you pick a browser. Only bilibili.com cookies are read, and only on this machine."
+    }
   }
 }

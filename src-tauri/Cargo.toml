@@ -27,6 +27,9 @@ tauri-plugin-fs = "2"
 sha2 = "0.10"
 tauri-plugin-notification = "2"
 hound = "3.5"
+# URL parsing for the import whitelist (`site::url`) — normalising a pasted
+# link by hand is how `?p=3` and tracking parameters get confused.
+url = "2.5"
 futures-util = "0.3"
 
 # Debug-only UI testing/automation bridge (tauri-pilot). Inert in release builds.

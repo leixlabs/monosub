@@ -18,6 +18,50 @@ export type SpeedPreference = 'fast' | 'balanced' | 'accurate'
 /** Step roles a user may pin to a specific model id (design §8.1). */
 export type ModelOverrideSlot = 'asr' | 'vad' | 'align' | 'diar'
 
+/**
+ * Browser whose Bilibili cookies yt-dlp may read (`--cookies-from-browser`).
+ *
+ * `''` means "not configured", which is the default: reading a browser's cookie
+ * store must be an explicit choice, never something that happens because the user
+ * pasted a link (url-import-design §4.5).
+ */
+export type CookiesBrowser = '' | 'chrome' | 'edge' | 'firefox' | 'safari'
+
+/** The browsers the login prompt offers, in the order it lists them. */
+export const COOKIES_BROWSERS: Exclude<CookiesBrowser, ''>[] = ['chrome', 'edge', 'firefox', 'safari']
+
+/**
+ * One in-flight URL import.
+ *
+ * Kept in its own, **non-persisted** slice rather than in `files`: an import is
+ * not a file, has no path until it finishes, and must not take part in "start
+ * all" or the batch counters (url-import-design §5.2). A queued import leaves
+ * this slice and becomes a normal `VideoFile`.
+ */
+export interface UrlImportState {
+  taskId: string
+  /** The URL exactly as it was pasted, for the row label. */
+  input: string
+  status: 'pending' | 'resolving' | 'fetching_subtitles' | 'downloading_audio' | 'writing' | 'translating' | 'done' | 'error'
+  /** 0–100, or `undefined` when the size is unknown (indeterminate). */
+  progress?: number
+  /** Set on `done` when a platform subtitle was written. */
+  languageTag?: string
+  /** Whether the platform track was human CC or its own ASR. */
+  languageKind?: 'human' | 'ai'
+  /** Files written, for "show in Finder". */
+  paths?: string[]
+  /** Every format's path when translation also ran. */
+  translatedPaths?: string[]
+  /** True when `skipExistingSubtitle` skipped every file. */
+  skipped?: boolean
+  error?: string
+  /** True when the fix is to configure cookies and retry. */
+  needsCookies?: boolean
+  /** A URL that can be retried verbatim from the row. */
+  url: string
+}
+
 export interface StepProgress {
   currentStep: number
   totalSteps: number
@@ -46,6 +90,21 @@ export interface VideoFile {
    * Seeded from `settings.defaultDiarization` when the file is queued.
    */
   diarization: boolean
+  /**
+   * URL imports only: the output directory for this file's subtitles.
+   *
+   * "Same directory as the source" is meaningless for an imported file (the
+   * source is a cache artefact the user will clear), so the frontend computes
+   * this once and `getOutputPath` prefers it (url-import-design §5.4).
+   */
+  outputDir?: string
+  /**
+   * URL imports only: the platform would have offered a subtitle behind a login.
+   *
+   * Set from the `Queued` outcome's `login_hint`, so the row can tell the user
+   * that logging in would have avoided the recognition pass entirely.
+   */
+  loginHint?: boolean
 }
 
 export interface AppSettings {
@@ -79,6 +138,21 @@ export interface AppSettings {
   translateTargetLanguage: TranslateTargetLanguage
   /** Pinned translation-model id; `''` means "use the catalogue default". */
   translationModelId: string
+
+  // URL import (v5; url-import-design §5.4). `same` storage mode writes here
+  // rather than next to the source, because for a URL the "source" is a cache
+  // file the user will eventually clear.
+  /** Output directory for imported subtitles. `''` means `~/Downloads/MonoSub`. */
+  urlImportOutputDir: string
+  /** Browser to read Bilibili cookies from; `''` = not configured. */
+  bilibiliCookiesBrowser: CookiesBrowser
+  /**
+   * Skip the platform subtitle and always recognise locally.
+   *
+   * An escape hatch for users who need the app's own ASR (and its `words.json`
+   * sidecar) rather than the platform's machine transcript (design §7-2).
+   */
+  preferLocalRecognition: boolean
 }
 
 const OUTPUT_LANGUAGES: OutputLanguage[] = ['auto', 'en', 'zh', 'es', 'ja', 'de', 'fr', 'pt', 'zh-tw', 'ko']
@@ -115,6 +189,9 @@ const defaultSettings: AppSettings = {
   // a user whose source is already English picks another target.
   translateTargetLanguage: 'en',
   translationModelId: '',
+  urlImportOutputDir: '',
+  bilibiliCookiesBrowser: '',
+  preferLocalRecognition: false,
 }
 
 const SPEED_PREFERENCES: SpeedPreference[] = ['fast', 'balanced', 'accurate']
@@ -134,6 +211,9 @@ export const TRANSLATE_TARGET_LANGUAGES: TranslateTargetLanguage[] = [
 
 const isTranslateTargetLanguage = (value: unknown): value is TranslateTargetLanguage =>
   typeof value === 'string' && (TRANSLATE_TARGET_LANGUAGES as string[]).includes(value)
+
+const isCookiesBrowser = (value: unknown): value is CookiesBrowser =>
+  value === '' || (typeof value === 'string' && (COOKIES_BROWSERS as string[]).includes(value))
 
 interface AppState {
   // File queue management
@@ -177,6 +257,19 @@ interface AppState {
   processedCount: number
   setProcessedCount: (count: number) => void
   incrementProcessedCount: () => void
+
+  // URL imports (non-persisted; url-import-design §5.2)
+  urlImports: Record<string, UrlImportState>
+  /**
+   * The dialog's "start the transcription automatically" checkbox. Defaults to
+   * on; the auto-start itself is pure frontend (design §5.3).
+   */
+  autoStartImports: boolean
+  setAutoStartImports: (autoStart: boolean) => void
+  addUrlImport: (state: UrlImportState) => void
+  updateUrlImport: (taskId: string, updates: Partial<UrlImportState>) => void
+  removeUrlImport: (taskId: string) => void
+  clearUrlImports: () => void
 }
 
 // Persisted slice. Kept in sync with the `partialize` option below.
@@ -186,9 +279,10 @@ type PersistedAppState = Pick<
 >
 
 // v3 adds the recognition-plan requirements and `modelOverrides` (design §10.3);
-// v4 adds the translation settings (translation-design §7). Both must only ADD:
-// unlike v1→v2 they drop nothing.
-const PERSIST_VERSION = 4
+// v4 adds the translation settings (translation-design §7); v5 adds the URL-import
+// settings (url-import-design §5.4). All three only ADD: unlike v1→v2 they drop
+// nothing, so an upgraded blob keeps every preference the user already set.
+const PERSIST_VERSION = 5
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -213,6 +307,10 @@ const normalizeSettings = (value: unknown): AppSettings => {
     translateEnabled: typeof persisted.translateEnabled === 'boolean' ? persisted.translateEnabled : defaultSettings.translateEnabled,
     translateTargetLanguage: isTranslateTargetLanguage(persisted.translateTargetLanguage) ? persisted.translateTargetLanguage : defaultSettings.translateTargetLanguage,
     translationModelId: typeof persisted.translationModelId === 'string' ? persisted.translationModelId : defaultSettings.translationModelId,
+    // v4 blobs carry none of these; same add-only rule.
+    urlImportOutputDir: typeof persisted.urlImportOutputDir === 'string' ? persisted.urlImportOutputDir : defaultSettings.urlImportOutputDir,
+    bilibiliCookiesBrowser: isCookiesBrowser(persisted.bilibiliCookiesBrowser) ? persisted.bilibiliCookiesBrowser : defaultSettings.bilibiliCookiesBrowser,
+    preferLocalRecognition: typeof persisted.preferLocalRecognition === 'boolean' ? persisted.preferLocalRecognition : defaultSettings.preferLocalRecognition,
   }
 }
 
@@ -301,6 +399,29 @@ export const useStore = create<AppState>()(
       incrementProcessedCount: () => set((state) => ({
         processedCount: state.processedCount + 1
       })),
+
+      // URL imports: deliberately absent from `partialize`, so a reload starts
+      // with no half-finished import rows (url-import-design §5.2).
+      urlImports: {},
+      autoStartImports: true,
+      setAutoStartImports: (autoStartImports) => set({ autoStartImports }),
+      addUrlImport: (urlImport) => set((state) => ({
+        urlImports: { ...state.urlImports, [urlImport.taskId]: urlImport },
+      })),
+      updateUrlImport: (taskId, updates) => set((state) => {
+        const existing = state.urlImports[taskId]
+        if (!existing) return state
+        return {
+          urlImports: { ...state.urlImports, [taskId]: { ...existing, ...updates } },
+        }
+      }),
+      removeUrlImport: (taskId) => set((state) => {
+        if (!(taskId in state.urlImports)) return state
+        const next = { ...state.urlImports }
+        delete next[taskId]
+        return { urlImports: next }
+      }),
+      clearUrlImports: () => set({ urlImports: {} }),
     }),
     {
       name: 'monosub-storage',

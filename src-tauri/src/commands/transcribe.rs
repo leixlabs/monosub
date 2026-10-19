@@ -152,17 +152,19 @@ struct TaskParams {
 
 /// The translation stage, decided at request time.
 ///
-/// `model_path` is resolved here rather than in `transcribe_file` so the
-/// pre-flight can fail the request before a single process is spawned.
-#[derive(Debug)]
-struct TranslationPlan {
-    model_id: String,
-    model_path: PathBuf,
-    /// The catalogue entry, which carries the prompt-template kind.
-    model: ModelSpec,
-    /// Target language as the frontend spelled it.
-    target: String,
-}
+/// U1-13: the type and its pre-flight now live in `translate::stage`, because
+/// the URL-import subtitle-hit path runs exactly the same stage
+/// (url-import-design §5.6). Re-exported here so this module and its tests keep
+/// one spelling.
+use crate::translate::stage::TranslationPlan;
+
+/// The naming/writing helpers the tests below pin. They live in
+/// `translate::stage` now (U1-13) and are re-imported here so the tests keep
+/// asserting against the shared implementation rather than a copy.
+#[cfg(test)]
+use crate::translate::stage::{
+    canonical_source_equals_target, translation_output_path, write_translated_formats,
+};
 
 /// A failure that has already been turned into user-showable text.
 ///
@@ -432,14 +434,9 @@ pub async fn cancel_transcription(task_id: String) -> Result<(), String> {
 
 /// Resolve the translation stage for a request, or reject it clearly.
 ///
-/// Returns `Ok(None)` whenever translation is off or would not run — including
-/// the same-language case — so nothing is downloaded or spawned for a run that
-/// has nothing to do. Returns `Err("MODEL_NOT_INSTALLED:<id>")` exactly like a
-/// recognition model, which is what routes the user to the download list.
-///
-/// `installed` and `model_file` are injected so the whole gate is a pure
-/// function of (catalogue, install state, paths) and can be unit-tested without
-/// a Tauri `AppHandle` or a real models directory.
+/// U1-13 moved the gate itself into `translate::stage::resolve`, so the URL
+/// import path runs byte-identical logic. This wrapper keeps the local signature
+/// (and therefore every existing test) intact.
 fn resolve_translation(
     catalogue: &[ModelSpec],
     source_language: &str,
@@ -449,90 +446,15 @@ fn resolve_translation(
     installed: &dyn Fn(&str) -> bool,
     model_file: &dyn Fn(&str) -> Option<PathBuf>,
 ) -> Result<Option<TranslationPlan>, String> {
-    if !enabled.unwrap_or(false) {
-        return Ok(None);
-    }
-    let target = target.unwrap_or_default();
-
-    // `language` may be `auto`; the ASR's own tag (and the fallback rule) decides
-    // later whether the real source equals the target. Here only an EXPLICIT
-    // equal pair is short-circuited, because skipping on a guess would silently
-    // drop a translation the user asked for (translation-design §5).
-    if canonical_source_equals_target(source_language, target) {
-        tracing::info!(
-            source = %source_language,
-            target = %target,
-            "translation skipped: source and target are the same language"
-        );
-        return Ok(None);
-    }
-    if !translate::language::should_translate(Some(source_language), target) {
-        // The source is `auto` and the target is missing/auto: nothing to ask for.
-        tracing::info!(target = %target, "translation skipped: no usable target language");
-        return Ok(None);
-    }
-
-    let model_id = match model_id.map(str::trim).filter(|id| !id.is_empty()) {
-        Some(id) => id.to_string(),
-        None => engine::catalog::default_translation_model_id(catalogue).ok_or_else(|| {
-            tracing::error!("the catalogue offers no translation model");
-            MODEL_NOT_INSTALLED.to_string()
-        })?,
-    };
-
-    let Some(model) = catalogue.iter().find(|spec| spec.id == model_id).cloned() else {
-        tracing::warn!(model = %model_id, "translation model is not in the catalogue");
-        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
-    };
-
-    // A translate entry must run on llama.cpp; anything else would be handed to
-    // `llama-server`, which cannot load an audio.cpp GGUF (design §3.2, §11).
-    if model.engine != engine::catalog::Engine::Llamacpp || !model.has_role(engine::catalog::Role::Translate)
-    {
-        tracing::warn!(
-            model = %model_id,
-            engine = %model.engine.as_str(),
-            "the chosen translation model is not a llama.cpp translate entry"
-        );
-        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
-    }
-
-    if !installed(&model_id) {
-        tracing::warn!(model = %model_id, "translation model is not installed");
-        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
-    }
-    let Some(model_path) = model_file(&model_id) else {
-        tracing::warn!(model = %model_id, "translation model has no usable file path");
-        return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
-    };
-
-    tracing::info!(
-        model = %model_id,
-        target = %target,
-        path = %model_path.display(),
-        "translation enabled"
-    );
-
-    Ok(Some(TranslationPlan {
+    crate::translate::stage::resolve(
+        catalogue,
+        source_language,
+        enabled,
+        target,
         model_id,
-        model_path,
-        model,
-        target: target.to_string(),
-    }))
-}
-
-/// True when the two languages are the same target — `zh` and `zh-tw` are not
-/// (translation-design §9).
-///
-/// `auto`/empty is "unknown", never "the same language": treating the two as
-/// equal would silently drop a translation the user asked for.
-fn canonical_source_equals_target(source: &str, target: &str) -> bool {
-    use crate::translate::language::{canonical_tag, is_unknown_language};
-
-    if is_unknown_language(source) || is_unknown_language(target) {
-        return false;
-    }
-    source.trim().eq_ignore_ascii_case(target.trim()) || canonical_tag(source) == canonical_tag(target)
+        installed,
+        model_file,
+    )
 }
 
 /// Task body: run one file end to end, then report a single outcome.
@@ -702,7 +624,7 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
     // chunk windows; `subtitle::postprocess` owns that choice.
     let segments = subtitle::postprocess(&chunks, &words, &PostProcessConfig::default());
     for (index, format) in params.formats.iter().enumerate() {
-        let path = output_path_for(&params.output, index, *format);
+        let path = subtitle::output_path_for(&params.output, index, *format);
         subtitle::write(&segments, &path, *format).map_err(write_failure)?;
         tracing::info!(
             task_id = %params.task_id,
@@ -764,8 +686,9 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
 /// Translate the finished cues and write one file per requested format.
 ///
 /// A failure here is logged and swallowed: the originals are already written and
-/// the task completes normally (design §2). `TranslationOutcome` says what
-/// happened, so a degraded run is visible in the log without being an error.
+/// the task completes normally (design §2). The work itself is the shared
+/// `translate::stage` function, which the URL import subtitle-hit path calls with
+/// exactly the same arguments (U1-13, url-import-design §5.6).
 async fn translate_and_write(
     app: &AppHandle,
     params: &TaskParams,
@@ -783,102 +706,23 @@ async fn translate_and_write(
         steps.progress(app, &params.task_id, percent, "Translating");
     };
 
-    let (translated, outcome) = translate::translate_segments(
+    let outcome = crate::translate::stage::translate_and_write(
+        &params.output,
+        &params.formats,
+        translation,
         segments,
         detected,
-        &translation.target,
-        &translation.model,
-        &translation.model_path,
         Some(app),
         on_progress,
     )
     .await;
 
-    if let Some(reason) = outcome.skipped {
-        // Nothing was sent, so nothing is written: an "already in the target
-        // language" file would be a misleading duplicate of the original.
-        tracing::info!(
-            task_id = %params.task_id,
-            reason = ?reason,
-            source = ?detected,
-            target = %translation.target,
-            "translation skipped"
-        );
-        return;
-    }
-
-    if outcome.degraded() {
-        tracing::warn!(
-            task_id = %params.task_id,
-            model = %translation.model_id,
-            status = outcome
-                .last_error
-                .as_ref()
-                .map(|error| error.status())
-                .unwrap_or(translate::TRANSLATION_FAILED_STATUS),
-            error = ?outcome.last_error,
-            translated = outcome.translated,
-            kept_original = outcome.kept_original,
-            "translation degraded; those cues keep their original language"
-        );
-    }
-
-    if outcome.translated == 0 {
-        // Nothing was translated, so writing `<stem>.<lang>.<ext>` would produce
-        // a file whose name promises a language it does not contain. The
-        // originals are already delivered; the warn above is the report.
-        tracing::warn!(
-            task_id = %params.task_id,
-            model = %translation.model_id,
-            "translation produced nothing; no translated file written"
-        );
-        return;
-    }
-
-    for path in write_translated_formats(
-        &params.output,
-        &params.formats,
-        &translation.target,
-        &translated,
-    ) {
-        tracing::info!(
-            task_id = %params.task_id,
-            path = %path.display(),
-            translated = outcome.translated,
-            kept_original = outcome.kept_original,
-            "Translated subtitle written"
-        );
-    }
-}
-
-/// Write one translated file per requested format next to the original.
-///
-/// Split out so the naming, the per-format loop and the write itself are
-/// testable without a Tauri handle. The caller has already established that
-/// there is something worth writing. Returns the paths actually written.
-fn write_translated_formats(
-    output: &Path,
-    formats: &[Format],
-    target_language: &str,
-    segments: &[subtitle::Segment],
-) -> Vec<PathBuf> {
-    let mut written = Vec::new();
-
-    for (index, format) in formats.iter().enumerate() {
-        let Some(path) = translation_output_path(output, index, *format, target_language) else {
-            continue;
-        };
-        match subtitle::write(segments, &path, *format) {
-            Ok(()) => written.push(path),
-            Err(error) => tracing::warn!(
-                path = %path.display(),
-                error = %error,
-                "could not write a translated subtitle file"
-            ),
-        }
-    }
-
-    written
+    tracing::debug!(
+        task_id = %params.task_id,
+        written = outcome.written.len(),
+        degraded = outcome.degraded,
+        "translation stage finished"
+    );
 }
 
 /// The language a run actually recognised.
@@ -1214,42 +1058,10 @@ fn stderr_tail(stderr: &[u8]) -> String {
 
 // --- Format parsing and output paths (spec §3) ------------------------------
 
-/// Parse the comma-separated `format` field: trim, lowercase, drop empties,
-/// reject unknown values, deduplicate preserving order.
+/// Task: U1-12. Moved to `subtitle::parse_formats` so the URL-import path
+/// accepts exactly the same format list (url-import-design §5.4).
 fn parse_formats(value: &str) -> Result<Vec<Format>, String> {
-    let mut formats: Vec<Format> = Vec::new();
-    for raw in value.split(',') {
-        let token = raw.trim().to_lowercase();
-        if token.is_empty() {
-            continue;
-        }
-        let Some(format) = Format::parse(&token) else {
-            return Err(format!("Unsupported subtitle format: {}", token));
-        };
-        if !formats.contains(&format) {
-            formats.push(format);
-        }
-    }
-
-    if formats.is_empty() {
-        return Err("No valid subtitle format specified".to_string());
-    }
-    Ok(formats)
-}
-
-/// The first format writes to `output_path` verbatim, each later one replaces
-/// only the extension (`os.path.splitext` semantics).
-///
-/// This is the ORIGINAL subtitle's rule and is untouched by translation: the
-/// translated files use [`translation_output_path`] instead (translation-design
-/// §9), so enabling translation can never move or rename an original.
-fn output_path_for(output_path: &Path, index: usize, format: Format) -> PathBuf {
-    if index == 0 {
-        return output_path.to_path_buf();
-    }
-    let mut path = output_path.to_path_buf();
-    path.set_extension(format.extension());
-    path
+    subtitle::parse_formats(value)
 }
 
 /// `<stem>.words.json` next to the subtitle (word-timestamps §4).
@@ -1297,37 +1109,13 @@ fn write_word_sidecar(
     Ok(())
 }
 
-/// `<stem>.<lang>.<ext>` next to the original (translation-design §7).
-///
-/// The first format keeps the original's exact extension (like
-/// [`output_path_for`]), later ones replace it. `None` when a path has no file
-/// name at all, in which case there is nowhere to put a translation.
-fn translation_output_path(
-    output_path: &Path,
-    index: usize,
-    format: Format,
-    target_language: &str,
-) -> Option<PathBuf> {
-    let stem = output_path.file_stem()?.to_string_lossy().into_owned();
-    let extension = if index == 0 {
-        output_path
-            .extension()
-            .map(|extension| extension.to_string_lossy().into_owned())
-            .unwrap_or_else(|| format.extension().to_string())
-    } else {
-        format.extension().to_string()
-    };
-    let name = format!(
-        "{}.{}.{}",
-        stem,
-        translate::language::file_tag(target_language),
-        extension
-    );
-
-    Some(match output_path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent.join(name),
-        _ => PathBuf::from(name),
-    })
+/// Task: U1-12. The rule now lives in `subtitle::output_path_for` so the
+/// URL-import subtitle-hit path writes through exactly the same function
+/// (url-import-design §5.4). This alias keeps the local call sites and their
+/// tests spelling it the way they always have.
+#[cfg(test)]
+fn output_path_for(output_path: &Path, index: usize, format: Format) -> PathBuf {
+    subtitle::output_path_for(output_path, index, format)
 }
 
 /// Every path a run may write: the originals first, then — when translation is
@@ -1341,21 +1129,14 @@ fn derive_output_paths(
     formats: &[Format],
     target_language: Option<&str>,
 ) -> Vec<PathBuf> {
-    let mut paths: Vec<PathBuf> = formats
-        .iter()
-        .enumerate()
-        .map(|(index, format)| output_path_for(output_path, index, *format))
-        .collect();
+    let mut paths = subtitle::output_paths_for(output_path, formats);
 
     if let Some(target) = target_language {
-        paths.extend(
-            formats
-                .iter()
-                .enumerate()
-                .filter_map(|(index, format)| {
-                    translation_output_path(output_path, index, *format, target)
-                }),
-        );
+        paths.extend(crate::translate::stage::translated_paths(
+            output_path,
+            formats,
+            target,
+        ));
     }
 
     // The word sidecar is written whenever the run aligned, so a cancelled run

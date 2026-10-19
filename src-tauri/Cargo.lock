@@ -2233,6 +2233,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "url",
  "uuid",
  "window-vibrancy 0.6.0",
 ]

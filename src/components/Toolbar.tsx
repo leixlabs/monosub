@@ -1,4 +1,4 @@
-import { Plus, Trash2, Film, StopCircle } from 'lucide-react';
+import { Plus, Trash2, Film, StopCircle, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -9,7 +9,11 @@ import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { BatchDiarizationToggle } from '@/components/BatchDiarizationToggle';
 
-export function Toolbar() {
+interface ToolbarProps {
+  onImportUrl: () => void;
+}
+
+export function Toolbar({ onImportUrl }: ToolbarProps) {
   const { t } = useTranslation();
   const files = useStore((state) => state.files);
   const addFiles = useStore((state) => state.addFiles);
@@ -114,6 +118,18 @@ export function Toolbar() {
         >
           <Plus className="w-4 h-4" />
           {t('toolbar.addFiles')}
+        </GlassButton>
+
+        {/* URL import: fetches the platform subtitle, or downloads the audio and
+            queues it like any other file (url-import-design §5.2). */}
+        <GlassButton
+          variant="outline"
+          size="sm"
+          onClick={onImportUrl}
+          data-testid="toolbar-import-url"
+        >
+          <Link2 className="w-4 h-4" />
+          {t('toolbar.importUrl')}
         </GlassButton>
 
         {files.length > 0 && (

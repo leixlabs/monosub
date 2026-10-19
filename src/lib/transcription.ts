@@ -73,17 +73,26 @@ export const processQueueBatch = () => {
   }
 };
 
-const getOutputPath = (inputPath: string, fileName: string) => {
+const getOutputPath = (inputPath: string, fileName: string, outputDir?: string) => {
   const state = useStore.getState();
   // For multi-format (e.g. "srt,txt"), use the first format as the primary extension
   const primaryFormat = state.settings.outputFormat.split(',')[0].trim();
   const extension = `.${primaryFormat}`;
+  const outputName = fileName.replace(/\.[^/.]+$/, extension);
+
+  // URL imports: "same as the source" would put the subtitle in the app's cache
+  // directory, which the user is expected to clear. The row therefore carries its
+  // own destination, resolved once when the import finished
+  // (url-import-design §5.4).
+  if (outputDir) {
+    return `${outputDir}/${outputName}`;
+  }
 
   if (state.storageMode === 'same') {
     return inputPath.replace(/\.[^/.]+$/, extension);
   }
 
-  return `${state.customStoragePath}/${fileName.replace(/\.[^/.]+$/, extension)}`;
+  return `${state.customStoragePath}/${outputName}`;
 };
 
 export const startTranscriptionTask = async (taskId: string) => {
@@ -94,7 +103,7 @@ export const startTranscriptionTask = async (taskId: string) => {
     return false;
   }
 
-  const outputPath = getOutputPath(file.path, file.name);
+  const outputPath = getOutputPath(file.path, file.name, file.outputDir);
 
   if (state.settings.skipExistingSubtitle) {
     try {

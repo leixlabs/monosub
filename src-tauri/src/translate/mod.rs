@@ -29,6 +29,9 @@ pub mod language;
 pub mod parse;
 pub mod prompt;
 pub mod server;
+/// Tauri-free translation stage shared by the transcription and URL-import
+/// paths (U1-13, url-import-design §5.6).
+pub mod stage;
 
 use std::path::Path;
 

@@ -2,11 +2,13 @@ mod commands;
 mod engine;
 mod logging;
 mod model_dir;
+mod site;
 mod subtitle;
 mod translate;
 mod tray;
 
 use commands::*;
+use site::{cancel_url_import, default_url_import_dir, parse_url_input, start_url_import};
 use tauri::Manager;
 
 fn main() {
@@ -58,6 +60,10 @@ fn main() {
             resolve_paths,
             open_external_url,
             check_github_release_update,
+            parse_url_input,
+            start_url_import,
+            cancel_url_import,
+            default_url_import_dir,
             list_models,
             resolve_model_plan,
             download_model,

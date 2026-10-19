@@ -463,6 +463,14 @@ fn env_override(env_var: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Test-only access to the candidate-name rule, so another module (URL import's
+/// `yt-dlp`) can assert it looks for the file the fetch script installs without
+/// re-implementing the `-<target-triple>` convention.
+#[cfg(test)]
+pub(crate) fn binary_candidates_for_tests(binary_name: &str) -> Vec<String> {
+    binary_candidates(binary_name)
+}
+
 /// Base name first, then the `-<target-triple>` variant (video.rs convention).
 fn binary_candidates(binary_name: &str) -> Vec<String> {
     let target_suffix = target_triple();
