@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { FolderOpen, Link2 } from 'lucide-react';
+import { ClipboardPaste, FolderOpen, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useStore, COOKIES_BROWSERS, type CookiesBrowser } from '@/store/useStore';
@@ -114,6 +114,26 @@ export function SettingsUrlImport() {
         <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-relaxed">
           {t('urlImport.settings.privacy')}
         </p>
+      </div>
+
+      {/* Clipboard watch */}
+      <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-text-primary dark:text-gray-200">
+              <ClipboardPaste className="w-3.5 h-3.5" />
+              {t('urlImport.settings.clipboardWatch')}
+            </p>
+            <p className="mt-0.5 text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+              {t('urlImport.settings.clipboardWatchHint')}
+            </p>
+          </div>
+          <GlassSwitch
+            checked={settings.clipboardWatchEnabled}
+            onCheckedChange={(checked) => updateSettings({ clipboardWatchEnabled: checked })}
+            data-testid="url-import-clipboard-watch"
+          />
+        </div>
       </div>
 
       {/* Prefer local recognition */}

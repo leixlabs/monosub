@@ -17,6 +17,7 @@
 //!   `fileImport` → metadata/thumbnail → `start_transcription` path needs no
 //!   change at all (design §5.7).
 
+pub mod clipboard;
 pub mod deps;
 pub mod error;
 pub mod lang;
@@ -199,6 +200,30 @@ pub fn default_url_import_dir(app: AppHandle) -> Result<String, String> {
         .home_dir()
         .map_err(|error| format!("could not resolve the home directory: {error}"))?;
     Ok(home.join("Downloads").join("MonoSub").to_string_lossy().into_owned())
+}
+
+/// Read the clipboard and report a single Bilibili video worth offering.
+///
+/// Returns `None` for anything that is not exactly one supported video: empty
+/// clipboard, ordinary text, an unsupported site, or a batch of links (see
+/// `site::clipboard`). The frontend polls this and shows a confirm button; it
+/// makes no judgement of its own.
+///
+/// Reading the clipboard is the only reason this needs the plugin (and the
+/// `clipboard-manager:allow-read-text` capability). It never writes.
+#[tauri::command]
+pub fn read_clipboard_video(app: AppHandle) -> Result<Option<clipboard::ClipboardHit>, String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+
+    let text = app.clipboard().read_text().map_err(|error| {
+        // A clipboard that cannot be read is not an error the user can act on:
+        // it happens on a locked screen or when another app holds the pasteboard.
+        // Log at debug and report "nothing" so the caller keeps polling quietly.
+        tracing::debug!(error = %error, "could not read the clipboard");
+        error.to_string()
+    })?;
+
+    Ok(clipboard::classify(&text))
 }
 
 /// Split, normalise and whitelist the dialog's text.

@@ -34,6 +34,7 @@ futures-util = "0.3"
 
 # Debug-only UI testing/automation bridge (tauri-pilot). Inert in release builds.
 tauri-plugin-pilot = { git = "https://github.com/mpiton/tauri-pilot", tag = "v0.8.1" }
+tauri-plugin-clipboard-manager = "2.5.0"
 
 [profile.dev]
 incremental = true

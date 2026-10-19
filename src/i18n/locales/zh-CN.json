@@ -267,7 +267,14 @@
       "cookiesNone": "未配置",
       "preferLocal": "优先本地识别",
       "preferLocalHint": "忽略平台字幕，始终走本地语音识别，结果与本地文件一致。",
-      "privacy": "只有在你选择浏览器后才会读取 cookie，且只读取 bilibili.com 的 cookie、仅在本机使用。"
+      "privacy": "只有在你选择浏览器后才会读取 cookie，且只读取 bilibili.com 的 cookie、仅在本机使用。",
+      "clipboardWatch": "监视剪贴板",
+      "clipboardWatchHint": "复制 B 站视频链接时，直接弹出一键导入"
     }
+  },
+  "clipboardPrompt": {
+    "title": "剪贴板里有 B 站链接",
+    "import": "导入",
+    "dismiss": "忽略"
   }
 }

@@ -676,6 +676,41 @@ rule below is a product promise rather than an implementation detail.
   a bundled JS runtime, `-orig` track rules to avoid machine-translated captions, and proxy
   support (`docs/tech-spec/url-import-design.md` §10).
 
+### Clipboard watch: one-click import
+
+Copying a Bilibili link in a browser and switching to MonoSub should not require opening the
+paste dialog. The app therefore polls the clipboard and, when it holds **exactly one**
+supported video, shows a dismissible pill with one import button.
+
+- **All the judgement is in Rust** (`site/clipboard.rs::classify`, unit-tested), because the
+  frontend has no test runner and this rule has edges. The IPC command
+  `read_clipboard_video` reads the clipboard (via `tauri-plugin-clipboard-manager`, the
+  `clipboard-manager:allow-read-text` capability, and nothing else) and returns
+  `Option<ClipboardHit { url, id, text }>`. It never writes to the clipboard.
+- **High precision is the whole design.** A prompt that appears for the wrong reason teaches
+  the user to dismiss it unread. So: zero or **two or more** URLs → no prompt (a batch belongs
+  in the paste dialog); an unsupported site, `bangumi`/`cheese`, or a non-video page → no
+  prompt; more than `MAX_CLIPBOARD_CHARS` (500) → no prompt, because a copied article that
+  happens to mention a video is not a copied link.
+- **It must poll while unfocused.** The user copies the link in their *browser*, so the app is
+  in the background at the moment of the copy. The first implementation gated on
+  `document.hasFocus()` and therefore never fired in the case the feature exists for —
+  measured in the running app, then fixed to poll in both states (1.5 s focused, 2.5 s
+  background, and immediately on focus or visibility change).
+- **`id` is `Option`.** A `b23.tv` short link's path segment is an opaque code (`xyz789`), not
+  a video id; presenting it as one is a lie the user cannot check until the import finishes.
+  The pill shows the link itself in that case.
+- **Dismissal is remembered per clipboard text**, so ignoring one link does not suppress the
+  next, and the same ignored link does not return. A hit is also suppressed once its URL is
+  already in `files[].sourceUrl` (queued) or in the `urlImports` slice (in flight).
+- **The pill is suppressed while a modal is open** (the paste dialog or Settings), because it
+  would sit on top of the panel.
+- **It is a setting, on by default** (`settings.clipboardWatchEnabled`), because reading the
+  clipboard is the kind of thing a user must be able to switch off.
+- Like every other transfer, the pill hands its URL to `startUrlImport`, so an accepted prompt
+  behaves exactly like a pasted link: same output directory, formats, translation settings and
+  `url_import_*` events.
+
 ---
 
 ## IPC Communication Pattern
@@ -702,6 +737,7 @@ rule below is a product promise rather than an implementation detail.
 | `parse_url_input` | `text → Vec<ParsedUrl>`: split, normalise, de-dupe, whitelist (pure Rust) |
 | `start_url_import` | `request: UrlImportRequest`; registers the job and returns immediately |
 | `cancel_url_import` | `task_id`; aborts the import stage only (not a queued file) |
+| `read_clipboard_video` | — ; returns `Option<ClipboardHit{url,id,text}>` for a clipboard Bilibili link |
 | `default_url_import_dir` | `~/Downloads/MonoSub`, resolved from Rust (Tauri knows the home dir) |
 
 The catalogue contains both engines, but only audio.cpp entries can fill a recognition
@@ -735,7 +771,8 @@ that sends none of them translates nothing: `translate_enabled`, `target_languag
 
 **URL import is a separate namespace.** The `url_import_*` events are constructed and
 emitted only in `site/`, and the four URL-import commands (`parse_url_input`,
-`start_url_import`, `cancel_url_import`, `default_url_import_dir`) live there too;
+`start_url_import`, `cancel_url_import`, `default_url_import_dir`, `read_clipboard_video`)
+live there too;
 `transcribe_*`, `TranscribeRequest` and `STEP_NAMES` are untouched by them (design §5.9
 forbids adding a URL stage to `STEP_NAMES` — a platform subtitle has no engine step to
 report). The payload shapes are the ones `site/mod.rs` serialises:
@@ -815,6 +852,9 @@ line-parsing subprocess.
 | `scripts/build/fetch-audiocpp.sh` | Pinned upstream binary + VAD download |
 | `scripts/build/fetch-llamacpp.sh` | Pinned llama.cpp `llama-server` + dylib download |
 | `scripts/build/fetch-ytdlp.sh` | Pinned yt-dlp download (+ its LICENSE / THIRD_PARTY_LICENSES.txt) |
+| `src-tauri/src/site/clipboard.rs` | `classify`: clipboard text → one `ClipboardHit`, or nothing (pure) |
+| `src/lib/clipboardWatch.ts` | Clipboard polling hook: focus-aware cadence, per-text dismissal |
+| `src/components/ClipboardPrompt.tsx` | The one-click import pill |
 | `docs/tech-spec/url-import-design.md` | URL import design (flow, language rules, IPC, packaging) |
 | `docs/tech-spec/url-import-tasks.md` | URL import task list (U0–U5) |
 

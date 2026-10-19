@@ -267,7 +267,14 @@
       "cookiesNone": "Not configured",
       "preferLocal": "Always recognise locally",
       "preferLocalHint": "Ignore platform subtitles and always run speech recognition, so the result matches a local file.",
-      "privacy": "Reading cookies only happens when you pick a browser. Only bilibili.com cookies are read, and only on this machine."
+      "privacy": "Reading cookies only happens when you pick a browser. Only bilibili.com cookies are read, and only on this machine.",
+      "clipboardWatch": "Watch the clipboard",
+      "clipboardWatchHint": "Offer a one-click import when you copy a Bilibili video link"
     }
+  },
+  "clipboardPrompt": {
+    "title": "Bilibili link on your clipboard",
+    "import": "Import",
+    "dismiss": "Dismiss"
   }
 }

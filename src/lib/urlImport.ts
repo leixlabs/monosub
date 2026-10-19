@@ -209,6 +209,9 @@ const queueImportedAudio = async (
   const store = useStore.getState();
   const requestedName = outcome.name;
   const outputDir = resolveUrlImportOutputDir();
+  // Captured before the row is removed below: it is what ties the queued file
+  // back to the link, so the clipboard watcher stops offering it.
+  const sourceUrl = store.urlImports[taskId]?.url;
 
   // The name is set after the row exists, because `addPathsToQueue` derives it
   // from the cache path (`<id>.m4a`), which is not what the user should see.
@@ -230,6 +233,7 @@ const queueImportedAudio = async (
         // The platform had a subtitle behind a login, so the user could have
         // skipped recognition entirely. Worth one line on the row, not an error.
         loginHint: outcome.login_hint,
+        sourceUrl,
       });
     }
   } else {

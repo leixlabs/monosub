@@ -105,6 +105,14 @@ export interface VideoFile {
    * that logging in would have avoided the recognition pass entirely.
    */
   loginHint?: boolean
+  /**
+   * URL imports only: the normalised URL this file came from.
+   *
+   * Kept so the clipboard watcher can tell "I already imported this" from "this
+   * is a new link" — without it, dismissing a pill and importing would race, and
+   * the same link could be offered again a second later.
+   */
+  sourceUrl?: string
 }
 
 export interface AppSettings {
@@ -153,6 +161,14 @@ export interface AppSettings {
    * sidecar) rather than the platform's machine transcript (design §7-2).
    */
   preferLocalRecognition: boolean
+  /**
+   * Offer a one-click import when the clipboard holds a Bilibili link.
+   *
+   * On by default because it is the whole point of the feature, but exposed as a
+   * switch: it means reading the clipboard, and a user who copies links for other
+   * reasons deserves a way to stop it without any other consequence.
+   */
+  clipboardWatchEnabled: boolean
 }
 
 const OUTPUT_LANGUAGES: OutputLanguage[] = ['auto', 'en', 'zh', 'es', 'ja', 'de', 'fr', 'pt', 'zh-tw', 'ko']
@@ -192,6 +208,7 @@ const defaultSettings: AppSettings = {
   urlImportOutputDir: '',
   bilibiliCookiesBrowser: '',
   preferLocalRecognition: false,
+  clipboardWatchEnabled: true,
 }
 
 const SPEED_PREFERENCES: SpeedPreference[] = ['fast', 'balanced', 'accurate']
@@ -311,6 +328,7 @@ const normalizeSettings = (value: unknown): AppSettings => {
     urlImportOutputDir: typeof persisted.urlImportOutputDir === 'string' ? persisted.urlImportOutputDir : defaultSettings.urlImportOutputDir,
     bilibiliCookiesBrowser: isCookiesBrowser(persisted.bilibiliCookiesBrowser) ? persisted.bilibiliCookiesBrowser : defaultSettings.bilibiliCookiesBrowser,
     preferLocalRecognition: typeof persisted.preferLocalRecognition === 'boolean' ? persisted.preferLocalRecognition : defaultSettings.preferLocalRecognition,
+    clipboardWatchEnabled: typeof persisted.clipboardWatchEnabled === 'boolean' ? persisted.clipboardWatchEnabled : defaultSettings.clipboardWatchEnabled,
   }
 }
 

@@ -8,7 +8,10 @@ mod translate;
 mod tray;
 
 use commands::*;
-use site::{cancel_url_import, default_url_import_dir, parse_url_input, start_url_import};
+use site::{
+    cancel_url_import, default_url_import_dir, parse_url_input, read_clipboard_video,
+    start_url_import,
+};
 use tauri::Manager;
 
 fn main() {
@@ -23,7 +26,10 @@ fn main() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_notification::init())
+        // Clipboard watch: reads only what the user already copied, and only to
+        // offer a confirm button (see `site::clipboard`).
+        .plugin(tauri_plugin_clipboard_manager::init());
 
     // Debug-only UI automation bridge (tauri-pilot). Compiled out of release builds.
     #[cfg(debug_assertions)]
@@ -64,6 +70,7 @@ fn main() {
             start_url_import,
             cancel_url_import,
             default_url_import_dir,
+            read_clipboard_video,
             list_models,
             resolve_model_plan,
             download_model,

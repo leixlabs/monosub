@@ -18,7 +18,9 @@ import { processQueueBatch, isModelNotInstalledError } from './lib/transcription
 import { openModelsSettings } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
 import { UrlImportDialog } from './components/UrlImportDialog';
+import { ClipboardPrompt } from './components/ClipboardPrompt';
 import { ensureUrlImportListeners } from './lib/urlImport';
+import { useClipboardVideo } from './lib/clipboardWatch';
 
 interface StepInfoPayload {
   current_step: number;
@@ -50,6 +52,12 @@ const getNotificationIconPath = async (): Promise<string | undefined> => {
 function App() {
   const { t } = useTranslation();
   const [isUrlImportOpen, setIsUrlImportOpen] = useState(false);
+  const isSettingsOpen = useStore((state) => state.isSettingsOpen);
+  // Clipboard watch: offers a one-click import when the user copies a Bilibili
+  // link. Suppressed while a modal owns the screen, so the pill never fights the
+  // paste dialog or the settings panel for attention.
+  const { hit: clipboardHit, dismiss: dismissClipboard, accept: acceptClipboard } =
+    useClipboardVideo(isUrlImportOpen || isSettingsOpen);
   const updateFile = useStore((state) => state.updateFile);
   const setIsProcessing = useStore((state) => state.setIsProcessing);
   const incrementProcessedCount = useStore((state) => state.incrementProcessedCount);
@@ -281,6 +289,13 @@ function App() {
             isOpen={isUrlImportOpen}
             onClose={() => setIsUrlImportOpen(false)}
           />
+          {clipboardHit && (
+            <ClipboardPrompt
+              hit={clipboardHit}
+              onDismiss={dismissClipboard}
+              onStarted={() => acceptClipboard()}
+            />
+          )}
         </div>
       </ThemeProvider>
       {process.env.NODE_ENV === "development" && <Agentation />}
