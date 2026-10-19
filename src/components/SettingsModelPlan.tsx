@@ -6,6 +6,7 @@ import { useStore } from '@/store/useStore';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassSwitch } from '@/components/ui/glass-switch';
+import { GlassTooltip } from '@/components/ui/glass-tooltip';
 import {
   downloadModel,
   formatModelSize,
@@ -34,7 +35,12 @@ const SLOT_LABEL_KEY: Record<Slot, string> = {
   diar: 'modelPlan.slotDiar',
 };
 
-/** Hover text explaining what each slot actually does. */
+/**
+ * Hover text explaining what each slot actually does.
+ *
+ * These must go through <GlassTooltip>, not a `title` attribute: the app runs in
+ * a WKWebView, which does not render native tooltips — the hint was invisible.
+ */
 const SLOT_HINT_KEY: Record<Slot, string> = {
   vad: 'modelPlan.slotVadHint',
   asr: 'modelPlan.slotAsrHint',
@@ -97,6 +103,9 @@ export function SettingsModelPlan() {
       language: settings.outputLanguage,
       speedPreference: settings.speedPreference,
       // Overrides are applied to the preview so the user sees their pinning.
+      // This must be sent: without it the preview showed the solver's unpinned
+      // plan while the run executed the pinned one.
+      modelOverrides,
     })
       .then((response) => {
         if (!cancelled) setPlan(response);
@@ -117,6 +126,7 @@ export function SettingsModelPlan() {
     settings.defaultDiarization,
     settings.speedPreference,
     settings.outputLanguage,
+    modelOverrides,
   ]);
 
   const installedById = useMemo(() => {
@@ -143,9 +153,17 @@ export function SettingsModelPlan() {
         })),
       ];
     };
+
+    // The VAD slot's "auto" is the bundled Silero VAD, which is shipped inside
+    // the app rather than downloaded, so it is not in the catalogue and cannot
+    // appear as a regular option. Name it in the label so "auto" is not
+    // mysterious, and keep the catalogue's downloadable VADs below it.
+    const vad = build('vad');
+    vad[0] = { value: '', label: t('modelPlan.slotVadAuto') };
+
     return {
       asr: build('asr'),
-      vad: build('vad'),
+      vad,
       diar: build('diar'),
     } satisfies Record<Slot, SelectOption<string>[]>;
   }, [models, t]);
@@ -314,12 +332,11 @@ export function SettingsModelPlan() {
           <div className="mt-3 space-y-3">
             {SLOT_ORDER.map((slot) => (
               <div key={slot} className="flex items-center justify-between gap-4">
-                <span
-                  className="text-xs text-text-secondary dark:text-gray-300 cursor-help underline decoration-dotted decoration-text-tertiary/60 underline-offset-2"
-                  title={t(SLOT_HINT_KEY[slot])}
-                >
-                  {t(SLOT_LABEL_KEY[slot])}
-                </span>
+                <GlassTooltip content={t(SLOT_HINT_KEY[slot])} side="top">
+                  <span className="text-xs text-text-secondary dark:text-gray-300 underline decoration-dotted decoration-text-tertiary/60 underline-offset-2">
+                    {t(SLOT_LABEL_KEY[slot])}
+                  </span>
+                </GlassTooltip>
                 <CustomSelect
                   value={modelOverrides[slot] ?? ''}
                   options={slotOptions[slot]}

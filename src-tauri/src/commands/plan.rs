@@ -27,14 +27,31 @@ use crate::engine::Backend;
 ///
 /// There is deliberately no passthrough field: whether a single model can emit
 /// text + timestamps + speakers is decided by the solver at runtime.
+///
+/// The accepted spelling is **camelCase**, matching the camelCase response DTOs
+/// and `src/lib/modelPlan.ts`. The snake_case spellings from design §9.1 are
+/// kept as aliases, because they were the documented wire format before this
+/// command's request was aligned with its own response.
+///
+/// Regression: this struct previously declared `rename_all = "snake_case"`
+/// while the frontend sent camelCase. Serde silently ignores unknown fields, so
+/// every requirement arrived as `None` and the Settings preview rendered the
+/// same default plan no matter which toggle the user flipped.
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "camelCase")]
 pub struct PlanRequirementsRequest {
+    #[serde(alias = "require_word_timestamps")]
     pub require_word_timestamps: Option<bool>,
+    #[serde(alias = "enable_diarization")]
     pub enable_diarization: Option<bool>,
     pub language: Option<String>,
+    #[serde(alias = "speed_preference")]
     pub speed_preference: Option<String>,
     pub device: Option<String>,
+    /// Manual `role -> model_id` pins (design §8.2.3), same spelling as
+    /// `TranscribeRequest.model_overrides` so one store slice drives both.
+    #[serde(alias = "model_overrides")]
+    pub model_overrides: Option<std::collections::HashMap<String, String>>,
 }
 
 /// One executable plan, flattened for the frontend.
@@ -232,7 +249,15 @@ pub async fn resolve_model_plan(
     let specs = catalog::catalog(Some(&app)).map_err(|e| e.to_string())?;
     let installed = |id: &str| catalog::is_installed(&app, id);
 
-    let candidates = plan::solve(&specs, &installed, &req);
+    let mut candidates = plan::solve(&specs, &installed, &req);
+
+    // Manual pins are applied to the winning plan only, exactly as
+    // `commands::transcribe` does at run time, so the preview shows the plan
+    // the run will actually use. The remaining candidates stay the solver's
+    // ranking, which is what the "why this one?" list explains.
+    if let Some(overrides) = request.model_overrides.as_ref() {
+        plan::apply_model_overrides(&mut candidates, overrides, &specs);
+    }
 
     tracing::debug!(
         word_timestamps = req.word_timestamps,
@@ -316,6 +341,7 @@ mod tests {
             language: Some("ko".to_string()),
             speed_preference: Some("fast".to_string()),
             device: Some("cpu".to_string()),
+            model_overrides: None,
         }
         .to_requirements();
 
@@ -324,6 +350,101 @@ mod tests {
         assert_eq!(req.language, "ko");
         assert_eq!(req.prefer, Speed::Fast);
         assert_eq!(req.backend, Backend::Cpu);
+    }
+
+    /// Regression: the frontend (`src/lib/modelPlan.ts`) sends **camelCase**,
+    /// matching the camelCase DTOs this command returns. The struct once
+    /// declared `rename_all = "snake_case"`, and serde silently drops unknown
+    /// fields — so every toggle the user flipped arrived as `None` and the
+    /// Settings preview showed the same default plan forever.
+    #[test]
+    fn wire_request_accepts_the_camel_case_the_frontend_sends() {
+        let request: PlanRequirementsRequest = serde_json::from_value(serde_json::json!({
+            "requireWordTimestamps": true,
+            "enableDiarization": true,
+            "language": "zh",
+            "speedPreference": "fast",
+            "device": "cpu",
+            "modelOverrides": { "asr": "qwen3_asr_0_6b_q8_0" },
+        }))
+        .expect("camelCase request deserializes");
+
+        assert_eq!(request.require_word_timestamps, Some(true));
+        assert_eq!(request.enable_diarization, Some(true));
+        assert_eq!(request.speed_preference.as_deref(), Some("fast"));
+        assert_eq!(
+            request
+                .model_overrides
+                .as_ref()
+                .and_then(|overrides| overrides.get("asr"))
+                .map(String::as_str),
+            Some("qwen3_asr_0_6b_q8_0")
+        );
+
+        let req = request.to_requirements();
+        assert!(req.word_timestamps, "the toggle must reach the solver");
+        assert!(req.diarization, "the toggle must reach the solver");
+        assert_eq!(req.prefer, Speed::Fast);
+    }
+
+    /// The snake_case spellings from design §9.1 keep working as aliases, so a
+    /// stored blob or an older caller does not silently lose its requirements.
+    #[test]
+    fn wire_request_still_accepts_the_documented_snake_case_aliases() {
+        let request: PlanRequirementsRequest = serde_json::from_value(serde_json::json!({
+            "require_word_timestamps": true,
+            "enable_diarization": true,
+            "speed_preference": "accurate",
+            "model_overrides": { "diar": "sortformer_diar_4spk_q8_0" },
+        }))
+        .expect("snake_case aliases deserialize");
+
+        assert_eq!(request.require_word_timestamps, Some(true));
+        assert_eq!(request.enable_diarization, Some(true));
+        assert_eq!(request.speed_preference.as_deref(), Some("accurate"));
+        assert!(request.model_overrides.is_some());
+    }
+
+    /// The preview and the run must apply pinning identically, so the command
+    /// shares `plan::apply_model_overrides` rather than keeping its own copy.
+    #[test]
+    fn overrides_pin_the_previewed_plan() {
+        let catalogue = vec![crate::engine::catalog::ModelSpec {
+            id: "sortformer_diar_4spk_q8_0".to_string(),
+            family: "sortformer_diar".to_string(),
+            display_name: "Sortformer".to_string(),
+            target_directory: "d".to_string(),
+            model_file: "m.gguf".to_string(),
+            files: Vec::new(),
+            languages: vec!["auto".to_string()],
+            license: "CC-BY-NC-4.0".to_string(),
+            attribution: None,
+            capabilities_raw: None,
+            roles: Vec::new(),
+            engine: crate::engine::catalog::Engine::default(),
+            prompt_template: None,
+            speed: None,
+            source: None,
+            tier: None,
+            licenses: Vec::new(),
+            requires: Vec::new(),
+            language_tokens: Vec::new(),
+        }];
+
+        let mut plans = plan::solve(&catalogue, &|_: &str| true, &Requirements::default());
+        assert!(!plans[0].steps.is_empty(), "there is a plan to pin onto");
+
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert("diar".to_string(), "sortformer_diar_4spk_q8_0".to_string());
+        plan::apply_model_overrides(&mut plans, &overrides, &catalogue);
+
+        assert!(
+            plans[0].steps.iter().any(|step| step.kind == StepKind::Diarize
+                && step.model_id == "sortformer_diar_4spk_q8_0"),
+            "the pin must show up in the previewed plan: {:?}",
+            plans[0].steps
+        );
+        assert!(plans[0].model_ids.contains(&"sortformer_diar_4spk_q8_0".to_string()));
     }
 
     #[test]

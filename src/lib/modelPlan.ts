@@ -33,6 +33,14 @@ export interface PlanRequirements {
   language?: string;
   speedPreference?: SpeedPreference;
   device?: string;
+  /**
+   * Manual `role -> model_id` pins (design §8.2.3).
+   *
+   * Sent so the preview shows the plan the run will actually execute: the
+   * command applies these to the winning candidate exactly as
+   * `commands::transcribe` does. An empty string means "no pin".
+   */
+  modelOverrides?: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>;
 }
 
 export interface PlanStep {

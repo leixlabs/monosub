@@ -15,6 +15,7 @@ use crate::engine::catalog::{
     TimestampGrade,
 };
 use crate::engine::cli::Backend;
+use std::collections::HashMap;
 
 /// What a plan with no steps can provide.
 const NOTHING: Capabilities = Capabilities {
@@ -159,6 +160,18 @@ impl StepKind {
         }
     }
 
+    /// The audio.cpp `--task` a manual override pins this step to; `None` for
+    /// the pure-Rust step, which has no model to override.
+    fn override_task(self) -> Option<&'static str> {
+        match self {
+            StepKind::Vad => Some("vad"),
+            StepKind::Asr | StepKind::Passthrough => Some("asr"),
+            StepKind::Align => Some("align"),
+            StepKind::Diarize => Some("diar"),
+            StepKind::TurnAttribution => None,
+        }
+    }
+
     /// Short step name used inside a plan id (`asr+diar+turns`).
     fn label(self) -> &'static str {
         match self {
@@ -277,18 +290,24 @@ pub fn templates_for(req: &Requirements) -> Vec<Template> {
             ]),
         ],
         (true, false) => vec![
-            // Word-level output is not implemented end to end (no `--words-out`
-            // parsing), so the best available plan is plain ASR; [`gaps`] then
-            // reports the shortfall instead of pretending it was met.
+            // One ASR step, provided it can reach word timestamps — either
+            // natively or through a declared `requires` aligner, which the ASR
+            // session loads itself (`qwen3_asr.forced_aligner_path`). There is
+            // still no `Align` step: audio.cpp's `align` task aligns an
+            // *existing* transcript to audio, and MonoSub never has one. The
+            // aligner runs inside the ASR session in exactly one CLI call, so
+            // planning it as a separate step would plan something that never
+            // runs.
             Template::always(vec![StepKind::Asr]),
+            Template::gated(vec![StepKind::Passthrough], TemplateGate::BeatsPlainAsr),
         ],
         (true, true) => vec![
+            Template::always(vec![StepKind::Passthrough]),
             Template::always(vec![
                 StepKind::Asr,
                 StepKind::Diarize,
                 StepKind::TurnAttribution,
             ]),
-            Template::always(vec![StepKind::Passthrough]),
         ],
     }
 }
@@ -323,10 +342,27 @@ pub fn best_model_for_role<'a>(
         })
         .min_by_key(|spec| {
             (
+                // A word-timestamp request must actually reach a word-capable
+                // model, so it outranks the language bias: without this the §5.4
+                // table picks `sense_asr` (first for `zh`) and the requirement is
+                // silently unmet. It is a *ranking* term, not a filter: when
+                // nothing in the catalogue can do word timing the best remaining
+                // model is still planned, and `gaps()` reports the shortfall
+                // instead of failing the run.
+                word_shortfall_rank(spec, req),
                 bias_rank(&req.language, spec),
                 -single_model_score(spec, req, installed),
             )
         })
+}
+
+/// 0 when `spec` can reach word timestamps, 1 otherwise; always 0 when the
+/// request does not ask for them.
+fn word_shortfall_rank(spec: &ModelSpec, req: &Requirements) -> i32 {
+    if !req.word_timestamps {
+        return 0;
+    }
+    i32::from(spec.capabilities().timestamps < TimestampGrade::Word)
 }
 
 /// True when `spec` can be asked for `app_lang` (design §5.3 rule 2).
@@ -546,6 +582,7 @@ pub fn solve(
         match fill_template(catalogue, installed, req, &template) {
             Ok(steps) => {
                 let capabilities = union_capabilities(&steps, catalogue);
+                let plan_gaps = gaps(catalogue, req, &steps, &capabilities, installed);
                 plans.push(ModelPlan {
                     id: plan_id(&steps),
                     title_key: title_key(&steps),
@@ -553,7 +590,7 @@ pub fn solve(
                     passthrough: steps.iter().any(|step| step.kind == StepKind::Passthrough),
                     cost: plan_cost(&steps, catalogue, req),
                     capabilities,
-                    gaps: gaps(catalogue, req, &capabilities),
+                    gaps: plan_gaps,
                     steps,
                 });
             }
@@ -568,7 +605,7 @@ pub fn solve(
     });
 
     if plans.is_empty() {
-        let mut gaps = gaps(catalogue, req, &NOTHING);
+        let mut gaps = gaps(catalogue, req, &[], &NOTHING, installed);
         if gaps.is_empty() {
             // The request names no unmet capability (e.g. plain ASR was asked
             // for but no ASR model exists), so explain the step that had no
@@ -704,18 +741,41 @@ fn union_capabilities(steps: &[PlanStep], catalogue: &[ModelSpec]) -> Capabiliti
 ///
 /// `catalogue` is needed for the suggestion: a gap is a download prompt, so the
 /// model it names may well be uninstalled (design §5.6).
-pub fn gaps(catalogue: &[ModelSpec], req: &Requirements, capabilities: &Capabilities) -> Vec<Gap> {
+pub fn gaps(
+    catalogue: &[ModelSpec],
+    req: &Requirements,
+    steps: &[PlanStep],
+    capabilities: &Capabilities,
+    installed: &dyn Fn(&str) -> bool,
+) -> Vec<Gap> {
     let mut gaps = Vec::new();
 
-    if req.word_timestamps && capabilities.timestamps < TimestampGrade::Word {
-        gaps.push(Gap {
-            requirement: "word_timestamps",
-            message: format!(
-                "word-level timestamps requested, but the plan only reaches {} timestamps",
-                grade_label(capabilities.timestamps)
-            ),
-            suggested_model_id: suggest_word_model(catalogue),
-        });
+    if req.word_timestamps {
+        // Two distinct reasons a plan can fall short of word timing, and they
+        // need different fixes: the model cannot do it at all (swap the ASR), or
+        // it can but a declared dependency is missing (download that). Reporting
+        // only the first would send the user to download a second 1.1 GB ASR
+        // when the model they already picked is fine.
+        let missing_dependency = missing_requirement(catalogue, steps, installed);
+        if let Some(required_id) = missing_dependency {
+            gaps.push(Gap {
+                requirement: "word_timestamps",
+                message: format!(
+                    "word-level timestamps need the '{}' model, which is not installed",
+                    required_id
+                ),
+                suggested_model_id: Some(required_id),
+            });
+        } else if capabilities.timestamps < TimestampGrade::Word {
+            gaps.push(Gap {
+                requirement: "word_timestamps",
+                message: format!(
+                    "word-level timestamps requested, but the plan only reaches {} timestamps",
+                    grade_label(capabilities.timestamps)
+                ),
+                suggested_model_id: suggest_word_model(catalogue),
+            });
+        }
     }
 
     if req.diarization && capabilities.diarization == DiarizationGrade::None {
@@ -728,6 +788,29 @@ pub fn gaps(catalogue: &[ModelSpec], req: &Requirements, capabilities: &Capabili
     }
 
     gaps
+}
+
+/// First model id named by any step's `requires` that is not installed.
+///
+/// The catalogue declares these dependencies (v3) so that a capability claim
+/// like `qwen3_asr`'s `timestamps: word` stays honest: the claim holds only when
+/// the aligner is present, and the aligner is a separate download.
+fn missing_requirement(
+    catalogue: &[ModelSpec],
+    steps: &[PlanStep],
+    installed: &dyn Fn(&str) -> bool,
+) -> Option<String> {
+    for step in steps {
+        let Some(spec) = find(catalogue, &step.model_id) else {
+            continue;
+        };
+        for required in &spec.requires {
+            if !installed(required) && find(catalogue, required).is_some() {
+                return Some(required.clone());
+            }
+        }
+    }
+    None
 }
 
 /// The gap for a step that had no candidate, used when nothing can be solved.
@@ -784,13 +867,17 @@ fn suggest_model(catalogue: &[ModelSpec], kind: StepKind) -> Option<String> {
 }
 
 /// Catalogue model that would close a word-level timestamp gap.
+///
+/// An align-role entry wins: it is the *declared dependency* of the ASR models
+/// that advertise word timing, so suggesting it lets the user keep the model they
+/// already chose instead of downloading a second ASR. A word-capable ASR is the
+/// fallback for a catalogue that has no aligner.
 fn suggest_word_model(catalogue: &[ModelSpec]) -> Option<String> {
     let mut candidates: Vec<&ModelSpec> = catalogue
         .iter()
         .filter(|spec| spec.capabilities().timestamps >= TimestampGrade::Word)
         .collect();
 
-    // An aligner is the direct fix; a word-capable ASR also works.
     candidates.sort_by_key(|spec| (spec.has_role(Role::Align), suggestion_key(spec)));
     candidates.last().map(|spec| spec.id.clone())
 }
@@ -891,6 +978,112 @@ fn find<'a>(catalogue: &'a [ModelSpec], id: &str) -> Option<&'a ModelSpec> {
     catalogue.iter().find(|spec| spec.id == id)
 }
 
+// --- §8.2.3 manual overrides ----------------------------------------------
+
+/// Role name accepted in `model_overrides` → the [`StepKind`] it pins.
+///
+/// `align` is still accepted even though [`templates_for`] never produces an
+/// [`StepKind::Align`] step any more (M11-14): a v3 store blob may still carry
+/// that slot, and ignoring it silently would be worse than honouring it.
+pub fn override_slot_kind(slot: &str) -> Option<StepKind> {
+    match slot.trim().to_lowercase().as_str() {
+        "asr" => Some(StepKind::Asr),
+        "vad" => Some(StepKind::Vad),
+        "align" => Some(StepKind::Align),
+        "diar" => Some(StepKind::Diarize),
+        _ => None,
+    }
+}
+
+/// Apply manual `role -> model_id` overrides to the winning plan only.
+///
+/// Overrides are a user assertion, so an id that is not in the catalogue is
+/// ignored rather than silently turning into a runtime failure. Pinning a diar
+/// model onto a plan that had no `Diarize` step adds one, because that is the
+/// user's explicit intent.
+///
+/// Shared by `commands::transcribe` (the run) and `commands::plan` (the
+/// Settings preview) so the preview cannot disagree with what will actually
+/// execute.
+pub fn apply_model_overrides(
+    plans: &mut [ModelPlan],
+    overrides: &HashMap<String, String>,
+    catalogue: &[ModelSpec],
+) {
+    let Some(plan) = plans.first_mut() else {
+        return;
+    };
+
+    for (slot, model_id) in overrides {
+        let Some(kind) = override_slot_kind(slot) else {
+            tracing::warn!(slot = %slot, "ignoring unknown model-override slot");
+            continue;
+        };
+        let Some(spec) = find(catalogue, model_id) else {
+            tracing::warn!(slot = %slot, model = %model_id, "ignoring override for an unknown model id");
+            continue;
+        };
+        let Some(task) = kind.override_task() else {
+            continue;
+        };
+
+        match plan.steps.iter_mut().find(|step| step.kind == kind) {
+            Some(step) => {
+                step.model_id = spec.id.clone();
+                step.task = task.to_string();
+                step.family = spec.family.clone();
+            }
+            None => plan.steps.push(PlanStep {
+                kind,
+                model_id: spec.id.clone(),
+                task: task.to_string(),
+                family: spec.family.clone(),
+            }),
+        }
+
+        // Pinning a diar model is a request for speaker labels, and the runtime
+        // always follows a `Diarize` step with turn attribution
+        // (`commands::transcribe` dispatches on exactly that step). Adding the
+        // attribution step here keeps the plan's steps, id and capabilities
+        // describing what will actually run.
+        if kind == StepKind::Diarize
+            && !plan
+                .steps
+                .iter()
+                .any(|step| step.kind == StepKind::TurnAttribution)
+        {
+            plan.steps.push(PlanStep::rust(StepKind::TurnAttribution));
+        }
+    }
+
+    // A pin changes what the plan *is*, not just which file it loads: the title,
+    // id, capabilities, passthrough flag and cost all describe the old model
+    // set. Recomputing them here is what keeps the Settings preview honest —
+    // without it the preview showed "SenseVoice + VAD" while listing
+    // `qwen3_asr + sortformer` underneath the same label.
+    refresh_plan_summary(plan, catalogue);
+}
+
+/// Recompute every derived field of `plan` from its (possibly overridden) steps.
+fn refresh_plan_summary(plan: &mut ModelPlan, catalogue: &[ModelSpec]) {
+    plan.model_ids = model_ids(&plan.steps);
+    plan.passthrough = plan.steps.iter().any(|step| step.kind == StepKind::Passthrough);
+    plan.title_key = title_key(&plan.steps);
+    plan.id = plan_id(&plan.steps);
+    plan.capabilities = union_capabilities(&plan.steps, catalogue);
+
+    // Cost needs the requirements only for its fallback speed; the slowest real
+    // model in the plan is what matters once steps exist.
+    plan.cost = plan_cost(
+        &plan.steps,
+        catalogue,
+        &Requirements {
+            prefer: plan.cost.speed,
+            ..Requirements::default()
+        },
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -949,6 +1142,15 @@ mod tests {
             source: Some(fake.source),
             tier: Some(fake.tier),
             licenses: Vec::new(),
+            // Only the ASR whose word-timestamp claim is conditional on another
+            // model needs a dependency; keeping it out of `FakeModel` avoids
+            // threading a new field through all eleven fixtures.
+            requires: if fake.id == "qwen3_asr_0_6b_q8_0" {
+                vec!["qwen3_forced_aligner_0_6b_q8_0".to_string()]
+            } else {
+                Vec::new()
+            },
+            language_tokens: Vec::new(),
         }
     }
 
@@ -1097,6 +1299,59 @@ mod tests {
     /// No word timestamps, no diarization: the plain-ASR template is the only
     /// viable one, because the row-1 passthrough candidate is gated out — MOSS is
     /// neither faster than SenseVoice nor a better language match for Chinese.
+    /// Regression: a `vad`-role override must reach `model_ids` so
+    /// `commands::transcribe` can hand it to the engine, and it must not become
+    /// `model_ids[0]` — that slot is the ASR model the run transcribes with.
+    ///
+    /// Before the VAD was pluggable, `engine::transcribe` hardcoded
+    /// `family = "silero_vad"`, so a selected VAD was silently never executed.
+    #[test]
+    fn vad_override_appends_a_step_without_taking_the_asr_slot() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let real = crate::engine::catalog::load_catalog(path).expect("committed models.json");
+        let installed = all_installed();
+        let mut plans = solve(&real, &installed, &req());
+
+        let vad_id = real
+            .iter()
+            .find(|spec| spec.has_role(Role::Vad))
+            .expect("the catalogue offers a downloadable VAD")
+            .id
+            .clone();
+
+        let mut overrides = HashMap::new();
+        overrides.insert("vad".to_string(), vad_id.clone());
+        apply_model_overrides(&mut plans, &overrides, &real);
+
+        let plan = &plans[0];
+        let vad = plan
+            .steps
+            .iter()
+            .find(|step| step.kind == StepKind::Vad)
+            .expect("the pinned VAD is a plan step");
+        assert_eq!(vad.model_id, vad_id);
+        assert_eq!(vad.task, "vad", "the step must run --task vad");
+        assert!(
+            plan.model_ids.contains(&vad_id),
+            "the VAD must be in model_ids so the install check covers it: {:?}",
+            plan.model_ids
+        );
+        assert_eq!(
+            plan.steps[0].kind,
+            StepKind::Asr,
+            "the ASR step must stay first: {:?}",
+            plan.steps
+        );
+        assert_ne!(
+            plan.model_ids.first(),
+            Some(&vad_id),
+            "model_ids[0] is the ASR model; a VAD pin must not take it"
+        );
+    }
+
     #[test]
     fn default_requirements_pick_sense_asr_first() {
         let catalogue = catalogue();
@@ -1199,12 +1454,15 @@ mod tests {
         assert!(plan.gaps.is_empty());
     }
 
-    /// Word-level + speakers: word timing is NOT implemented end to end, so the
-    /// solver must return satisfiable speaker plans AND explicitly report the
-    /// word-timestamp shortfall. Previously it returned an `Align` step that was
-    /// never executed, so the UI claimed word timing it never produced.
+    /// Word-level + speakers. The passthrough plan (MOSS) still wins on score but
+    /// only reaches segment timing, so it must keep admitting the shortfall; the
+    /// composed ASR plan reaches word timing through the aligner dependency.
+    ///
+    /// Rewritten from `word_and_diarization_reports_the_word_timestamp_gap`: that
+    /// test also asserted every plan reports a word gap, which was only true while
+    /// word output was unimplemented.
     #[test]
-    fn word_and_diarization_reports_the_word_timestamp_gap() {
+    fn word_and_diarization_reports_the_gap_only_where_it_exists() {
         let catalogue = catalogue();
         let installed = all_installed();
         let req = Requirements {
@@ -1218,7 +1476,8 @@ mod tests {
         assert!(!plans.is_empty(), "speaker separation is still satisfiable");
         assert!(plans[0].passthrough, "the passthrough plan scores higher");
 
-        // No plan may claim an alignment step, because none would run.
+        // No plan may claim an alignment step: the aligner runs *inside* the ASR
+        // session, so a planned step would never execute.
         assert!(
             plans
                 .iter()
@@ -1226,44 +1485,92 @@ mod tests {
             "an Align step is never executed, so it must not be planned"
         );
 
-        // Every candidate must admit the word-timestamp shortfall.
-        for plan in &plans {
-            let gap = plan
-                .gaps
-                .iter()
-                .find(|gap| gap.requirement == "word_timestamps")
-                .unwrap_or_else(|| panic!("plan {} hides the word gap", plan.id));
-            assert!(
-                gap.message.contains("word"),
-                "gap must explain the word shortfall, got {:?}",
-                gap.message
-            );
-        }
-
-        // The passthrough plan still separates speakers in one call.
+        // The passthrough plan separates speakers in one call and tops out at
+        // segment timing, so it must admit the shortfall.
         let passthrough = &plans[0];
         assert_eq!(
             passthrough.model_ids,
             vec!["moss_transcribe_diarize_q8_0".to_string()],
-            "the aligner must not be pulled in any more"
+            "MOSS answers both requirements except word timing"
         );
-        assert_eq!(
-            passthrough.capabilities.timestamps,
-            TimestampGrade::Segment,
-            "MOSS itself only emits segment timestamps"
-        );
+        assert_eq!(passthrough.capabilities.timestamps, TimestampGrade::Segment);
         assert_eq!(passthrough.capabilities.diarization, DiarizationGrade::TurnsWithText);
+        assert!(
+            passthrough
+                .gaps
+                .iter()
+                .any(|gap| gap.requirement == "word_timestamps"),
+            "the passthrough plan hides the word shortfall it actually has"
+        );
 
-        // The composed alternative keeps speaker coverage.
+        // The composed plan keeps speaker coverage AND reaches word timing, so it
+        // must report no word gap at all.
         let composed = plans
             .iter()
             .find(|plan| !plan.passthrough)
             .expect("the composed template is viable");
-        assert!(composed
-            .steps
+        assert_eq!(composed.capabilities.timestamps, TimestampGrade::Word);
+        assert_eq!(composed.capabilities.diarization, DiarizationGrade::TurnsWithText);
+        assert!(
+            composed
+                .gaps
+                .iter()
+                .all(|gap| gap.requirement != "word_timestamps"),
+            "a plan that reaches word timing must not claim a shortfall: {:?}",
+            composed.gaps
+        );
+    }
+
+    /// Word timestamps without diarization: `qwen3_asr` satisfies it, and the
+    /// aligner is never planned as its own step.
+    #[test]
+    fn word_only_plan_uses_a_word_capable_asr() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        let req = Requirements {
+            word_timestamps: true,
+            ..req()
+        };
+
+        let plans = solve(&catalogue, &installed, &req);
+        let best = &plans[0];
+
+        assert_eq!(best.capabilities.timestamps, TimestampGrade::Word);
+        assert!(best.gaps.is_empty(), "nothing is missing: {:?}", best.gaps);
+        assert_eq!(
+            best.steps.len(),
+            1,
+            "the aligner runs inside the ASR session, not as a second step: {:?}",
+            best.steps
+        );
+        assert_eq!(best.steps[0].kind, StepKind::Asr);
+    }
+
+    /// The aligner is a separate download, and the gap names it so the UI can
+    /// offer it — the ASR itself must not be blamed for a missing dependency.
+    #[test]
+    fn uninstalled_aligner_is_reported_as_its_own_gap() {
+        let catalogue = catalogue();
+        let req = Requirements {
+            word_timestamps: true,
+            ..req()
+        };
+        // Everything except the aligner.
+        let installed = |id: &str| id != "qwen3_forced_aligner_0_6b_q8_0";
+
+        let plans = solve(&catalogue, &installed, &req);
+        let best = &plans[0];
+
+        let gap = best
+            .gaps
             .iter()
-            .any(|step| step.kind == StepKind::Diarize));
-        assert_ne!(passthrough.id, composed.id);
+            .find(|gap| gap.requirement == "word_timestamps")
+            .unwrap_or_else(|| panic!("plan {} hides the missing aligner", best.id));
+        assert_eq!(
+            gap.suggested_model_id.as_deref(),
+            Some("qwen3_forced_aligner_0_6b_q8_0"),
+            "the fix is the aligner, not a different ASR"
+        );
     }
 
     /// `ko`: `fun_asr_nano` declares no Korean and must be filtered out even

@@ -3,8 +3,23 @@
 //! Task: P1-10. Ported from `core-engine/monosub_core/transcriber.py`
 //! (`_split_text_by_punctuation`, `_estimate_duration`, `_merge_short_segments`)
 //! per docs/tech-spec/refactor-audiocpp.md §5.4.
+//!
+//! Two timing sources live here and they must not be mixed:
+//!
+//! - [`distribute_times`] *estimates* cue times by sharing a chunk's window out
+//!   in proportion to character count. That is the only option when the model
+//!   emits no word timing (SenseVoice, MOSS passthrough) and it is what makes a
+//!   chunk boundary the only real timing anchor.
+//! - [`group_words_into_cues`] *uses* word timing: a cue starts at its first
+//!   word and ends at its last. No estimation is involved, which is why the old
+//!   Python engine's paraphrase of this (`_split_by_punctuation`, driven by
+//!   Paraformer's per-character timestamps) landed cues on the speech.
+//!
+//! Both funnel into the same [`merge_short`] / [`enforce_constraints`] pass, so
+//! cue shape (minimum duration, non-overlap, `max_chars`) is defined once.
 
 use super::{PostProcessConfig, Segment};
+use crate::engine::words::Word;
 
 /// Python `_merge_short_segments` also merges any cue shorter than 5 characters
 /// (hard-coded next to `MERGE_CONFIG`), in addition to `min_duration`.
@@ -204,6 +219,87 @@ pub fn distribute_times(
     }
 
     segments
+}
+
+/// Build cues from word timings: **no estimation**.
+///
+/// A cue starts at its first word and ends at its last, so the boundary is where
+/// the speech actually is. Boundaries are chosen by, in priority order:
+///
+/// 1. **A pause longer than `gap_threshold`** between two words. The aligner
+///    emits no punctuation (see [`crate::engine::words`]), so pauses are the
+///    primary signal — this is the same rule the old Python engine applied to
+///    Paraformer's per-character timestamps (`pause_threshold = 400 ms`).
+/// 2. **A cue reaching `max_duration` or `max_chars`**, so one long unbroken
+///    utterance still becomes readable cues.
+///
+/// `gap_threshold` is deliberately **not** used here: it is a merge threshold for
+/// chunk windows, and the measured pauses between words are far shorter than the
+/// pauses between chunks. [`PostProcessConfig::word_gap_threshold`] owns the
+/// split decision and documents the measurements.
+///
+/// Words are assumed ordered by start time ([`crate::engine::words::parse_words`]
+/// guarantees it). Concatenation is script-aware: CJK words are single
+/// characters and must not be space-joined.
+pub fn group_words_into_cues(
+    words: &[Word],
+    speaker: Option<&str>,
+    config: &PostProcessConfig,
+) -> Vec<Segment> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    let mut cues: Vec<Segment> = Vec::new();
+    let mut current: Vec<&Word> = Vec::new();
+
+    let flush = |current: &mut Vec<&Word>, cues: &mut Vec<Segment>| {
+        if current.is_empty() {
+            return;
+        }
+        let start = current.first().map(|word| word.start).unwrap_or(0.0);
+        let end = current.last().map(|word| word.end).unwrap_or(start);
+        let text = crate::engine::words::join_words(current.iter().map(|word| word.text.as_str()));
+        let text = text.trim().to_string();
+        current.clear();
+        if text.is_empty() {
+            return;
+        }
+        cues.push(Segment {
+            start,
+            end: end.max(start),
+            text,
+            speaker: speaker.map(str::to_string),
+        });
+    };
+
+    for word in words {
+        if let Some(previous) = current.last() {
+            let gap = word.start - previous.end;
+            let would_start = current.first().map(|first| first.start).unwrap_or(word.start);
+            let duration = word.end - would_start;
+            let chars = current
+                .iter()
+                .map(|word| char_count(&word.text))
+                .sum::<usize>()
+                + char_count(&word.text);
+
+            // Never let a cue grow past the configured ceiling, and always
+            // break on a real pause. A cue of exactly one word is exempt from
+            // the length rules, or a single over-long word could never be
+            // emitted at all.
+            let pause_break = gap > config.word_gap_threshold;
+            let length_break = !current.is_empty()
+                && (duration > config.max_duration || chars > config.max_chars);
+            if pause_break || length_break {
+                flush(&mut current, &mut cues);
+            }
+        }
+        current.push(word);
+    }
+    flush(&mut current, &mut cues);
+
+    cues
 }
 
 /// Merge adjacent cues separated by less than `gap_threshold` when the result
@@ -439,7 +535,12 @@ mod tests {
     use super::*;
     use crate::engine::RawChunk;
     use crate::subtitle::postprocess as compose;
-    use crate::subtitle::{postprocess as run_pipeline, PostProcessConfig};
+    /// The estimated-timing pipeline is the default these tests exercise; word
+    /// grouping has its own tests below.
+    fn run_pipeline(chunks: &[crate::engine::RawChunk], config: &PostProcessConfig) -> Vec<Segment> {
+        crate::subtitle::postprocess(chunks, &[], config)
+    }
+
 
     fn config() -> PostProcessConfig {
         PostProcessConfig::default()
@@ -768,7 +869,7 @@ mod tests {
                 language: None,
             },
         ];
-        let segments = compose(&chunks, &config());
+        let segments = compose(&chunks, &[], &config());
 
         assert!(!segments.is_empty());
         assert!(
@@ -823,5 +924,178 @@ mod tests {
         assert!(fixed[0].end <= fixed[1].start);
         assert!(fixed[1].start < fixed[1].end);
         assert_monotonic(&fixed);
+    }
+
+    // --- word-level grouping ------------------------------------------------
+
+    fn word(start: f64, end: f64, text: &str) -> crate::engine::words::Word {
+        crate::engine::words::Word {
+            index: 0,
+            start,
+            end,
+            text: text.to_string(),
+        }
+    }
+
+    /// The core claim of word-level timing: a cue's edges are the edges of its
+    /// words. Nothing is estimated, so a cue cannot drift into the silence around
+    /// it the way proportional distribution does.
+    #[test]
+    fn cue_edges_come_from_the_words_not_from_the_window() {
+        let words = vec![word(1.0, 1.2, "你"), word(1.2, 1.6, "好")];
+        let cues = group_words_into_cues(&words, None, &config());
+
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].start, 1.0);
+        assert_eq!(cues[0].end, 1.6);
+        assert_eq!(cues[0].text, "你好");
+    }
+
+    /// Pauses at real sentence boundaries split the cue, because the aligner
+    /// emits no punctuation and a silence is the only sentence signal it gives.
+    ///
+    /// The values are the ones measured on real speech (see
+    /// `word-timestamps-poc.md`): 0.40 s at a full stop, 0.16 s at a comma-like
+    /// break. Both are above `word_gap_threshold`.
+    #[test]
+    fn sentence_boundary_pauses_split_a_cue() {
+        let words = vec![
+            word(0.0, 0.4, "第"),
+            word(0.4, 0.8, "一"),
+            // The measured full-stop pause.
+            word(1.2, 1.6, "第"),
+            word(1.6, 1.85, "二"),
+            // The measured comma-like pause (0.16 s).
+            word(2.01, 2.4, "三"),
+        ];
+        let cues = group_words_into_cues(&words, None, &config());
+
+        assert_eq!(cues.len(), 3, "both measured boundaries must split: {cues:?}");
+        assert_eq!(cues[0].text, "第一");
+        assert_eq!(cues[0].start, 0.0);
+        assert_eq!(cues[0].end, 0.8);
+        assert_eq!(cues[1].start, 1.2, "the second cue starts after the pause");
+        assert_eq!(cues[2].start, 2.01);
+    }
+
+    /// Coarticulation inside a phrase must NOT split, or every character becomes
+    /// its own cue. Measured in-phrase pauses were 0.08 s or 0.
+    #[test]
+    fn in_phrase_gaps_do_not_split() {
+        let words = vec![
+            word(0.0, 0.2, "我"),
+            word(0.2, 0.4, "们"),
+            // 0.08 s: measured in-phrase pause.
+            word(0.48, 0.7, "来"),
+        ];
+        let cues = group_words_into_cues(&words, None, &config());
+
+        assert_eq!(cues.len(), 1, "0.08 s is not a sentence break: {cues:?}");
+        assert_eq!(cues[0].text, "我们来");
+    }
+
+    /// The split threshold is separate from the merge threshold, and the two are
+    /// deliberately far apart: a word-level pause is an order of magnitude
+    /// shorter than a chunk-level gap.
+    #[test]
+    fn word_split_threshold_is_independent_of_the_merge_threshold() {
+        let config = PostProcessConfig::default();
+        assert!(
+            config.word_gap_threshold < config.gap_threshold,
+            "measured word pauses (<=0.48 s) are shorter than chunk gaps"
+        );
+        assert!(
+            config.word_gap_threshold > 0.1,
+            "in-phrase pauses reach 0.08 s, so the threshold must clear them"
+        );
+    }
+
+    /// `max_chars` caps a cue even with no pause at all, so an unbroken
+    /// utterance still becomes readable.
+    #[test]
+    fn max_chars_caps_a_cue_without_any_pause() {
+        let config = PostProcessConfig {
+            max_chars: 3,
+            ..PostProcessConfig::default()
+        };
+        // Six one-character CJK words, all contiguous.
+        let words: Vec<_> = (0..6)
+            .map(|i| word(i as f64 * 0.1, (i + 1) as f64 * 0.1, "字"))
+            .collect();
+
+        let cues = group_words_into_cues(&words, None, &config);
+
+        assert_eq!(cues.len(), 2, "3 chars per cue: {cues:?}");
+        assert_eq!(cues[0].text, "字字字");
+        assert_eq!(cues[1].text, "字字字");
+        assert!(cues[0].end <= cues[1].start);
+    }
+
+    /// A single word longer than `max_chars` must still be emitted: the length
+    /// rule cannot be applied to the first word or progress is impossible.
+    #[test]
+    fn an_oversized_single_word_is_still_emitted() {
+        let config = PostProcessConfig {
+            max_chars: 1,
+            ..PostProcessConfig::default()
+        };
+        let words = vec![word(0.0, 0.5, "supercalifragilistic")];
+        let cues = group_words_into_cues(&words, None, &config);
+
+        assert_eq!(cues.len(), 1);
+        assert_eq!(cues[0].text, "supercalifragilistic");
+    }
+
+    /// `max_duration` caps a cue whose words never pause, e.g. fast speech.
+    #[test]
+    fn max_duration_caps_a_cue_without_any_pause() {
+        let config = PostProcessConfig {
+            max_duration: 1.0,
+            max_chars: 1000,
+            ..PostProcessConfig::default()
+        };
+        let words: Vec<_> = (0..10)
+            .map(|i| word(i as f64 * 0.3, (i + 1) as f64 * 0.3, "w"))
+            .collect();
+
+        let cues = group_words_into_cues(&words, None, &config);
+
+        assert!(cues.len() > 1, "3 s of speech must split: {cues:?}");
+        for cue in &cues {
+            assert!(
+                cue.end - cue.start <= 1.3,
+                "cue over the ceiling: {cue:?}"
+            );
+        }
+    }
+
+    /// Speaker labels survive the grouping, so `[Speaker A]: ` still renders.
+    #[test]
+    fn speaker_is_carried_onto_every_cue() {
+        let words = vec![word(0.0, 0.3, "hi"), word(1.5, 1.8, "there")];
+        let cues = group_words_into_cues(&words, Some("Speaker A"), &config());
+
+        assert_eq!(cues.len(), 2);
+        assert!(cues
+            .iter()
+            .all(|cue| cue.speaker.as_deref() == Some("Speaker A")));
+    }
+
+    /// Latin words are space-joined, CJK is not — the same cue can hold both.
+    #[test]
+    fn cue_text_joins_per_script() {
+        let words = vec![
+            word(0.0, 0.2, "我"),
+            word(0.2, 0.4, "用"),
+            word(0.4, 0.7, "Mac"),
+        ];
+        let cues = group_words_into_cues(&words, None, &config());
+
+        assert_eq!(cues[0].text, "我用Mac");
+    }
+
+    #[test]
+    fn no_words_yields_no_cues() {
+        assert!(group_words_into_cues(&[], None, &config()).is_empty());
     }
 }

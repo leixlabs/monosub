@@ -164,7 +164,7 @@
   },
   "modelPlan": {
     "title": "识别方案",
-    "wordTimestamps": "词级时间戳（暂不支持）",
+    "wordTimestamps": "词级时间戳",
     "diarization": "说话人分离（默认）",
     "speed": "速度偏好",
     "speedFast": "快",
@@ -179,6 +179,7 @@
     "slotVad": "切段（VAD）",
     "slotDiar": "说话人（分离）",
     "slotAuto": "自动",
+    "slotVadAuto": "内置 Silero VAD（默认）",
     "slotNone": "（不使用）",
     "gapTitle": "当前需求没有可用的模型方案",
     "gapSuggest": "建议下载 {{model}}（{{size}}）",
@@ -190,7 +191,7 @@
     "reasonPassthrough": "直出模式更少步骤",
     "reasonWords": "唯一支持词级时间戳的方案",
     "diarizationDefaultHint": "新增文件的默认值；每个文件可单独覆盖",
-    "wordTimestampsHint": "当前没有可用模型能输出词级时间；方案会把它列为一个缺口。",
+    "wordTimestampsHint": "字幕时间改由词级时间推导，不再按字数估算；同时输出 <文件名>.words.json（含静音区间），供 Agent 自动剪辑视频。需要 Qwen3 Forced Aligner 模型。",
     "slotVadHint": "在转写前把音频切成语音片段。Silero VAD 随 App 内置，一般无需修改。",
     "slotAsrHint": "把每个语音片段转成文字。识别准确度与支持语种由这个模型决定。",
     "slotDiarHint": "判断谁在什么时候说话，以便给字幕加上「说话人 A/B」标签。需要分离模型；没有它字幕不带说话人标签。"

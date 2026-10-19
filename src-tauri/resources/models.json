@@ -164,7 +164,145 @@
           "url": "https://www.apache.org/licenses/LICENSE-2.0"
         }
       ],
-      "attribution": "Qwen3-ASR-0.6B (Qwen/Qwen3-ASR-0.6B). Word-level timestamps require the forced aligner."
+      "attribution": "Qwen3-ASR-0.6B (Qwen/Qwen3-ASR-0.6B). Word-level timestamps need the qwen3_forced_aligner entry (separate ~1.13 GB download, declared in `requires`).",
+      "requires": [
+        "qwen3_forced_aligner_0_6b_q8_0"
+      ],
+      "language_tokens": [
+        {
+          "tag": "zh",
+          "token": "Chinese"
+        },
+        {
+          "tag": "en",
+          "token": "English"
+        },
+        {
+          "tag": "yue",
+          "token": "Cantonese"
+        },
+        {
+          "tag": "ja",
+          "token": "Japanese"
+        },
+        {
+          "tag": "ko",
+          "token": "Korean"
+        },
+        {
+          "tag": "es",
+          "token": "Spanish"
+        },
+        {
+          "tag": "de",
+          "token": "German"
+        },
+        {
+          "tag": "fr",
+          "token": "French"
+        },
+        {
+          "tag": "pt",
+          "token": "Portuguese"
+        },
+        {
+          "tag": "it",
+          "token": "Italian"
+        },
+        {
+          "tag": "ru",
+          "token": "Russian"
+        },
+        {
+          "tag": "ar",
+          "token": "Arabic"
+        },
+        {
+          "tag": "hi",
+          "token": "Hindi"
+        },
+        {
+          "tag": "vi",
+          "token": "Vietnamese"
+        },
+        {
+          "tag": "th",
+          "token": "Thai"
+        },
+        {
+          "tag": "id",
+          "token": "Indonesian"
+        },
+        {
+          "tag": "ms",
+          "token": "Malay"
+        },
+        {
+          "tag": "tr",
+          "token": "Turkish"
+        },
+        {
+          "tag": "nl",
+          "token": "Dutch"
+        },
+        {
+          "tag": "pl",
+          "token": "Polish"
+        },
+        {
+          "tag": "fa",
+          "token": "Persian"
+        }
+      ]
+    },
+    {
+      "id": "qwen3_forced_aligner_0_6b_q8_0",
+      "family": "qwen3_forced_aligner",
+      "display_name": "Qwen3 Forced Aligner 0.6B (Q8_0)",
+      "target_directory": "Qwen3-ForcedAligner-0.6B-GGUF",
+      "model_file": "qwen3-forced-aligner-0.6b-q8_0.gguf",
+      "files": [
+        {
+          "path": "qwen3-forced-aligner-0.6b-q8_0.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/67d0ca7390694a24bf9d44497c474b93b2e3863d/Qwen3-ForcedAligner-0.6B-GGUF/qwen3-forced-aligner-0.6b-q8_0.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/Qwen3-ForcedAligner-0.6B-GGUF/qwen3-forced-aligner-0.6b-q8_0.gguf"
+          ],
+          "size": 1129966496,
+          "sha256": "75209490b11cec2b0db749ca5f4ff92266f58efd30f7fd04d9eb2a3ac9cc929f"
+        }
+      ],
+      "languages": [
+        "auto",
+        "zh",
+        "en",
+        "yue",
+        "ja",
+        "ko",
+        "es",
+        "de",
+        "fr",
+        "pt"
+      ],
+      "capabilities": {
+        "timestamps": "word",
+        "diarization": "none",
+        "produces_text": false
+      },
+      "roles": [
+        "align"
+      ],
+      "speed": "balanced",
+      "source": "qwen",
+      "tier": "optional",
+      "license": "Apache-2.0",
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "attribution": "Qwen3-ForcedAligner-0.6B (Qwen/Qwen3-ForcedAligner-0.6B). Not bundled: downloaded on demand. word_timestamps for qwen3_asr, also the `align` task."
     },
     {
       "id": "moss_transcribe_diarize_q8_0",
@@ -393,6 +531,90 @@
         }
       ],
       "attribution": "HY-MT1.5-1.8B (Tencent Hunyuan). Dedicated translation model run by the bundled llama-server; the source language is passed via the prompt, and zh/zh-Hant are treated as distinct targets."
+    },
+    {
+      "id": "pulsevad_81k_f32",
+      "family": "pulsevad",
+      "display_name": "PulseVAD 81k (F32)",
+      "target_directory": "PulseVAD-GGUF",
+      "model_file": "pulsevad-81k-f32.gguf",
+      "files": [
+        {
+          "path": "pulsevad-81k-f32.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/PulseVAD-GGUF/pulsevad-81k-f32.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/67d0ca7390694a24bf9d44497c474b93b2e3863d/PulseVAD-GGUF/pulsevad-81k-f32.gguf"
+          ],
+          "size": 394240,
+          "sha256": "574482cd225645646b9474d21a5a05eb6351efc8193d7eedb7ab241696146bec"
+        }
+      ],
+      "languages": [
+        "auto"
+      ],
+      "capabilities": {
+        "timestamps": "none",
+        "diarization": "none",
+        "produces_text": false
+      },
+      "roles": [
+        "vad"
+      ],
+      "speed": "fast",
+      "source": "other",
+      "tier": "recommended",
+      "license": "MIT",
+      "licenses": [
+        {
+          "name": "MIT",
+          "url": "https://opensource.org/licenses/MIT"
+        }
+      ],
+      "attribution": "PulseVAD 81k (Aydin Adnan). 394 KB pulse-based VAD; on a 32.9 s two-speaker clip it covered the whole file (525892 samples) whereas bundled Silero stopped at 290336 samples (55%). Test VAD candidate."
+    },
+    {
+      "id": "canary_180m_flash_q8_0",
+      "family": "canary_asr",
+      "display_name": "Canary 180M Flash (Q8_0)",
+      "target_directory": "Canary-180M-Flash-GGUF",
+      "model_file": "canary-180m-flash-q8_0.gguf",
+      "files": [
+        {
+          "path": "canary-180m-flash-q8_0.gguf",
+          "url": "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/master/Canary-180M-Flash-GGUF/canary-180m-flash-q8_0.gguf",
+          "mirrors": [
+            "https://www.modelscope.cn/models/audio-cpp/audio.cpp-gguf/resolve/0e86630cc8c5514fb82683f79c0a07f3e3869377/Canary-180M-Flash-GGUF/canary-180m-flash-q8_0.gguf"
+          ],
+          "size": 249496128,
+          "sha256": "8a6d06be2b6c8e44b7810e5ad1277db571d3152a7eea8b699974516907a6ef57"
+        }
+      ],
+      "languages": [
+        "auto",
+        "en",
+        "es",
+        "de",
+        "fr"
+      ],
+      "capabilities": {
+        "timestamps": "none",
+        "diarization": "none",
+        "produces_text": true
+      },
+      "roles": [
+        "asr"
+      ],
+      "speed": "fast",
+      "source": "other",
+      "tier": "optional",
+      "license": "CC-BY-4.0",
+      "licenses": [
+        {
+          "name": "CC-BY-4.0",
+          "url": "https://creativecommons.org/licenses/by/4.0/"
+        }
+      ],
+      "attribution": "Canary 180M Flash (NVIDIA, repackaged by audio-cpp). English/Spanish/German/French; 249 MB — the lightest ASR entry. Weights retain the upstream CC BY 4.0 licence."
     }
   ]
 }

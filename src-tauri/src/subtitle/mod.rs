@@ -8,6 +8,7 @@
 pub mod postprocess;
 pub mod writer;
 
+use crate::engine::words::Word;
 use crate::engine::RawChunk;
 
 /// One subtitle cue. Times are seconds; `speaker` is an already-formatted label
@@ -31,6 +32,23 @@ pub struct PostProcessConfig {
     pub max_chars: usize,
     /// Merge adjacent cues closer than this (Python `gap_threshold`).
     pub gap_threshold: f64,
+    /// Pause that splits a cue when timing comes from **words**.
+    ///
+    /// Deliberately separate from [`Self::gap_threshold`], which cannot be reused
+    /// here: it is a *merge* threshold tuned for chunk-level windows, while this
+    /// is a *split* threshold inside one continuous speech run. They measure
+    /// different things and the measured values differ by more than 3x.
+    ///
+    /// Measured on audio.cpp v0.9.1 + Qwen3-ForcedAligner (`words.json` for a
+    /// 10 s Chinese clip, `docs/tech-spec/word-timestamps-poc.md`): the pauses at
+    /// real sentence boundaries were 0.40 s, 0.16 s and 0.16 s, while pauses
+    /// *inside* a phrase were 0.08 s or 0.0 s. `0.15` is the value that separates
+    /// those two populations on that data. With 0.5 s the same clip produced a
+    /// single cue — word timing would have bought nothing.
+    ///
+    /// Coarticulation inside a phrase is at or below ~0.1 s, so this must stay
+    /// above that or every character becomes its own cue.
+    pub word_gap_threshold: f64,
 }
 
 impl Default for PostProcessConfig {
@@ -40,17 +58,41 @@ impl Default for PostProcessConfig {
             max_duration: 10.0,
             max_chars: 50,
             gap_threshold: 0.5,
+            word_gap_threshold: 0.15,
         }
     }
 }
 
-/// Clean → split by punctuation → distribute time by effective character count
-/// → merge short neighbours → enforce min length and monotonicity.
+/// Build cues from the recognised chunks.
 ///
-/// Task: P1-10. Mirrors Python `transcribe()`: split each chunk, estimate time
-/// inside that chunk's window, then run one flat merge + constraint pass over the
-/// concatenated result (spec §5.4).
-pub fn postprocess(chunks: &[RawChunk], config: &PostProcessConfig) -> Vec<Segment> {
+/// Two timing sources, chosen by what the engine actually produced:
+///
+/// - `words` non-empty (word-aligned inference ran): cue times come from the
+///   words themselves via [`postprocess::group_words_into_cues`], and the chunk
+///   windows are ignored — a cue is where the speech is, not where a VAD chunk
+///   happened to end.
+/// - `words` empty: the chunk window is shared out in proportion to character
+///   count ([`postprocess::distribute_times`]), which is all a model without
+///   word timing can support.
+///
+/// Both paths end in the same merge + constraint pass, so cue shape
+/// (`min_duration`, `max_chars`, non-overlap) is defined once.
+pub fn postprocess(
+    chunks: &[RawChunk],
+    words: &[Word],
+    config: &PostProcessConfig,
+) -> Vec<Segment> {
+    // Speaker labels are per chunk on the estimated path and per run on the
+    // aligned one. A word-aligned run with diarization is not offered yet, so
+    // the aligned path takes the single label it was given; that is a documented
+    // limitation, not an oversight (see docs/tech-spec/word-timestamps-poc.md).
+    if !words.is_empty() {
+        let speaker = chunks.first().and_then(|chunk| chunk.speaker.as_deref());
+        let cues = postprocess::group_words_into_cues(words, speaker, config);
+        let merged = postprocess::merge_short(cues, config);
+        return postprocess::enforce_constraints(merged, config);
+    }
+
     let mut segments: Vec<Segment> = Vec::new();
 
     for chunk in chunks {
@@ -157,5 +199,11 @@ pub fn write(
 
 /// Localized error when `json` is requested without word-level data, matching
 /// the Python `ValueError` message.
+///
+/// Archived: `Format::Json` now renders cues (see `writer::render_json`), and the
+/// word-level data lives in its own `<stem>.words.json` sidecar, so this message
+/// describes a constraint the app no longer has. Kept only so the historical
+/// wording is not lost; nothing reads it.
+#[allow(dead_code)]
 pub const JSON_REQUIRES_RAW: &str =
     "JSON format requires raw word-level data. Use --raw with monosub to produce compatible output.";

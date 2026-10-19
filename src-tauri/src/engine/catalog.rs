@@ -205,7 +205,11 @@ pub struct License {
 }
 
 /// One model entry from `models.json`.
-#[derive(Debug, Clone)]
+///
+/// Derives `Default` so test literals only spell the fields they care about
+/// (`..Default::default()`): every v3 field added here would otherwise have to
+/// be threaded through eight unrelated fixtures.
+#[derive(Debug, Clone, Default)]
 pub struct ModelSpec {
     pub id: String,
     /// audio.cpp `family` for recognition models (e.g. `sense_asr`); for a
@@ -235,6 +239,32 @@ pub struct ModelSpec {
     pub source: Option<Source>,
     pub tier: Option<Tier>,
     pub licenses: Vec<License>,
+    /// Other catalogue ids this model cannot work without (v3).
+    ///
+    /// `qwen3_asr` is the reason this exists: its `timestamps: "word"` claim is
+    /// only true when the forced aligner is loaded, and the aligner is a separate
+    /// 1.1 GB download. Declaring that in JSON keeps the dependency out of Rust —
+    /// the solver turns an uninstalled requirement into a downloadable gap
+    /// instead of planning a run that would fail on the CLI.
+    pub requires: Vec<String>,
+    /// App language tag → the exact token this model expects (v3).
+    ///
+    /// `qwen3_asr` does not take BCP-47 tags: its prompt is built as
+    /// `language <token><asr_text>` and it ships tokens like `Chinese`,
+    /// `Cantonese`, `Japanese`. Passing `zh` still transcribes correctly by
+    /// accident (measured), but the forced aligner picks CJK tokenisation from
+    /// that same token, so the mapping belongs in one declarative place rather
+    /// than in a match arm. Untagged entries fall back to `catalog::map_language`.
+    pub language_tokens: Vec<LanguageToken>,
+}
+
+/// One `app tag → model token` pair from `models.json`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LanguageToken {
+    /// The tag the app uses (`zh`, `en`, `yue`, …).
+    pub tag: String,
+    /// The token the model expects (`Chinese`, `English`, `Cantonese`, …).
+    pub token: String,
 }
 
 impl ModelSpec {
@@ -326,6 +356,16 @@ struct ModelWire {
     tier: Option<Tier>,
     #[serde(default)]
     licenses: Vec<LicenseWire>,
+    #[serde(default)]
+    requires: Vec<String>,
+    #[serde(default)]
+    language_tokens: Vec<LanguageTokenWire>,
+}
+
+#[derive(Deserialize)]
+struct LanguageTokenWire {
+    tag: String,
+    token: String,
 }
 
 #[derive(Deserialize)]
@@ -394,6 +434,15 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
                 .map(|license| License {
                     name: license.name,
                     url: license.url,
+                })
+                .collect(),
+            requires: model.requires,
+            language_tokens: model
+                .language_tokens
+                .into_iter()
+                .map(|pair| LanguageToken {
+                    tag: pair.tag,
+                    token: pair.token,
                 })
                 .collect(),
         });
@@ -527,12 +576,23 @@ const SENSE_ASR_TOKEN_LANGUAGES: &[&str] = &["auto", "zh", "en", "yue", "ja", "k
 /// Per PoC §4.2: the CLI accepts 23 tags but only `{auto, zh, en, yue, ja, ko,
 /// nospeech}` map onto a real token, so unsupported values must be lowered to
 /// `auto` here rather than relying on the CLI.
+///
+/// A model that declares `language_tokens` (v3) answers with its own token
+/// instead: `qwen3_asr` wants `Chinese`/`English`/`Cantonese`, not `zh`/`en`/`yue`.
+/// That is not cosmetic — the forced aligner picks its tokenisation (per CJK
+/// character vs per space-separated word) from the same string.
 pub fn map_language(model: &ModelSpec, app_lang: &str) -> String {
     let tag = normalize_language_tag(app_lang);
 
+    // A declared mapping is authoritative: it exists precisely because the
+    // model's own vocabulary differs from the app's tags.
+    if let Some(pair) = model.language_tokens.iter().find(|pair| pair.tag == tag) {
+        return pair.token.clone();
+    }
+
     // `sense_asr` is the only family whose real tokens are known to be a strict
-    // subset of the tags it accepts. Other families (spec §5.6, `qwen3_asr`) do
-    // map every tag they declare, so their `languages` list is authoritative.
+    // subset of the tags it accepts. Other families (spec §5.6) do map every tag
+    // they declare, so their `languages` list is authoritative.
     let forwarded = if model.family == "sense_asr" {
         SENSE_ASR_TOKEN_LANGUAGES.contains(&tag.as_str())
     } else {
@@ -692,20 +752,76 @@ mod tests {
         assert!(sortformer.has_role(Role::Diar));
     }
 
-    /// The catalogue must not offer a model MonoSub cannot drive: the `align`
-    /// task aligns an EXISTING transcript to audio, and this app only ever
-    /// produces transcripts. Keeping the entry would let the solver plan a step
-    /// that never runs.
+    /// The aligner is a first-class entry (v3): `qwen3_asr` cannot produce word
+    /// timestamps without it, so the solver must be able to name it as a
+    /// download. It is diar-less and text-less, and only fills `align`.
+    ///
+    /// Replaces the old `catalogue_has_no_align_only_model` guard: that guard
+    /// encoded the (wrong) conclusion that no aligner entry was needed at all.
+    /// What is still forbidden is planning an `align` *step*, which the solver
+    /// enforces separately — the aligner runs inside the ASR session.
     #[test]
-    fn catalogue_has_no_align_only_model() {
+    fn catalogue_declares_the_forced_aligner_as_qwen3_asr_dependency() {
         let specs = committed_catalog();
+        let aligner = specs
+            .iter()
+            .find(|spec| spec.id == "qwen3_forced_aligner_0_6b_q8_0")
+            .expect("the forced aligner is a catalogue entry");
+
+        assert_eq!(aligner.family, "qwen3_forced_aligner");
+        assert!(aligner.has_role(Role::Align));
+        assert_eq!(aligner.capabilities().timestamps, TimestampGrade::Word);
         assert!(
-            specs.iter().all(|spec| !spec.has_role(Role::Align)),
-            "no catalogue entry may require the unsupported `align` task"
+            !aligner.capabilities().produces_text,
+            "the aligner aligns an existing transcript; it never writes one"
         );
-        assert!(
-            specs.iter().all(|spec| spec.family != "qwen3_forced_aligner"),
-            "the forced-aligner entry was removed deliberately"
+        assert_eq!(
+            aligner.files[0].sha256.as_deref(),
+            Some("75209490b11cec2b0db749ca5f4ff92266f58efd30f7fd04d9eb2a3ac9cc929f"),
+            "pinned hash of the measured upstream artifact"
+        );
+
+        let asr = specs
+            .iter()
+            .find(|spec| spec.id == "qwen3_asr_0_6b_q8_0")
+            .expect("qwen3_asr entry present");
+        assert_eq!(
+            asr.requires,
+            vec!["qwen3_forced_aligner_0_6b_q8_0".to_string()],
+            "the word-timestamp claim is conditional on the aligner"
+        );
+    }
+
+    /// `map_language` must answer with the model's own token when the catalogue
+    /// declares one. Measured on v0.9.1: `zh` still transcribes correctly, but
+    /// the forced aligner chooses CJK tokenisation from this same string, so
+    /// forwarding the bare tag silently changes how words are split.
+    #[test]
+    fn declared_language_tokens_win_over_tag_forwarding() {
+        let specs = committed_catalog();
+        let asr = specs
+            .iter()
+            .find(|spec| spec.id == "qwen3_asr_0_6b_q8_0")
+            .expect("qwen3_asr entry present");
+
+        assert_eq!(map_language(asr, "zh"), "Chinese");
+        assert_eq!(map_language(asr, "en"), "English");
+        assert_eq!(map_language(asr, "yue"), "Cantonese");
+        assert_eq!(map_language(asr, "ja"), "Japanese");
+        // `zh-tw` normalises to `zh` first, so it inherits the mapping.
+        assert_eq!(map_language(asr, "zh-tw"), "Chinese");
+        // A tag with no declared token falls back to the documented rule: a tag
+        // the model lists is forwarded, anything else is `auto`.
+        assert_eq!(map_language(asr, "auto"), "auto");
+
+        // Families without `language_tokens` are untouched (regression guard).
+        let sense = sensevoice_spec();
+        assert_eq!(map_language(&sense, "zh"), "zh");
+        assert_eq!(map_language(&sense, "yue"), "yue");
+        assert_eq!(
+            map_language(&sense, "es"),
+            "auto",
+            "sense_asr accepts the tag but only tokens a subset"
         );
     }
 
@@ -1017,6 +1133,8 @@ mod tests {
             source: None,
             tier: None,
             licenses: Vec::new(),
+            requires: Vec::new(),
+            language_tokens: Vec::new(),
         };
 
         assert_eq!(map_language(&model, "es"), "es");

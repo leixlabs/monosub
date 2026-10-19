@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::engine::cli::{resolve_vad_path, spawn, Backend, CliInvocation};
+use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::EngineError;
 
 /// Tuning constants (spec §5.3): `max 15s` keeps per-chunk text short enough
@@ -35,9 +35,28 @@ pub const VAD_PADDING_SECONDS: f64 = 0.1;
 /// Sample rate audiocpp expects; WAV input must be 16 kHz mono s16le.
 pub const SAMPLE_RATE: u32 = 16_000;
 
-/// audio.cpp task/family pair for silero VAD.
+/// audio.cpp task for the VAD stage. The `family` is **not** a constant here:
+/// several VAD families exist (`silero_vad`, `pulsevad`, `firered_vad`, …) and a
+/// GGUF embeds its own, so passing the wrong one fails the same way an ASR
+/// family mismatch does. The selected model supplies it via [`VadModel`].
 const TASK: &str = "vad";
-const FAMILY: &str = "silero_vad";
+
+/// Bundled default VAD family: Silero, shipped in `resources/models/silero_vad`
+/// as a `.safetensors` directory rather than a downloadable GGUF.
+pub const DEFAULT_FAMILY: &str = "silero_vad";
+
+/// What the VAD stage should run.
+///
+/// `model` is either the bundled Silero **directory** (families that take a
+/// directory via `--model`) or a downloaded GGUF file. `--model` accepts both,
+/// which is why one field covers it.
+#[derive(Debug, Clone)]
+pub struct VadModel {
+    /// audio.cpp family, e.g. `silero_vad` or `pulsevad`.
+    pub family: String,
+    /// Directory (bundled) or GGUF file (downloaded).
+    pub model: std::path::PathBuf,
+}
 
 /// Name of the bundled silero model; `cli::resolve_vad_path` validates it, so
 /// this copy exists only for the tests that fabricate a resources tree.
@@ -78,8 +97,9 @@ pub async fn detect(
     app: Option<&tauri::AppHandle>,
     wav_path: &Path,
     work_dir: &Path,
+    vad: &VadModel,
 ) -> Result<Vec<VadChunk>, crate::engine::EngineError> {
-    let invocation = vad_invocation(resolve_vad_path(app)?, wav_path, work_dir);
+    let invocation = vad_invocation(vad, wav_path, work_dir);
     let out_path = chunks_path(work_dir);
 
     // The CLI only writes `--vad-chunks-out` if the directory already exists.
@@ -91,7 +111,8 @@ pub async fn detect(
 
     let raw = std::fs::read_to_string(&out_path).map_err(|e| {
         EngineError::Protocol(format!(
-            "silero_vad exited successfully but wrote no readable chunk plan at {}: {}",
+            "{} exited successfully but wrote no readable chunk plan at {}: {}",
+            vad.family,
             out_path.display(),
             e
         ))
@@ -132,14 +153,14 @@ pub fn chunks_path(work_dir: &Path) -> PathBuf {
 /// struct fields, so [`CliInvocation::args`] carries only the VAD-specific
 /// flags (same convention as the P1-9 `--request-sequence` invocation).
 fn vad_invocation(
-    vad_dir: PathBuf,
+    vad: &VadModel,
     wav_path: &Path,
     work_dir: &Path,
 ) -> CliInvocation {
     CliInvocation {
         task: TASK.to_string(),
-        family: FAMILY.to_string(),
-        model: vad_dir,
+        family: vad.family.clone(),
+        model: vad.model.clone(),
         audio: Some(wav_path.to_path_buf()),
         backend: Backend::Cpu,
         args: vad_args(&chunks_path(work_dir)),
@@ -233,10 +254,22 @@ mod tests {
         }
     }
 
+    /// The bundled Silero VAD as a [`VadModel`], for the tests that exercise the
+    /// real CLI.
+    fn bundled_vad() -> VadModel {
+        VadModel {
+            family: DEFAULT_FAMILY.to_string(),
+            model: crate::engine::cli::resolve_vad_path(None).expect("bundled silero vad dir"),
+        }
+    }
+
     #[test]
     fn vad_invocation_matches_the_spec_vector() {
         let invocation = vad_invocation(
-            PathBuf::from("/res/models/silero_vad"),
+            &VadModel {
+                family: DEFAULT_FAMILY.to_string(),
+                model: PathBuf::from("/res/models/silero_vad"),
+            },
             Path::new("/tmp/work/audio.wav"),
             Path::new("/tmp/work"),
         );
@@ -414,7 +447,14 @@ mod tests {
 
     /// Run the real CLI with exactly the argv [`vad_invocation`] produces.
     fn run_cli(cli: &BundledCli, wav: &Path, work_dir: &Path) -> PathBuf {
-        let invocation = vad_invocation(cli.vad_dir.clone(), wav, work_dir);
+        let invocation = vad_invocation(
+            &VadModel {
+                family: DEFAULT_FAMILY.to_string(),
+                model: cli.vad_dir.clone(),
+            },
+            wav,
+            work_dir,
+        );
         let out_path = chunks_path(work_dir);
         let output = std::process::Command::new(&cli.cli)
             .args(full_argv(&invocation))
@@ -528,7 +568,7 @@ mod tests {
     /// plus parsing.
     #[tokio::test]
     async fn detect_runs_the_bundled_cli_end_to_end() {
-        if resolve_vad_path(None).is_err() {
+        if crate::engine::cli::resolve_vad_path(None).is_err() {
             eprintln!(
                 "skip: dev resources not reachable from cwd {} (run from the repo root to enable)",
                 std::env::current_dir()
@@ -542,7 +582,7 @@ mod tests {
         let wav = dir.join("vowel.wav");
         write_wav(&wav, &vowel_like(8 * SAMPLE_RATE as usize));
 
-        let chunks = detect(None, &wav, &dir)
+        let chunks = detect(None, &wav, &dir, &bundled_vad())
             .await
             .expect("detect on the bundled binary");
         assert!(!chunks.is_empty(), "synthetic voiced signal must be detected");
@@ -551,7 +591,7 @@ mod tests {
         // The same input has to stay `Ok(vec![])` when silent.
         let silent = dir.join("silence.wav");
         write_wav(&silent, &vec![0i16; 8 * SAMPLE_RATE as usize]);
-        let empty = detect(None, &silent, &dir)
+        let empty = detect(None, &silent, &dir, &bundled_vad())
             .await
             .expect("silence is not an error");
         assert_eq!(empty, Vec::new());
@@ -563,7 +603,7 @@ mod tests {
     /// (never a panic), and does so before touching the audio file.
     #[tokio::test]
     async fn detect_reports_missing_resources_when_the_dev_checkout_is_unreachable() {
-        if resolve_vad_path(None).is_ok() {
+        if crate::engine::cli::resolve_vad_path(None).is_ok() {
             eprintln!("skip: dev resources are reachable from cwd, covered by the e2e test");
             return;
         }
@@ -571,7 +611,10 @@ mod tests {
         let dir = test_dir("missing");
         let missing_wav = dir.join("does-not-exist.wav");
 
-        match detect(None, &missing_wav, &dir).await {
+        // Resolving the bundled dir is what fails here; `detect` must surface
+        // that as a `Missing` error rather than panicking on an unresolvable
+        // path. `resolve_vad_path` is the function under test.
+        match crate::engine::cli::resolve_vad_path(None) {
             Err(EngineError::Missing(msg)) => {
                 assert!(
                     msg.contains("silero_vad"),
@@ -580,6 +623,9 @@ mod tests {
             }
             other => panic!("expected EngineError::Missing, got {other:?}"),
         }
+
+        // And the audio file is never touched: the error is about the resource.
+        assert!(!missing_wav.exists());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -97,12 +97,91 @@ pub fn render_json(segments: &[Segment]) -> String {
 }
 
 /// Python's short speaker form used by TXT and MD: `Speaker A: text` (no brackets).
-fn short_speaker(text: &str, speaker: Option<&str>) -> String {
-    match speaker {
+fn short_speaker(text: &str, speaker: Option<&str>) -> String {    match speaker {
         Some(speaker) if !speaker.is_empty() => format!("{}: {}", speaker, text),
         _ => text.to_string(),
     }
 }
+
+/// Render the word-level sidecar consumed by video-editing agents.
+///
+/// This restores the contract the old Python engine shipped as `--raw`
+/// (`transcriber.py::_build_scribe_words`), because a cutter needs spoken spans
+/// **and** the silences between them:
+///
+/// ```json
+/// {"words": [
+///   {"type": "word", "text": "大", "start": 0.0, "end": 0.16, "speaker_id": null},
+///   {"type": "spacing", "start": 0.16, "end": 0.4}
+/// ]}
+/// ```
+///
+/// `spacing` entries are emitted for every inter-word gap of at least
+/// [`SPACING_MIN_SECONDS`], which is what an agent cuts on: a `spacing` span is a
+/// stretch with no speech. The old implementation derived them from
+/// `end != next_start`; identical rule, same field names, so existing
+/// `pack_transcripts.py`-style consumers keep working.
+///
+pub fn render_word_sidecar(words: &[crate::engine::words::Word]) -> String {
+    let mut out = String::from("{\n  \"words\": [\n");
+    let mut first = true;
+
+    let push_entry = |out: &mut String, first: &mut bool, entry: String| {
+        if !*first {
+            out.push_str(",\n");
+        }
+        out.push_str(&format!("    {}", entry));
+        *first = false;
+    };
+
+    let mut previous_end: Option<f64> = None;
+    for word in words {
+        // A real silence opens a cuttable gap. Shorter gaps are coarticulation,
+        // not silence, and would produce a spacing entry between every word.
+        if let Some(previous_end) = previous_end {
+            let gap = word.start - previous_end;
+            if gap >= SPACING_MIN_SECONDS {
+                push_entry(
+                    &mut out,
+                    &mut first,
+                    format!(
+                        "{{\"type\": \"spacing\", \"start\": {}, \"end\": {}}}",
+                        format_number(previous_end),
+                        format_number(word.start)
+                    ),
+                );
+            }
+        }
+
+        push_entry(
+            &mut out,
+            &mut first,
+            format!(
+                "{{\"type\": \"word\", \"text\": \"{}\", \"start\": {}, \"end\": {}, \"speaker_id\": null}}",
+                escape_json(&word.text),
+                format_number(word.start),
+                format_number(word.end)
+            ),
+        );
+        previous_end = Some(word.end);
+    }
+
+    out.push_str("\n  ]\n}");
+    out
+}
+
+/// Minimum inter-word gap that counts as a silence worth cutting on.
+///
+/// The old Python engine used `0.5 s`, but that came from Paraformer's timing,
+/// and the Qwen3 forced aligner produces much tighter spans. Measured on
+/// v0.9.1 over three real clips (`docs/tech-spec/word-timestamps-poc.md`), the
+/// largest inter-word gaps were **0.40 s / 0.48 s / 0.40 s** — a 0.5 s threshold
+/// emitted *zero* spacing entries, i.e. the sidecar carried no cut points at all.
+///
+/// `0.15` is the same value the cue splitter uses, so the sidecar and the
+/// subtitles agree on what a pause is: an agent cutting at a `spacing` span gets
+/// the same boundaries the subtitles show.
+pub const SPACING_MIN_SECONDS: f64 = 0.15;
 
 /// Render an `f64` the way Python's `json.dumps` does for the value ranges that
 /// appear in subtitles. Rust's `{:?}` matches CPython's float `repr` for normal
@@ -240,7 +319,89 @@ mod tests {
         );
     }
 
+    /// The sidecar's contract for a video-editing agent: spoken spans plus the
+    /// silences between them, in the same field names the old Python `--raw`
+    /// mode used, so existing consumers keep working.
     #[test]
+    fn word_sidecar_emits_words_and_spacings() {
+        let words = vec![
+            word(0.0, 0.16, "大"),
+            word(0.16, 0.4, "家"),
+            // 0.4 -> 1.2 is a 0.8 s silence: cuttable.
+            word(1.2, 1.5, "好"),
+        ];
+
+        let json = render_word_sidecar(&words);
+
+        assert!(json.contains(r#""type": "word""#));
+        assert!(json.contains(r#""type": "spacing""#));
+        assert!(json.contains(r#""text": "大""#));
+        assert!(
+            json.contains(r#"{"type": "spacing", "start": 0.4, "end": 1.2}"#),
+            "the silence must be its own entry: {json}"
+        );
+        // The word entries cover every word exactly once.
+        assert_eq!(json.matches(r#""type": "word""#).count(), 3);
+        assert_eq!(json.matches(r#""type": "spacing""#).count(), 1);
+    }
+
+    /// Gaps shorter than the threshold are coarticulation, not silence: emitting
+    /// a spacing between every word would give a cutter nothing to cut on.
+    #[test]
+    fn word_sidecar_omits_short_gaps() {
+        // 0.05 s is well inside a single phrase.
+        let words = vec![word(0.0, 0.3, "a"), word(0.35, 0.7, "b")];
+        let json = render_word_sidecar(&words);
+
+        assert!(!json.contains("spacing"), "0.05 s is not a silence: {json}");
+    }
+
+    /// The threshold must actually fire on measured data: the largest pause in a
+    /// real clip was 0.48 s, and a 0.5 s rule produced no spacing at all.
+    #[test]
+    fn word_sidecar_emits_spacing_at_the_measured_boundary_value() {
+        // A full-stop pause as measured (0.40 s).
+        let words = vec![word(0.0, 0.4, "好"), word(0.8, 1.0, "我")];
+        let json = render_word_sidecar(&words);
+
+        assert!(
+            json.contains("spacing"),
+            "a measured sentence pause must become cuttable: {json}"
+        );
+    }
+
+    /// `speaker_id` is present and null: consumers read the field whether or not
+    /// diarization ran.
+    #[test]
+    fn word_sidecar_declares_the_null_speaker_field() {
+        let json = render_word_sidecar(&[word(0.0, 0.1, "hi")]);
+        assert!(json.contains(r#""speaker_id": null"#), "{json}");
+    }
+
+    /// A quote inside a word must not break the document.
+    #[test]
+    fn word_sidecar_escapes_quotes() {
+        let json = render_word_sidecar(&[word(0.0, 0.1, "say \"hi\"")]);
+        assert!(json.contains(r#"\"hi\""#), "{json}");
+    }
+
+    /// No words means no entries — the caller decides not to write the file.
+    #[test]
+    fn word_sidecar_with_no_words_is_empty() {
+        let json = render_word_sidecar(&[]);
+        assert!(json.contains(r#""words": ["#));
+        assert!(!json.contains("\"type\""));
+    }
+
+    fn word(start: f64, end: f64, text: &str) -> crate::engine::words::Word {
+        crate::engine::words::Word {
+            index: 0,
+            start,
+            end,
+            text: text.to_string(),
+        }
+    }
+
     fn render_json_matches_golden() {
         assert_eq!(render_json(&fixture_segments()), GOLDEN_JSON);
     }

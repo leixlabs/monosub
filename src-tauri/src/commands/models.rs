@@ -959,6 +959,8 @@ mod tests {
             source: None,
             tier: None,
             licenses: Vec::new(),
+            requires: Vec::new(),
+            language_tokens: Vec::new(),
         };
 
         let status = ModelStatus::from_catalog(catalog::ModelStatus {
@@ -1000,6 +1002,8 @@ mod tests {
             source: None,
             tier: None,
             licenses: Vec::new(),
+            requires: Vec::new(),
+            language_tokens: Vec::new(),
         };
 
         let status = ModelStatus::from_catalog(catalog::ModelStatus {

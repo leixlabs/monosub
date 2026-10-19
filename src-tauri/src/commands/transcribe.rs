@@ -132,7 +132,16 @@ struct TaskParams {
     formats: Vec<Format>,
     language: String,
     model_id: String,
+    /// VAD model id from the plan, when the plan named one (design §8.2.3).
+    /// `None` runs the bundled Silero VAD.
+    vad_model_id: Option<String>,
     backend: Backend,
+    /// What the user asked for, independent of what the plan can reach.
+    ///
+    /// Kept separate from `plan.capabilities`: the solver reports an unmet
+    /// requirement as a gap but still returns a usable plan, and the engine must
+    /// only attempt alignment when it was actually *asked* for it.
+    want_word_timestamps: bool,
     /// The plan this run must execute (design §7.2 / M8-4).
     plan: ModelPlan,
     /// Resolved before anything is spawned, so `transcribe_file` never has to
@@ -294,6 +303,16 @@ pub async fn start_transcription(
         .cloned()
         .unwrap_or_else(|| engine::catalog::default_model_id().to_string());
 
+    // A plan may pin a `vad`-role model (design §8.2.3). The solver's templates
+    // never emit a Vad step — Silero always runs inside the sequence pipeline —
+    // so this is either a manual override or an explicit catalogue pick. When it
+    // is absent the bundled Silero VAD stays in charge.
+    let vad_model_id = plan
+        .steps
+        .iter()
+        .find(|step| step.kind == StepKind::Vad && !step.model_id.is_empty())
+        .map(|step| step.model_id.clone());
+
     tracing::info!(
         task_id = %task_id,
         plan = %plan.id,
@@ -354,7 +373,9 @@ pub async fn start_transcription(
         formats,
         language,
         model_id: primary_model_id,
+        vad_model_id,
         backend,
+        want_word_timestamps: requirements.word_timestamps,
         plan,
         translation,
         completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -553,6 +574,10 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
 
     // Steps 2/3: the CLI loads the model inside the ASR session, so "Loading
     // model" is a transition only; the work happens under "Transcribing".
+    //
+    // `words` is only ever non-empty on the aligned path, where cue timing comes
+    // from the words rather than from their chunk window.
+    let mut words: Vec<engine::words::Word> = Vec::new();
     let chunks = {
         let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
         steps.begin(app, &params.task_id, 2);
@@ -562,6 +587,8 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
             language: params.language.clone(),
             model_id: Some(params.model_id.clone()),
             backend: params.backend,
+            vad_model_id: params.vad_model_id.clone(),
+            word_timestamps: params.want_word_timestamps,
         };
         let on_progress = |done: usize, total: usize, message: &str| {
             let percent = if total == 0 {
@@ -587,9 +614,12 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
             .await
             .map_err(engine_failure)?
         } else {
-            let chunks = engine::transcribe(app, &params.task_id, audio.path(), &opts, &on_progress)
-                .await
-                .map_err(engine_failure)?;
+            let transcription =
+                engine::transcribe_words(app, &params.task_id, audio.path(), &opts, &on_progress)
+                    .await
+                    .map_err(engine_failure)?;
+            let chunks = transcription.chunks;
+            words = transcription.words;
 
             // A composed plan needs a diar model + turn attribution (M6).
             if params
@@ -667,7 +697,10 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
     }
 
     // An empty chunk list means "no speech": still write valid empty files.
-    let segments = subtitle::postprocess(&chunks, &PostProcessConfig::default());
+    //
+    // Cue timing comes from `words` when the run aligned them, otherwise from the
+    // chunk windows; `subtitle::postprocess` owns that choice.
+    let segments = subtitle::postprocess(&chunks, &words, &PostProcessConfig::default());
     for (index, format) in params.formats.iter().enumerate() {
         let path = output_path_for(&params.output, index, *format);
         subtitle::write(&segments, &path, *format).map_err(write_failure)?;
@@ -676,6 +709,20 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
             path = %path.display(),
             format = %format.extension(),
             "Subtitle written"
+        );
+    }
+
+    // The word-level sidecar is written from the same words the cues were built
+    // from, so an agent cutting the video sees exactly the timing the subtitles
+    // claim. It is additive like the translated files: a run that produced no
+    // words writes none (see `write_word_sidecar`).
+    if let Err(error) = write_word_sidecar(&params.output, &words) {
+        // Never fatal: the subtitles are already on disk and the sidecar is an
+        // optional artefact for machine consumers.
+        tracing::warn!(
+            task_id = %params.task_id,
+            error = %error,
+            "could not write the word-level sidecar"
         );
     }
 
@@ -1205,6 +1252,51 @@ fn output_path_for(output_path: &Path, index: usize, format: Format) -> PathBuf 
     path
 }
 
+/// `<stem>.words.json` next to the subtitle (word-timestamps §4).
+///
+/// A distinct name from the `json` output format: that one contains cues, this
+/// one contains words and silences. Suffixing `.words` keeps a user who asked for
+/// `json` cues from silently getting a different schema, and keeps both
+/// derivable from `output_path` alone.
+fn word_sidecar_path(output_path: &Path) -> Option<PathBuf> {
+    let stem = output_path.file_stem()?.to_string_lossy().into_owned();
+    Some(match output_path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => {
+            parent.join(format!("{}.words.json", stem))
+        }
+        _ => PathBuf::from(format!("{}.words.json", stem)),
+    })
+}
+
+/// Write the machine-readable word/silence sidecar, when there is anything to
+/// write.
+///
+/// A run with no words writes no file: an empty `{"words": []}` would be
+/// indistinguishable from "the aligner ran and found nothing", and an agent
+/// reading it would conclude the audio is silent.
+fn write_word_sidecar(
+    output_path: &Path,
+    words: &[engine::words::Word],
+) -> Result<(), String> {
+    if words.is_empty() {
+        return Ok(());
+    }
+    let Some(path) = word_sidecar_path(output_path) else {
+        return Err(format!(
+            "cannot derive a word sidecar path from {}",
+            output_path.display()
+        ));
+    };
+    let body = subtitle::writer::render_word_sidecar(words);
+    std::fs::write(&path, body).map_err(|e| format!("write {}: {}", path.display(), e))?;
+    tracing::info!(
+        path = %path.display(),
+        words = words.len(),
+        "word-level sidecar written"
+    );
+    Ok(())
+}
+
 /// `<stem>.<lang>.<ext>` next to the original (translation-design §7).
 ///
 /// The first format keeps the original's exact extension (like
@@ -1266,6 +1358,13 @@ fn derive_output_paths(
         );
     }
 
+    // The word sidecar is written whenever the run aligned, so a cancelled run
+    // must clean it up too — otherwise a stale `.words.json` outlives the
+    // subtitle it describes and an agent reads timing for a file that is gone.
+    if let Some(sidecar) = word_sidecar_path(output_path) {
+        paths.push(sidecar);
+    }
+
     paths
 }
 
@@ -1278,73 +1377,10 @@ fn speed_from_request(value: Option<&str>) -> Speed {
     }
 }
 
-/// Role name accepted in `model_overrides` → the [`StepKind`] it pins.
-fn override_slot_kind(slot: &str) -> Option<StepKind> {
-    match slot.trim().to_lowercase().as_str() {
-        "asr" => Some(StepKind::Asr),
-        "vad" => Some(StepKind::Vad),
-        "align" => Some(StepKind::Align),
-        "diar" => Some(StepKind::Diarize),
-        _ => None,
-    }
-}
-
-/// Apply manual `role -> model_id` overrides to the winning plan only.
-///
-/// Overrides are a user assertion, so an id that is not in the catalogue is
-/// ignored rather than silently turning into a runtime failure. Pinning a diar
-/// model onto a plan that had no `Diarize` step adds one, because that is the
-/// user's explicit intent.
-fn apply_model_overrides(
-    plans: &mut [ModelPlan],
-    overrides: &HashMap<String, String>,
-    catalogue: &[crate::engine::catalog::ModelSpec],
-) {
-    let Some(plan) = plans.first_mut() else {
-        return;
-    };
-
-    for (slot, model_id) in overrides {
-        let Some(kind) = override_slot_kind(slot) else {
-            tracing::warn!(slot = %slot, "ignoring unknown model-override slot");
-            continue;
-        };
-        let Some(spec) = catalogue.iter().find(|spec| &spec.id == model_id) else {
-            tracing::warn!(slot = %slot, model = %model_id, "ignoring override for an unknown model id");
-            continue;
-        };
-
-        let task = match kind {
-            StepKind::Vad => "vad",
-            StepKind::Asr => "asr",
-            StepKind::Align => "align",
-            StepKind::Diarize => "diar",
-            _ => continue,
-        };
-
-        if let Some(step) = plan.steps.iter_mut().find(|step| step.kind == kind) {
-            step.model_id = spec.id.clone();
-            step.task = task.to_string();
-            step.family = spec.family.clone();
-        } else {
-            plan.steps.push(crate::engine::plan::PlanStep {
-                kind,
-                model_id: spec.id.clone(),
-                task: task.to_string(),
-                family: spec.family.clone(),
-            });
-        }
-
-        let mut model_ids: Vec<String> = plan
-            .steps
-            .iter()
-            .filter(|step| !step.model_id.is_empty())
-            .map(|step| step.model_id.clone())
-            .collect();
-        model_ids.dedup();
-        plan.model_ids = model_ids;
-    }
-}
+// Manual overrides live in the solver module (`plan::apply_model_overrides`),
+// because the Settings preview must apply exactly the same pinning the run
+// does. Keeping one copy is what stops the preview and the run from drifting.
+use crate::engine::plan::apply_model_overrides;
 
 /// The frontend does not send `device` today; `auto`/absent means "the engine
 /// picks", which on macOS is Metal (engine retries CPU itself). Other platforms
@@ -1661,6 +1697,7 @@ mod tests {
 
     #[test]
     fn override_slots_map_to_step_kinds() {
+        use crate::engine::plan::override_slot_kind;
         assert_eq!(override_slot_kind("asr"), Some(StepKind::Asr));
         assert_eq!(override_slot_kind("VAD"), Some(StepKind::Vad));
         assert_eq!(override_slot_kind("diar"), Some(StepKind::Diarize));
@@ -1689,6 +1726,8 @@ mod tests {
                 source: None,
                 tier: None,
                 licenses: Vec::new(),
+                requires: Vec::new(),
+                language_tokens: Vec::new(),
             },
         ];
 
@@ -1723,6 +1762,82 @@ mod tests {
         // ...an unknown model id is ignored rather than breaking the run.
         assert_eq!(plan.steps[0].model_id, "sensevoice_small_q8");
         assert!(plan.model_ids.contains(&"sortformer_diar_4spk_q8_0".to_string()));
+    }
+
+    /// Regression: a pin must refresh every derived field, not just `model_ids`.
+    ///
+    /// The Settings preview renders `titleKey` as the plan name, so leaving it
+    /// stale showed "SenseVoice + VAD" above a model list reading
+    /// `qwen3_asr + sortformer` — the label described a plan that was not there.
+    #[test]
+    fn overrides_refresh_the_plan_title_capabilities_and_id() {
+        use crate::engine::catalog::{Capabilities, TimestampGrade, DiarizationGrade};
+
+        let sortformer = crate::engine::catalog::ModelSpec {
+            id: "sortformer_diar_4spk_q8_0".to_string(),
+            family: "sortformer_diar".to_string(),
+            display_name: "Sortformer".to_string(),
+            target_directory: "d".to_string(),
+            model_file: "m.gguf".to_string(),
+            files: Vec::new(),
+            languages: vec!["auto".to_string()],
+            license: "CC-BY-NC-4.0".to_string(),
+            attribution: None,
+            capabilities_raw: Some(Capabilities {
+                timestamps: TimestampGrade::Turns,
+                diarization: DiarizationGrade::Turns,
+                produces_text: false,
+            }),
+            roles: vec![crate::engine::catalog::Role::Diar],
+            engine: crate::engine::catalog::Engine::default(),
+            prompt_template: None,
+            speed: Some(Speed::Balanced),
+            source: None,
+            tier: None,
+            licenses: Vec::new(),
+            requires: Vec::new(),
+            language_tokens: Vec::new(),
+        };
+
+        let mut plans = vec![ModelPlan {
+            id: "asr:sense".to_string(),
+            title_key: "modelPlan.planAsrVad",
+            model_ids: vec!["sensevoice_small_q8".to_string()],
+            steps: vec![crate::engine::plan::PlanStep {
+                kind: StepKind::Asr,
+                model_id: "sensevoice_small_q8".to_string(),
+                task: "asr".to_string(),
+                family: "sense_asr".to_string(),
+            }],
+            passthrough: false,
+            cost: crate::engine::plan::PlanCost {
+                steps: 1,
+                speed: Speed::Fast,
+            },
+            capabilities: Capabilities::default(),
+            gaps: Vec::new(),
+        }];
+
+        let mut overrides = HashMap::new();
+        overrides.insert("diar".to_string(), "sortformer_diar_4spk_q8_0".to_string());
+        apply_model_overrides(&mut plans, &overrides, &[sortformer]);
+
+        let plan = &plans[0];
+        assert_eq!(
+            plan.title_key, "modelPlan.planAsrDiar",
+            "the title must describe the pinned plan, not the solver's old pick"
+        );
+        // Pinning `diar` onto a plain-ASR plan adds the Diarize step plus the
+        // pure-Rust TurnAttribution step the runtime always runs after it, so
+        // the id and capabilities both reflect speaker-labelled output.
+        assert_eq!(plan.id, "asr+diar+turns:sortformer");
+        assert_eq!(
+            plan.capabilities.diarization,
+            DiarizationGrade::TurnsWithText,
+            "TurnAttribution upgrades the pinned turns to turns-with-text, which
+             is what the runtime produces"
+        );
+        assert_eq!(plan.cost.steps, plan.steps.len());
     }
 
     /// Creates a unique scratch directory (the crate has no `tempfile`).
@@ -1840,6 +1955,9 @@ mod tests {
                 PathBuf::from("/media/clip.srt"),
                 PathBuf::from("/media/clip.vtt"),
                 PathBuf::from("/media/clip.txt"),
+                // The word/silence sidecar is always derived: a run that aligned
+                // writes it, and the cancel cleanup must cover it either way.
+                PathBuf::from("/media/clip.words.json"),
             ]
         );
     }
@@ -1933,6 +2051,7 @@ mod tests {
                 PathBuf::from("/media/clip.en.srt"),
                 PathBuf::from("/media/clip.en.vtt"),
                 PathBuf::from("/media/clip.en.txt"),
+                PathBuf::from("/media/clip.words.json"),
             ]
         );
 
@@ -1942,6 +2061,7 @@ mod tests {
             vec![
                 PathBuf::from("/media/clip.srt"),
                 PathBuf::from("/media/clip.zh-Hant.srt"),
+                PathBuf::from("/media/clip.words.json"),
             ]
         );
         assert_eq!(
@@ -1951,6 +2071,9 @@ mod tests {
                 PathBuf::from("a.b.c.md"),
                 PathBuf::from("a.b.c.ja.mp4"),
                 PathBuf::from("a.b.c.ja.md"),
+                // `.file_stem()` drops only the last extension, so the sidecar is
+                // `a.b.c.words.json` rather than `a.words.json`.
+                PathBuf::from("a.b.c.words.json"),
             ]
         );
         assert_eq!(
@@ -1958,6 +2081,7 @@ mod tests {
             vec![
                 PathBuf::from("/custom/out/clip.srt"),
                 PathBuf::from("/custom/out/clip.de.srt"),
+                PathBuf::from("/custom/out/clip.words.json"),
             ]
         );
         // A path with no file name has nowhere to put a translation.
@@ -1967,15 +2091,23 @@ mod tests {
         );
     }
 
-    /// `output_path_for` must not change when translation is on: the flag is not
-    /// even a parameter, which is the point (design §9).
+    /// The translated paths are additive: every original is still derived, at
+    /// the same place, with or without translation (design §9).
     #[test]
     fn originals_are_never_affected_by_translation() {
         let formats = vec![Format::Srt, Format::Vtt];
         let without = derive_output_paths(Path::new("/media/clip.srt"), &formats, None);
         let with = derive_output_paths(Path::new("/media/clip.srt"), &formats, Some("en"));
 
-        assert_eq!(with[..without.len()], without[..]);
+        // Compare the `--format`-derived paths by identity rather than by
+        // position: `without` also carries the word sidecar, which is not
+        // per-format and must not be mistaken for one.
+        for format_path in ["/media/clip.srt", "/media/clip.vtt"] {
+            let path = PathBuf::from(format_path);
+            assert!(without.contains(&path), "{path:?} missing without translation");
+            assert!(with.contains(&path), "{path:?} missing with translation");
+        }
+        assert!(with.contains(&PathBuf::from("/media/clip.en.srt")));
         assert!(with.len() > without.len(), "translated paths are additive");
     }
 
@@ -2005,6 +2137,61 @@ mod tests {
             assert!(!path.exists(), "{} must be removed", path.display());
         }
         assert!(old.is_file(), "a pre-existing file must survive the cleanup");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The word sidecar is derived, written and cleaned up like any other output.
+    ///
+    /// A stale `.words.json` outliving its subtitle is the failure this guards:
+    /// an agent would read timing for a clip whose subtitles a cancel deleted.
+    #[test]
+    fn word_sidecar_path_is_derived_and_cleaned_up_with_the_run() {
+        let dir = scratch_dir("word-sidecar");
+        let output = dir.join("clip.srt");
+
+        assert_eq!(
+            word_sidecar_path(&output),
+            Some(dir.join("clip.words.json")),
+            "the sidecar sits beside the subtitle"
+        );
+        assert!(
+            derive_output_paths(&output, &[Format::Srt], None).contains(&dir.join("clip.words.json")),
+            "a cancelled run must sweep it"
+        );
+
+        // Writing then cancelling removes it.
+        let words = vec![crate::engine::words::Word {
+            index: 0,
+            start: 0.0,
+            end: 0.16,
+            text: "大".to_string(),
+        }];
+        write_word_sidecar(&output, &words).expect("sidecar writes");
+        assert!(dir.join("clip.words.json").is_file());
+
+        let started = SystemTime::now();
+        touch(&dir.join("clip.words.json"), 1);
+        remove_partial_outputs(&derive_output_paths(&output, &[Format::Srt], None), started);
+        assert!(
+            !dir.join("clip.words.json").exists(),
+            "a cancelled run must not leave a word sidecar behind"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// No words means no file: an empty `{"words": []}` reads as "silent audio".
+    #[test]
+    fn word_sidecar_is_not_written_when_there_are_no_words() {
+        let dir = scratch_dir("word-sidecar-empty");
+        let output = dir.join("clip.srt");
+
+        write_word_sidecar(&output, &[]).expect("absence is not an error");
+        assert!(
+            !dir.join("clip.words.json").exists(),
+            "an empty sidecar must not be written"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2136,7 +2323,7 @@ mod tests {
             Format::Json,
         ];
 
-        let segments = subtitle::postprocess(&[], &PostProcessConfig::default());
+        let segments = subtitle::postprocess(&[], &[], &PostProcessConfig::default());
         assert!(segments.is_empty());
 
         for (index, format) in formats.iter().enumerate() {

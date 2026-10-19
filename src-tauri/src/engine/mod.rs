@@ -5,6 +5,7 @@
 //! Pinned baseline — the exports below are the frozen interface between the
 //! `engine` module (P1-5..P1-9) and `commands/transcribe.rs` (P1-15).
 
+pub mod aligned;
 pub mod catalog;
 pub mod cli;
 pub mod diar;
@@ -12,6 +13,7 @@ pub mod direct;
 pub mod plan;
 pub mod vad;
 pub mod wav;
+pub mod words;
 
 use std::path::PathBuf;
 
@@ -33,6 +35,25 @@ pub struct RawChunk {
     pub language: Option<String>,
 }
 
+/// Result of one file's recognition stage.
+///
+/// `words` is empty unless word-aligned inference ran; when it is non-empty the
+/// subtitle stage derives cue boundaries from it instead of estimating them.
+#[derive(Debug, Clone, Default)]
+pub struct Transcription {
+    pub chunks: Vec<RawChunk>,
+    pub words: Vec<words::Word>,
+}
+
+impl Transcription {
+    fn from_chunks(chunks: Vec<RawChunk>) -> Self {
+        Self {
+            chunks,
+            words: Vec::new(),
+        }
+    }
+}
+
 /// Options for one file's transcription run.
 #[derive(Debug, Clone)]
 pub struct TranscribeOpts {
@@ -42,6 +63,19 @@ pub struct TranscribeOpts {
     pub model_id: Option<String>,
     /// Requested backend; `auto` resolves to metal on macOS with a cpu retry.
     pub backend: Backend,
+    /// VAD model id from `models.json`; `None` uses the bundled Silero VAD.
+    ///
+    /// A `vad`-role catalogue entry selects a downloadable VAD instead. The
+    /// bundled Silero is a `.safetensors` directory rather than a GGUF, so it
+    /// is not a catalogue entry — it stays the default and the fallback.
+    pub vad_model_id: Option<String>,
+    /// Ask for word-level timestamps.
+    ///
+    /// Only honoured when the selected model declares the capability *and* its
+    /// `requires` aligner is installed ([`aligned::can_align`]); otherwise the
+    /// run proceeds with estimated timing and the solver has already reported the
+    /// reason as a gap.
+    pub word_timestamps: bool,
 }
 
 impl Default for TranscribeOpts {
@@ -50,8 +84,56 @@ impl Default for TranscribeOpts {
             language: "auto".to_string(),
             model_id: None,
             backend: Backend::Metal,
+            vad_model_id: None,
+            word_timestamps: false,
         }
     }
+}
+
+/// Resolve which VAD to run: the catalogue model when one is pinned, otherwise
+/// the bundled Silero directory.
+///
+/// An unknown or file-less id falls back to Silero rather than failing the run:
+/// segmentation is not the user-visible goal, and a broken download should not
+/// make transcription impossible. The fallback is logged so it is diagnosable.
+fn resolve_vad_model(
+    app: &tauri::AppHandle,
+    vad_model_id: Option<&str>,
+) -> Result<vad::VadModel, EngineError> {
+    let requested = vad_model_id.map(str::trim).filter(|id| !id.is_empty());
+
+    if let Some(id) = requested {
+        let specs = catalog::catalog(Some(app))?;
+        match specs.iter().find(|spec| spec.id == id) {
+            Some(spec) if spec.has_role(catalog::Role::Vad) => {
+                match catalog::model_path(app, id) {
+                    Ok(Some(path)) => {
+                        return Ok(vad::VadModel {
+                            family: spec.family.clone(),
+                            model: path,
+                        })
+                    }
+                    _ => tracing::warn!(
+                        vad = %id,
+                        "selected VAD model is not installed; falling back to the bundled Silero VAD"
+                    ),
+                }
+            }
+            Some(_) => tracing::warn!(
+                vad = %id,
+                "selected model has no 'vad' role; falling back to the bundled Silero VAD"
+            ),
+            None => tracing::warn!(
+                vad = %id,
+                "selected VAD model is not in the catalogue; falling back to the bundled Silero VAD"
+            ),
+        }
+    }
+
+    Ok(vad::VadModel {
+        family: vad::DEFAULT_FAMILY.to_string(),
+        model: crate::engine::cli::resolve_vad_path(Some(app))?,
+    })
 }
 
 /// Progress callback payload: `(done, total, message)`.
@@ -86,34 +168,107 @@ const MAX_CHUNKS_PER_BATCH: usize = 200;
 /// Task: P1-9. Cancellation is handled by the caller aborting the owning tokio
 /// task: `cli::spawn` marks the child `kill_on_drop`, so aborting drops the
 /// future and kills the child process.
-pub async fn transcribe(
+/// Recognise `wav_path`, returning the chunks **and** the word spans when the
+/// selected model can produce them.
+///
+/// Word timing takes a different route by design (see [`aligned`]): one unsplit
+/// CLI call that chunks internally, instead of the VAD → slice → `requests.json`
+/// → sequence pipeline. Both end up as [`RawChunk`]s, so nothing downstream
+/// except `subtitle::postprocess` has to know which ran.
+///
+/// The fallback is deliberate: when alignment is requested but the aligner is
+/// missing or the model cannot align, the run continues with estimated timing
+/// rather than failing. Recognition is the goal; word timing is an improvement.
+pub async fn transcribe_words(
     app: &tauri::AppHandle,
     task_id: &str,
     wav_path: &std::path::Path,
     opts: &TranscribeOpts,
     on_progress: &ProgressFn<'_>,
-) -> Result<Vec<RawChunk>, EngineError> {
-    let work_dir = TempWorkDir::create(task_id)?;
-    let dir = work_dir.path();
-
+) -> Result<Transcription, EngineError> {
     // Resolve what to run: `--model` is the GGUF file for ASR, the VAD
     // directory is passed through `--session-option`.
     let model_id = opts
         .model_id
         .clone()
         .unwrap_or_else(|| catalog::default_model_id().to_string());
-    let model_file = catalog::model_path(app, &model_id)?.ok_or_else(|| {
-        EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
-    })?;
     let specs = catalog::catalog(Some(app))?;
     let spec = specs.iter().find(|m| m.id == model_id).ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
     })?;
     let language = catalog::map_language(spec, &opts.language);
 
+    if opts.word_timestamps {
+        if aligned::can_align(app, spec) {
+            match aligned::transcribe_aligned(
+                app,
+                task_id,
+                wav_path,
+                spec,
+                &language,
+                opts.backend,
+                on_progress,
+            )
+            .await
+            {
+                Ok(aligned) => {
+                    tracing::info!(
+                        task_id = %task_id,
+                        words = aligned.words.len(),
+                        "word-aligned transcription complete"
+                    );
+                    let chunks = aligned::group_into_chunks(&aligned.words, &aligned.text);
+                    return Ok(Transcription {
+                        chunks,
+                        words: aligned.words,
+                    });
+                }
+                // An empty-word result is not a failure (silence, or a language
+                // the aligner cannot tokenise) — fall through to the estimate
+                // path so the subtitle still gets written.
+                Err(error) => tracing::warn!(
+                    task_id = %task_id,
+                    error = %error,
+                    "word-aligned transcription failed; retrying with estimated timing"
+                ),
+            }
+        } else {
+            tracing::warn!(
+                task_id = %task_id,
+                model = %model_id,
+                "word timestamps requested but the model cannot align; estimating timing"
+            );
+        }
+    }
+
+    let chunks = transcribe_estimated(app, task_id, wav_path, spec, &language, opts, on_progress)
+        .await?;
+    Ok(Transcription::from_chunks(chunks))
+}
+
+/// The VAD → slice → `requests.json` → sequence pipeline, with timing estimated
+/// per chunk by `subtitle::postprocess`.
+async fn transcribe_estimated(
+    app: &tauri::AppHandle,
+    task_id: &str,
+    wav_path: &std::path::Path,
+    spec: &catalog::ModelSpec,
+    language: &str,
+    opts: &TranscribeOpts,
+    on_progress: &ProgressFn<'_>,
+) -> Result<Vec<RawChunk>, EngineError> {
+    let work_dir = TempWorkDir::create(task_id)?;
+    let dir = work_dir.path();
+
+    let model_file = catalog::model_path(app, &spec.id)?.ok_or_else(|| {
+        EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", spec.id))
+    })?;
+
     // Step 2: VAD. Cheap (no model load) and decides everything downstream.
     on_progress(0, 0, "Detecting speech");
-    let chunks = vad::detect(Some(app), wav_path, dir).await?;
+    let vad_model = resolve_vad_model(app, opts.vad_model_id.as_deref())?;
+    tracing::info!(task_id = %task_id, family = %vad_model.family, "VAD stage starting");
+    let chunks = vad::detect(Some(app), wav_path, dir, &vad_model).await?;
 
     // All-silent input: exit code 0 with zero chunks (PoC §4.3). Not an error —
     // the caller writes an empty subtitle.
@@ -514,7 +669,7 @@ fn is_backend_failure(err: &EngineError) -> bool {
 }
 
 /// Physical cores, used for `--threads`.
-fn thread_count() -> usize {
+pub(crate) fn thread_count() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)

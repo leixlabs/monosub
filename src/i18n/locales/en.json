@@ -164,7 +164,7 @@
   },
   "modelPlan": {
     "title": "Recognition plan",
-    "wordTimestamps": "Word-level timestamps (not available yet)",
+    "wordTimestamps": "Word-level timestamps",
     "diarization": "Speaker separation (default)",
     "speed": "Speed preference",
     "speedFast": "Fast",
@@ -179,6 +179,7 @@
     "slotVad": "Segment (VAD)",
     "slotDiar": "Speakers (diarization)",
     "slotAuto": "Auto",
+    "slotVadAuto": "Bundled Silero VAD (default)",
     "slotNone": "(none)",
     "gapTitle": "No model plan can satisfy the current requirements",
     "gapSuggest": "Suggested download: {{model}} ({{size}})",
@@ -190,7 +191,7 @@
     "reasonPassthrough": "Passthrough needs fewer steps",
     "reasonWords": "The only option with word-level timestamps",
     "diarizationDefaultHint": "Default for newly added files; each file can override it",
-    "wordTimestampsHint": "No supported model can produce word timing; the plan reports it as a gap.",
+    "wordTimestampsHint": "Derive subtitle timing from word timings instead of estimating it per chunk, and write a <name>.words.json sidecar with silences for automatic video editing. Needs the Qwen3 Forced Aligner model.",
     "slotVadHint": "Splits the audio into speech segments before transcription. Silero VAD ships with the app, so this is rarely changed.",
     "slotAsrHint": "Turns each speech segment into text. This is the model that decides recognition accuracy and language support.",
     "slotDiarHint": "Detects who spoke when, so cues can be labelled Speaker A/B. Needs a diarization model; without it the transcript has no speaker labels."

@@ -114,6 +114,8 @@ monosub/
 │   │   │   ├── catalog.rs       # models.json, install checks, language mapping
 │   │   │   ├── plan.rs          # Requirement → ModelPlan solver (pure, unit-tested)
 │   │   │   ├── direct.rs        # Passthrough path: one unsplit call, parses turns/segments
+│   │   │   ├── aligned.rs       # Word-timestamps path: one call + --words-out
+│   │   │   ├── words.rs         # words.json parsing (samples → seconds)
 │   │   │   ├── vad.rs           # silero_vad invocation + chunk parsing
 │   │   │   └── wav.rs           # 16k mono s16le read + sample slicing
 │   │   ├── translate/           # llama.cpp integration (SPAWNED, never linked)
@@ -338,6 +340,61 @@ Rules that follow from this:
   independently of the recognition plan — there is no `StepKind` for translation.
   For such an entry `family` is only a prompt-template hint and never reaches audio.cpp.
 
+### Word-level timestamps (opt-in, second timing source)
+
+Two timing sources exist and they must not be mixed:
+
+| Model | Timing | How cues get their times |
+|---|---|---|
+| `sense_asr`, `fun_asr_nano`, MOSS passthrough | none / segment | **estimated**: the VAD chunk window is shared out in proportion to character count (`postprocess::distribute_times`). The chunk boundary is the only real anchor. |
+| `qwen3_asr` + its forced aligner | word | **measured**: a cue starts at its first word and ends at its last (`postprocess::group_words_into_cues`). No estimation at all. |
+
+`qwen3_asr` runs a **different pipeline** when word timing is asked for
+(`engine/aligned.rs`): one unsplit CLI call instead of VAD → slice →
+`requests.json` → sequence, because the model chunks internally and shifts word
+spans back onto the original timeline itself.
+
+Four flags are load-bearing; `docs/tech-spec/word-timestamps-poc.md` records the
+measurements:
+
+- `--words-out` — the word stream itself.
+- `--request-option preserve_punctuation=true` — **without it** a multi-chunk run
+  loses all punctuation and space-joins CJK (`大 家 好 我 是 婷 婷 …`).
+- `--session-option qwen3_asr.forced_aligner_path=…` — the aligner is a session
+  option, **not** a planned step. audio.cpp's `align` task aligns an *existing*
+  transcript, and MonoSub never has one, so `StepKind::Align` stays unused.
+- `--session-option qwen3_asr.vad_path=…` — `audio_chunk_mode=auto` switches to
+  VAD chunking when timestamps are requested, and its default path is relative.
+
+Two numbers were tuned on measured data and are **not** the old Python values:
+
+```rust
+// subtitle/mod.rs — a cue splits on a pause longer than this
+PostProcessConfig::word_gap_threshold = 0.15;  // measured: real boundaries 0.40/0.16/0.16, in-phrase 0.08/0.0
+// subtitle/writer.rs — a silence worth cutting on in the sidecar
+writer::SPACING_MIN_SECONDS = 0.15;            // 0.5 emitted zero spacings on every measured clip
+```
+
+`word_gap_threshold` is **separate from `gap_threshold`** on purpose:
+`gap_threshold = 0.5` is a *merge* threshold for chunk windows, and reusing it for
+word pauses collapsed a 10 s clip into one cue.
+
+The capability claim is conditional, and the catalogue says so: `qwen3_asr`
+declares `requires: ["qwen3_forced_aligner_0_6b_q8_0"]`, and `plan::gaps` turns an
+uninstalled requirement into a downloadable gap. Its `language_tokens` map
+`zh → Chinese` etc., because the aligner picks CJK tokenisation from that same
+string.
+
+Degradation is always to estimated timing, never to failure: a missing aligner, a
+model that cannot align, an empty `words.json`, or an alignment error all log a
+warning and continue. **A missing `words.json` is success, not an error** —
+measured: an unalignable input exits 0 and writes only `text_out`.
+
+Output is additive: `<stem>.srt|vtt|txt|md` plus `<stem>.words.json`, a
+Scribe-compatible word/silence document (same field names as the old Python
+`--raw` mode) that an agent can cut video on. A run with no words writes no
+sidecar. Word timing **combined with speaker separation** is not implemented.
+
 ### Why segmentation is a separate stage from ASR
 
 `sense_asr` (SenseVoice) has **no word/segment timestamps**; it emits one flat text
@@ -490,6 +547,8 @@ line-parsing subprocess.
 | `src-tauri/src/engine/mod.rs` | The transcription pipeline (dispatches on the plan) |
 | `src-tauri/src/engine/plan.rs` | Requirement → ModelPlan solver |
 | `src-tauri/src/engine/direct.rs` | Passthrough (one-shot) inference path |
+| `src-tauri/src/engine/aligned.rs` | Word-timestamp path: one `qwen3_asr` call with `--words-out` |
+| `src-tauri/src/engine/words.rs` | `words.json` parsing, sample→seconds, script-aware joining |
 | `src-tauri/src/engine/cli.rs` | Binary resolution + process management |
 | `src-tauri/src/engine/catalog.rs` | `models.json`, install checks, language mapping |
 | `src-tauri/src/commands/transcribe.rs` | Task registry, events, cancellation, translation stage |
