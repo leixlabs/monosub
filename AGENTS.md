@@ -161,7 +161,7 @@ monosub/
 │   │   │   ├── video.rs         # FFmpeg/FFprobe paths, metadata, thumbnails
 │   │   │   ├── license.rs       # Polar licensing + is_pro_licensed
 │   │   │   ├── update.rs        # GitHub release check
-│   │   │   └── tray.rs
+│   │   │   └── tray.rs          # Menu-bar item: renders labels + progress rows
 │   │   └── logging.rs
 │   ├── resources/
 │   │   ├── models.json          # Model catalogue (v2: capabilities/roles/tier/engine)
@@ -732,7 +732,8 @@ supported video, shows a dismissible pill with one import button.
 | `open_models_dir` | Reveal the models folder |
 | `activate_license` / `validate_license` / `deactivate_license` | Polar licensing |
 | `check_github_release_update` | Update check |
-| `update_tray_menu` | Localise tray labels |
+| `update_tray_menu` | Localise the tray's Show / Hide / Quit labels (progress rows are preserved) |
+| `update_tray_progress` | `progress: {title?, rows[]}`; the menu-bar text + the greyed progress rows a left click shows |
 | `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
 | `parse_url_input` | `text → Vec<ParsedUrl>`: split, normalise, de-dupe, whitelist (pure Rust) |
 | `start_url_import` | `request: UrlImportRequest`; registers the job and returns immediately |
@@ -854,6 +855,9 @@ line-parsing subprocess.
 | `scripts/build/fetch-ytdlp.sh` | Pinned yt-dlp download (+ its LICENSE / THIRD_PARTY_LICENSES.txt) |
 | `src-tauri/src/site/clipboard.rs` | `classify`: clipboard text → one `ClipboardHit`, or nothing (pure) |
 | `src/lib/clipboardWatch.ts` | Clipboard polling hook: focus-aware cadence, per-text dismissal |
+| `src/lib/tray.ts` | Menu-bar mirror: `buildStatusRows` / `buildTitle` from `files`, coalesced pushes |
+| `src-tauri/src/commands/tray.rs` | Menu-bar state + `layout`: status rows, separator, localised actions |
+| `src-tauri/src/tray.rs` | Builds the icon; `show_menu_on_left_click(true)` |
 | `src/components/ClipboardPrompt.tsx` | The one-click import pill |
 | `docs/tech-spec/url-import-design.md` | URL import design (flow, language rules, IPC, packaging) |
 | `docs/tech-spec/url-import-tasks.md` | URL import task list (U0–U5) |
@@ -1047,6 +1051,39 @@ URL cannot escape it). It acts on the import stage alone — once a `Queued` out
 emitted the job is finished and cancelling means `cancel_transcription` or removing the queue
 row — and it deliberately keeps an already downloaded audio file so re-importing the same URL
 reuses it: only the partial extensions are removed, never the finished media.
+
+### The menu-bar item shows transcription progress
+
+A **left click on the menu-bar icon opens the menu**, and the menu leads with what the app
+is doing: up to three greyed progress rows (`<file> — <step> (<n>/<total>)`, then
+`<n> more queued`), a separator, then Show / Hide / Quit. While a run is in flight the
+tray title next to the icon carries the percentage (`42%`); when idle there is **no
+title at all**, because a permanent `0%` is noise in the menu bar. Right click shows the
+same menu (platform default), so progress is always one click away on either button.
+
+Left click used to **toggle the window**; it must not, because the question a left click
+asks is "how is it going?", and answering by hiding an already-visible window is the
+wrong answer.
+
+Two pieces, split by what each side knows:
+
+- **The wording** is the frontend's (`src/lib/tray.ts`), because it is the only side that
+  knows the active locale. It builds the rows from the same `steps.*` keys the window
+  uses and pushes `{ title?, rows[] }` through `update_tray_progress`.
+- **The layout** is Rust (`commands/tray.rs`) and is a pure `layout` function over one
+  snapshot: status rows first, a separator *only when there is something above it*, then
+  the three actions in a fixed order (`quit` stays the bottom row). At most
+  `MAX_STATUS_ROWS` rows, blank rows dropped, rows truncated to `MAX_ROW_CHARS`
+  **characters** so a Chinese file name cannot panic or stretch the menu.
+
+`update_tray_menu` (labels) and `update_tray_progress` (rows + title) write into **one**
+`TrayState` and every write re-renders the whole menu from it. Without that, a language
+change mid-run would erase the progress rows and a progress push would revert the labels
+to English. `src/lib/tray.ts::startTraySync` subscribes to the **store's `files`**, not to
+`transcribe_*` events: URL imports and "start all" change the queue without any
+transcription event, and the tray's question is "what is the app doing". Pushes are
+de-duplicated and coalesced to one `invoke` per 250 ms, because re-rendering the menu runs
+on the main thread and events arrive much faster than that.
 
 ### Stale Closure Prevention
 

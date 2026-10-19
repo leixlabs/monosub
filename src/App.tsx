@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
 import { listen } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { resolveResource } from '@tauri-apps/api/path';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +20,7 @@ import { UrlImportDialog } from './components/UrlImportDialog';
 import { ClipboardPrompt } from './components/ClipboardPrompt';
 import { ensureUrlImportListeners } from './lib/urlImport';
 import { useClipboardVideo } from './lib/clipboardWatch';
+import { pushTrayLabels, startTraySync } from './lib/tray';
 
 interface StepInfoPayload {
   current_step: number;
@@ -97,21 +97,20 @@ function App() {
   // (url-import-design §5.9).
   useEffect(() => ensureUrlImportListeners(), []);
 
-  // Sync tray menu labels with current language
+  // Sync tray menu labels with current language. The progress rows are pushed by
+  // `startTraySync` below and are kept by the Rust side, so a language change
+  // never clears them (`commands/tray.rs`).
   useEffect(() => {
-    const syncTray = () => {
-      void invoke('update_tray_menu', {
-        show: t('tray.show'),
-        hide: t('tray.hide'),
-        quit: t('tray.quit'),
-      });
-    };
-    syncTray();
-    i18n.on('languageChanged', syncTray);
+    void pushTrayLabels();
+    const onLanguageChanged = () => void pushTrayLabels();
+    i18n.on('languageChanged', onLanguageChanged);
     return () => {
-      i18n.off('languageChanged', syncTray);
+      i18n.off('languageChanged', onLanguageChanged);
     };
   }, [t]);
+
+  // Mirror the queue into the menu-bar item, which is what a left click shows.
+  useEffect(() => startTraySync(), []);
 
   useEffect(() => {
     // Listen to transcription progress events

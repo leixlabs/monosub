@@ -80,6 +80,7 @@ fn main() {
             get_models_dir,
             set_models_dir,
             update_tray_menu,
+            update_tray_progress,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

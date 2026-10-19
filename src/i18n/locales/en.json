@@ -159,7 +159,10 @@
   "tray": {
     "show": "Show Window",
     "hide": "Hide Window",
-    "quit": "Quit"
+    "quit": "Quit",
+    "statusRow": "{{name}} — {{step}} ({{current}}/{{total}})",
+    "queueRow": "{{count}} more queued",
+    "startingRow": "{{name}} — starting…"
   },
   "language": {
     "auto": "Auto Detect",

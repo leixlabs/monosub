@@ -121,7 +121,10 @@
   "tray": {
     "show": "显示主窗口",
     "hide": "隐藏窗口",
-    "quit": "退出"
+    "quit": "退出",
+    "statusRow": "{{name}} — {{step}}（{{current}}/{{total}}）",
+    "queueRow": "队列中还有 {{count}} 个",
+    "startingRow": "{{name}} — 启动中…"
   },
   "language": {
     "auto": "自动检测",
