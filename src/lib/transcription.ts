@@ -149,7 +149,8 @@ export const startTranscriptionTask = async (taskId: string) => {
         enable_diarization: file.diarization,
         // Model-plan requirements (design §9.1); all optional server-side.
         require_word_timestamps: state.settings.requireWordTimestamps,
-        speed_preference: state.settings.speedPreference,
+        language_profile: state.settings.languageProfile,
+        memory_budget: state.settings.memoryBudget,
         model_overrides: state.modelOverrides,
         // Translation (translation-design §7). All optional server-side: an
         // empty `translation_model` means "use the catalogue default", and a

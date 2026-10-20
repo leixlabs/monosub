@@ -10,6 +10,42 @@
 
 ---
 
+## 0. 修订：四个问题（现行实现）
+
+§3.1 最初把 `prefer: SpeedPreference` 当作一个独立需求。实现后改为**四个问题**，用户
+回答完这四个，方案就完全确定：
+
+| # | 设置 | 取值 | 决定什么 |
+|---|---|---|---|
+| 1 | `language_profile` 语种场景 | `mandarin` / `mixed` / `multilingual` | §5.4 的 family 偏置表。`mixed`/`multilingual` 把表重排向能跟随句中语言切换的模型，于是「一次会话一个语言 token」的 `sense_asr` 不再是中文首选。 |
+| 2 | `diarization` 说话人分离 | bool | 是否枚举 `Passthrough` 或 `Asr+Diarize+TurnAttribution` 模板 |
+| 3 | `word_timestamps` 词级时间戳 | bool | `word_shortfall_rank`：**排序项，不是过滤器**，所以目录里没有词级模型时仍然能选出一个并报缺口 |
+| 4 | `memory` 显存占用 | `small` / `medium` / `large` | `footprint(spec)`（权重文件字节数）→ `over_budget_rank` + 评分项 `memory_match` |
+
+**速度偏好被删除了。** 在这个目录里，权重体积同时决定显存和吞吐（SenseVoice Q8 254 MB
+且最快；1.0–1.2 GB 的模型才是慢的），所以「快」和「小」是同一个问题，分开问只会多问一次。
+前端 store 的 v6 迁移把 v5 的 `fast`/`balanced`/`accurate` 映射成 `small`/`medium`/
+`large`，而不是把它丢掉。
+
+两条实现约束：
+
+- **显存预算是排序项，永远不是硬过滤。** `footprint` 按下载字节分类（< 512 MB 小、
+  < 1.5 GB 中、否则大），**不看量化文件名**——一个仍然 1.5 GB 的 q4 文件照样要占
+  1.5 GB。没有任何候选符合预算时仍然选最接近的那个，且**不报缺口**：体积超标是成本，
+  不是缺失的能力。`MEMORY_OVERSHOOT_PENALTY`（150）大于
+  `RECOMMENDED_TIER_BONUS + TONGYI_SOURCE_BONUS`（共 160），这就是让「小」真正能压过
+  一个 `tier: recommended` 的 1 GB 通义模型的原因。
+- **语种场景也是排序项。** 目录里没有声明「哪些模型真的能句中切换语言」，硬造这个字段
+  等于让 App 声称一个它无法验证的事实；因此 `language_profile` 只重排
+  `bias_families`，不参与硬过滤。
+- **能力优先于成本。** `best_model_for_role` 的排序键顺序是：词级时间戳可达性 →
+  语种场景偏置 → 显存拟合 → 总分。**能力永远压过预算**：`中英混合` + 显存小 仍然会选
+  1 GB 的多语种模型，因为便宜的那个会漏掉半句话。把预算排在前面是实测出来的 bug
+  （中英混合音频被派了 254 MB 的 `sense_asr`）；app 会在方案预览里报告实际占用的显存
+  档位，超标是可见的，不是静默的。
+
+---
+
 ## 1. 目标与非目标
 
 ### 1.1 目标
@@ -123,9 +159,12 @@ pub struct Requirements {
     pub allow_passthrough: bool,
     /// 应用语言（`zh` / `zh-tw` / `en` / …）。
     pub language: String,
-    /// 速度偏好：影响同能力模型之间的排序。
-    pub prefer: SpeedPreference,   // Fast | Balanced | Accurate
-    /// 设备后端（metal / cpu）；影响内存上限与推荐量化。
+    /// 语种场景（§0）：决定 §5.4 偏置表，并决定 `passthrough_beats_asr` 的第 3 个条件。
+    pub language_profile: LanguageProfile,   // Mandarin | Mixed | Multilingual
+    /// 显存占用（§0）：取代原来的 `prefer: SpeedPreference`。
+    pub memory: MemoryBudget,                // Small | Medium | Large
+    /// 设备后端（metal / cpu）。今日的 `footprint` 分类与后端无关，保留字段是为了
+    /// 让请求里的 device 选择有唯一读取点。
     pub backend: Backend,
 }
 ```
@@ -308,18 +347,25 @@ Requirements  ──►  Solver  ──►  Vec<ModelPlan>（按成本排序）
 ```
 score =  100 * (tier == "recommended" ? 1 : 0)
        +  60 * (source == "tongyi" ? 1 : 0)        // 阿里系优先
-       +  40 * speed_match(speed, prefer)          // fast↔Fast …
+       +  memory_match(spec, memory)                // 见下，取代 speed_match
        +  30 * (installed ? 1 : 0)                 // 已装优先
-       +  20 * (passthrough && allow_passthrough)  // 用户允许直出
+       +  20 * passthrough                         // 直出加分
        -  50 * (step_count - 1)                    // 步骤越少越好
-       -  30 * memory_risk(model, backend)         // BF16 在 metal 上可能爆内存
 ```
 
-`prefer` 为 `Accurate` 时 `speed` 项取反（越慢越高分）。
+`memory_match` 只在候选**没有超出**显存预算时给 +40（类一致），比预算小一档时给 +20；
+超出时按 `over_budget_rank` 每档扣 `MEMORY_OVERSHOOT_PENALTY = 150`。150 是刻意大于
+`100 + 60` 的：否则 `tier: recommended` 的 1 GB 通义模型会压过 254 MB 的 SenseVoice，
+「显存小」就成了摆设。
 
 ### 5.4 语言驱动的模型选择（用户明确要求）
 
-`OutputLanguage` → 推荐 family 的偏置表（**偏置**，不覆盖 `capabilities` 硬过滤）：
+`bias_families(language, language_profile)`。`Mandarin` 走下面这张按语言的表；
+`Mixed`（中英混合）与 `Multilingual`（多语种）把表换成
+`qwen3_asr → moss_transcribe_diarize`——只有这两家能跟随句中语言切换，`sense_asr` /
+`fun_asr_nano` 是「一次会话一个语言 token」的中文家族。
+
+**偏置，不覆盖 `capabilities` 硬过滤**：
 
 | 语言 | 首选 ASR | 备注 |
 |------|----------|------|
@@ -652,11 +698,13 @@ export interface AppSettings {
   skipExistingSubtitle: boolean
   showCompletedNotification: boolean
 
-  // 新增：识别方案需求
+  // 新增：识别方案需求（现行是 §0 的四个问题）
   requireWordTimestamps: boolean      // false
-  passthroughMode: 'auto' | 'only' | 'never'   // 'auto'
-  speedPreference: 'fast' | 'balanced' | 'accurate'   // 'balanced'
+  languageProfile: 'mandarin' | 'mixed' | 'multilingual'  // 'mandarin'
+  memoryBudget: 'small' | 'medium' | 'large'              // 'medium'
 }
+// `passthroughMode` 与 `speedPreference` 都没有实现：前者由求解器按能力自动决定（§6.2
+// 的三态没有进 UI），后者在 v6 被 `memoryBudget` 取代并做了值迁移。
 ```
 
 ### 10.2 手动覆盖
@@ -690,8 +738,13 @@ migrate: (persisted, version) => {
 }
 ```
 
+实际落地是 v3 加需求字段、v4 加翻译、v5 加 URL 导入，这三步**只加字段**。v6 是唯一
+一次替换字段：`speedPreference` 被 `languageProfile` + `memoryBudget` 取代，迁移把
+`fast → small`、`accurate → large`、其余 `→ medium` 映射过去，而不是直接丢掉（否则
+用户表达过的偏好会被静默重置）。
+
 **注意**：v1→v2 的迁移里**丢弃**了 `enableNoiseReduction` 等 4 个字段（它们从没到过
-引擎）。v2→v3 **不要再丢任何东西**，只加默认值。
+引擎）。v3 以后**不要再丢任何东西**，只加默认值（v6 的替换也保留了语义）。
 
 ---
 

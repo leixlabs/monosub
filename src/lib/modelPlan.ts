@@ -6,7 +6,10 @@ import { invoke } from '@tauri-apps/api/core';
  *
  * The Rust side returns camelCase DTOs, so the types below mirror them directly.
  * Every request field is optional; the Rust defaults are word_timestamps=false,
- * diarization=false, language=zh, speed=balanced.
+ * diarization=false, language=zh, language_profile=mandarin, memory=medium.
+ *
+ * There is no `speedPreference`: `memoryBudget` answers speed as well, because in
+ * this catalogue the weight-file size decides both footprint and throughput.
  */
 
 /**
@@ -15,7 +18,22 @@ import { invoke } from '@tauri-apps/api/core';
  */
 export type PlanPassthrough = boolean;
 
-export type SpeedPreference = 'fast' | 'balanced' | 'accurate';
+/**
+ * 语种场景 — mirrors `engine::plan::LanguageProfile`.
+ *
+ * `mandarin` is the default and keeps the per-language family table; `mixed` and
+ * `multilingual` re-rank it toward the models that transcribe language switches.
+ */
+export type LanguageProfile = 'mandarin' | 'mixed' | 'multilingual';
+
+/**
+ * 显存占用 — mirrors `engine::plan::MemoryBudget`.
+ *
+ * Answers the speed question too: within this catalogue the weight-file size
+ * decides both footprint and throughput, so one question replaces the old
+ * `fast`/`balanced`/`accurate` preference.
+ */
+export type MemoryBudget = 'small' | 'medium' | 'large';
 
 export type PlanStepKind =
   | 'vad'
@@ -31,7 +49,10 @@ export interface PlanRequirements {
   requireWordTimestamps?: boolean;
   enableDiarization?: boolean;
   language?: string;
-  speedPreference?: SpeedPreference;
+  /** 语种场景. Defaults to `mandarin` server-side. */
+  languageProfile?: LanguageProfile;
+  /** 显存占用. Defaults to `medium` server-side. */
+  memoryBudget?: MemoryBudget;
   device?: string;
   /**
    * Manual `role -> model_id` pins (design §8.2.3).
@@ -52,7 +73,15 @@ export interface PlanStep {
 
 export interface PlanCost {
   steps: number;
-  speed: SpeedPreference;
+  /**
+   * The slowest model's speed class, derived from the catalogue.
+   *
+   * Kept because the solver still reports it for logs and badges, but it is no
+   * longer a question the user answers — `memory` is.
+   */
+  speed: 'fast' | 'balanced' | 'accurate';
+  /** 显存 class the plan's own weight files imply. */
+  memory: MemoryBudget;
 }
 
 export interface PlanCapabilities {

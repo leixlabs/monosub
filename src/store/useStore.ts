@@ -8,13 +8,37 @@ export type OutputLanguage = 'auto' | 'en' | 'zh' | 'es' | 'ja' | 'de' | 'fr' | 
 /**
  * Language a local translation model is asked for (translation-design §7).
  *
- * `auto` is deliberately absent: it is a *source*-detection value, and
+ * Deliberately wider than [`OutputLanguage`]: recognition supports what the ASR
+ * models can transcribe, translation supports what the MT model can *produce*,
+ * and those are different sets (HY-MT covers 38 languages; `sense_asr` handles
+ * 23 tags but only 6 real tokens). Tying the two together would cap translation
+ * at the recognition list for no reason.
+ *
+ * `auto` is deliberately absent from both: it is a *source*-detection value, and
  * "translate into auto" has no meaning. The Rust side skips such a run rather
  * than guessing (`translate::language::should_translate`).
  */
-export type TranslateTargetLanguage = Exclude<OutputLanguage, 'auto'>
-/** Speed preference used only to rank same-capability models (design §5.3). */
-export type SpeedPreference = 'fast' | 'balanced' | 'accurate'
+export type TranslateTargetLanguage =
+  | Exclude<OutputLanguage, 'auto'>
+  | 'ar' | 'bn' | 'bo' | 'cs' | 'fa' | 'gu' | 'he' | 'hi' | 'id' | 'it'
+  | 'kk' | 'km' | 'mn' | 'mr' | 'ms' | 'my' | 'nl' | 'pl' | 'ru' | 'ta'
+  | 'te' | 'th' | 'tl' | 'tr' | 'ug' | 'uk' | 'ur' | 'vi' | 'yue'
+
+/**
+ * 语种场景 — the first of the four questions the recognition plan asks.
+ *
+ * It does two jobs (`engine/plan.rs::LanguageProfile`): it owns the family bias
+ * table, and it is why `中英混合` does not pick a Chinese-only model.
+ */
+export type LanguageProfile = 'mandarin' | 'mixed' | 'multilingual'
+/**
+ * 显存占用 — how much memory the user is willing to spend.
+ *
+ * This replaced the `fast`/`balanced`/`accurate` speed preference: in this
+ * catalogue a model's weight size decides both its footprint and its speed, so
+ * one question answers both. `small` ≈ 254 MB class, `large` = anything goes.
+ */
+export type MemoryBudget = 'small' | 'medium' | 'large'
 /** Step roles a user may pin to a specific model id (design §8.1). */
 export type ModelOverrideSlot = 'asr' | 'vad' | 'align' | 'diar'
 
@@ -126,9 +150,12 @@ export interface AppSettings {
   // UI settings
   showCompletedNotification: boolean
 
-  // Recognition plan requirements (v3; design §10.1)
+  // Recognition plan requirements (v3; design §10.1; reshaped in v6)
   requireWordTimestamps: boolean
-  speedPreference: SpeedPreference
+  /** 语种场景 — 普通话为主 / 中英混合 / 多语种. */
+  languageProfile: LanguageProfile
+  /** 显存占用 — 小 / 中 / 大. Replaces the old speed preference. */
+  memoryBudget: MemoryBudget
 
   /**
    * Default speaker separation for newly queued files. Each file keeps its own
@@ -197,7 +224,9 @@ const defaultSettings: AppSettings = {
   skipExistingSubtitle: false,
   showCompletedNotification: true,
   requireWordTimestamps: false,
-  speedPreference: 'balanced',
+  // `普通话为主` + `中` are the defaults that resolve to SenseVoice (design §5.4).
+  languageProfile: 'mandarin',
+  memoryBudget: 'medium',
   defaultDiarization: true,
   translateEnabled: false,
   // `en` is the non-source default the design names (translation-design §7). The
@@ -211,19 +240,54 @@ const defaultSettings: AppSettings = {
   clipboardWatchEnabled: true,
 }
 
-const SPEED_PREFERENCES: SpeedPreference[] = ['fast', 'balanced', 'accurate']
 const MODEL_OVERRIDE_SLOTS: ModelOverrideSlot[] = ['asr', 'vad', 'align', 'diar']
 
-const isSpeedPreference = (value: unknown): value is SpeedPreference =>
-  typeof value === 'string' && (SPEED_PREFERENCES as string[]).includes(value)
+const LANGUAGE_PROFILES: LanguageProfile[] = ['mandarin', 'mixed', 'multilingual']
+const MEMORY_BUDGETS: MemoryBudget[] = ['small', 'medium', 'large']
+
+const isLanguageProfile = (value: unknown): value is LanguageProfile =>
+  typeof value === 'string' && (LANGUAGE_PROFILES as string[]).includes(value)
+
+const isMemoryBudget = (value: unknown): value is MemoryBudget =>
+  typeof value === 'string' && (MEMORY_BUDGETS as string[]).includes(value)
 
 /**
- * Targets the UI offers, ordered like the recognition languages above.
- * A translation model may support more languages than this; these are the ones
- * the app also knows how to name the translated file for (translation-design §5).
+ * Map a v5 `speedPreference` onto the v6 显存占用.
+ *
+ * The two ladders coincide in this catalogue — the fastest model is the 254 MB
+ * one and the slowest is the largest — so a user who asked for `fast` wanted
+ * the small bucket. Dropping the setting instead would silently reset a
+ * preference the user did express.
+ */
+const memoryBudgetFromSpeed = (value: unknown): MemoryBudget => {
+  switch (value) {
+    case 'fast':
+      return 'small'
+    case 'accurate':
+      return 'large'
+    default:
+      return defaultSettings.memoryBudget
+  }
+}
+
+/**
+ * Targets the UI offers: every language the default translation model (HY-MT)
+ * can produce, with the ones the app itself is localised into first.
+ *
+ * The list is the *default* model's coverage, not the intersection over the whole
+ * catalogue — an optional 8B model that only speaks 10 languages must not shrink
+ * what the recommended 1.8B model can do. The Rust side degrades gracefully for a
+ * target a user-selected model does not declare: the prompt still names the
+ * target, and a model that cannot produce it comes back with the source text,
+ * which `translate::parse` reports as degraded rather than as success
+ * (translation-design §5).
  */
 export const TRANSLATE_TARGET_LANGUAGES: TranslateTargetLanguage[] = [
   'en', 'zh', 'zh-tw', 'ja', 'ko', 'es', 'fr', 'de', 'pt',
+  // The rest of HY-MT's 38 languages, alphabetical by tag.
+  'ar', 'bn', 'bo', 'cs', 'fa', 'gu', 'he', 'hi', 'id', 'it',
+  'kk', 'km', 'mn', 'mr', 'ms', 'my', 'nl', 'pl', 'ru', 'ta',
+  'te', 'th', 'tl', 'tr', 'ug', 'uk', 'ur', 'vi', 'yue',
 ]
 
 const isTranslateTargetLanguage = (value: unknown): value is TranslateTargetLanguage =>
@@ -297,9 +361,12 @@ type PersistedAppState = Pick<
 
 // v3 adds the recognition-plan requirements and `modelOverrides` (design §10.3);
 // v4 adds the translation settings (translation-design §7); v5 adds the URL-import
-// settings (url-import-design §5.4). All three only ADD: unlike v1→v2 they drop
-// nothing, so an upgraded blob keeps every preference the user already set.
-const PERSIST_VERSION = 5
+// settings (url-import-design §5.4); v6 replaces `speedPreference` with the two
+// questions that actually drive the solver (`languageProfile`, `memoryBudget`).
+// v3–v5 only ADD, so an upgraded blob keeps every preference the user set; v6 is
+// the one step that retires a field, and it migrates the value instead of
+// dropping it (see `memoryBudgetFromSpeed`).
+const PERSIST_VERSION = 6
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -317,7 +384,13 @@ const normalizeSettings = (value: unknown): AppSettings => {
     showCompletedNotification: typeof persisted.showCompletedNotification === 'boolean' ? persisted.showCompletedNotification : defaultSettings.showCompletedNotification,
     // v2 blobs have none of these; defaults are applied, nothing is dropped.
     requireWordTimestamps: typeof persisted.requireWordTimestamps === 'boolean' ? persisted.requireWordTimestamps : defaultSettings.requireWordTimestamps,
-    speedPreference: isSpeedPreference(persisted.speedPreference) ? persisted.speedPreference : defaultSettings.speedPreference,
+    // v6 replaced `speedPreference` with two questions. A v5 blob has no
+    // `languageProfile`, and its speed preference is translated into a footprint
+    // budget rather than discarded.
+    languageProfile: isLanguageProfile(persisted.languageProfile) ? persisted.languageProfile : defaultSettings.languageProfile,
+    memoryBudget: isMemoryBudget(persisted.memoryBudget)
+      ? persisted.memoryBudget
+      : memoryBudgetFromSpeed(persisted.speedPreference),
     defaultDiarization: typeof persisted.defaultDiarization === 'boolean' ? persisted.defaultDiarization : defaultSettings.defaultDiarization,
     // v3 blobs carry none of these; defaults are applied and nothing already
     // present in the blob is dropped.

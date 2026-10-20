@@ -102,7 +102,7 @@ monosub/
 │   │   ├── UrlImportItem.tsx    # One import row above FileList (not in files)
 │   │   └── ThemeToggle.tsx
 │   ├── store/
-│   │   └── useStore.ts          # Zustand state + persist v5 migration
+│   │   └── useStore.ts          # Zustand state + persist v6 migration
 │   ├── i18n/
 │   │   ├── index.ts
 │   │   └── locales/             # en.json + zh-CN.json (kept at parity)
@@ -260,6 +260,7 @@ tauri-pilot snapshot -i                                 # accessibility tree + @
 tauri-pilot click @e5 / tauri-pilot assert text @e1 "…" # refs reset on each snapshot
 tauri-pilot logs --level error                          # console/JS errors
 tauri-pilot run src-tauri/tests/pilot/smoke.toml        # committed end-to-end smoke
+tauri-pilot run src-tauri/tests/pilot/model-plan.toml   # the plan's four questions
 tauri-pilot run src-tauri/tests/pilot/smoke.toml --junit /tmp/pilot.xml
 ```
 
@@ -267,6 +268,21 @@ The plugin requires Tauri ≥ 2.12 ({plugin, CLI and `@tauri-apps/*` versions al
 moved together}). It is compiled out of release builds, so `tauri build` is
 unaffected. `screenshot` (DOM html-to-image) is flaky on this page; prefer
 `screenshot_native --window-id <id> --output <path>` when a PNG is needed.
+
+Three traps when writing or running a scenario:
+
+- **A changed Rust file needs the dev binary rebuilt, not just Vite's HMR.** Vite
+  reloads the webview, so the UI looks fresh while the *backend* still answers
+  from the previous build — a scenario then fails on behaviour that is correct on
+  disk. Restart `bun run tauri dev` after touching `src-tauri/`.
+- **Assert on attributes, not on rendered text.** Resolution is an async IPC
+  round trip, so a text assertion straight after a click races the solver (a bare
+  `assert-contains` on the plan panel passes or fails on timing). `SettingsModelPlan`
+  publishes `data-plan-id` / `data-plan-models` / `data-plan-memory` /
+  `data-plan-timestamps`, which a `wait` step targets deterministically.
+- **Message strings are localised.** The smoke scenario asserts `模型`, so it only
+  passes with the UI in Chinese; set `monosub-language` (`zh-CN`) before running it
+  on a machine whose session is in English.
 
 ### Production Builds
 
@@ -330,10 +346,12 @@ model (see [URL Import](#url-import-bilibili)).
 ### Model plans (capability-driven model selection)
 
 Which model runs is **not hardcoded**. `docs/tech-spec/model-selection-design.md`
-defines a **requirement → plan solver**:
+defines a **requirement → plan solver**, and the user answers exactly **four
+questions** — everything else is derived:
 
 ```
-Requirements { word_timestamps, diarization, passthrough, language, speed, backend }
+Requirements { language_profile (语种场景), diarization, word_timestamps,
+               memory (显存占用), language, backend }
         │
         ▼  engine/plan.rs  (pure functions; unit-testable without AppHandle)
  ModelPlan { steps: [Vad | Asr | Align | Diarize | Passthrough | TurnAttribution], … }
@@ -341,13 +359,54 @@ Requirements { word_timestamps, diarization, passthrough, language, speed, backe
         ▼  engine/mod.rs → engine/direct.rs (passthrough) or the VAD-sequence pipeline
 ```
 
+| # | Setting | Values | What it decides |
+|---|---|---|---|
+| 1 | `languageProfile` | `mandarin` / `mixed` / `multilingual` | the family bias (§5.4). `mixed`/`multilingual` re-rank the table toward the models that follow a mid-sentence language switch, so `sense_asr` (one token language per session) stops being the pick for Chinese. |
+| 2 | `defaultDiarization` | bool | whether a `Passthrough` or `Asr+Diarize+TurnAttribution` template is enumerated |
+| 3 | `requireWordTimestamps` | bool | `word_shortfall_rank` — a ranking term, not a filter, so a catalogue without a word-capable ASR still plans one and reports a gap |
+| 4 | `memoryBudget` | `small` / `medium` / `large` | `footprint(spec)` (weight-file bytes) → `over_budget_rank` + the `memory_match` score term |
+
+`best_model_for_role` orders candidates as: word-timing grade → 语种场景 family bias →
+显存 fit → score. **A capability always outranks a budget**: `中英混合` + 显存小 still
+plans the 1 GB multilingual model, because the cheaper alternative drops half the
+sentence. Ranking the budget higher was a measured bug (it picked the 254 MB
+`sense_asr` for mixed-language audio); the plan preview reports the footprint it
+actually ended up at, so an overshoot is visible instead of silent.
+
+**There is no speed preference any more.** In this catalogue a model's weight size
+decides both its footprint and its throughput (SenseVoice Q8 is 254 MB and the
+fastest thing on offer; the 1.0–1.2 GB models are the slow ones), so asking for
+"fast" and "small" separately would be one question too many. v6 of the store
+migrates a v5 `fast`/`balanced`/`accurate` onto `small`/`medium`/`large` rather
+than dropping it.
+
 Rules that follow from this:
 
 - **Capabilities live in `models.json`, not in Rust.** Adding a model is a JSON
   change. The solver reads `capabilities.timestamps` / `capabilities.diarization` /
   `capabilities.produces_text`, plus `roles`, `languages`, `source`, `speed`, `tier`.
+- **A declared capability is not automatically a deliverable one.** The catalogue
+  now carries the whole `docs/../模型调查` survey (129 entries, 89 recognition across
+  31 families + 40 translation models), and a dozen families declare
+  `timestamps: word`. Only `qwen3_asr` has a word path here — `engine/aligned.rs`
+  passes `qwen3_asr.forced_aligner_path` / `vad_path` as family-scoped session
+  options and needs a companion `align` entry. So `ModelSpec::supports_word_timestamps()`
+  (declares `word` **and** `family == WORD_ALIGNED_FAMILY`) is what the solver ranks
+  on; ranking on the declaration alone made `parakeet_tdt` get planned for a word
+  request and then silently fall back to estimated timing.
 - **Tongyi/FunASR (`source: "tongyi"`) is preferred** when scores tie — hence
   `sense_asr` / `fun_asr_nano` are the defaults for plain ASR.
+- **显存预算 is a rank, never a filter.** `footprint` classifies a model by its
+  download bytes (< 512 MB small, < 1.5 GB medium, else large) — quantisation is
+  *not* consulted, because a q4 file that still weighs 1.5 GB needs the same
+  1.5 GB. `over_budget_rank` orders candidates by fit; when nothing fits, the
+  closest model is still planned and **no gap is reported**, because an oversized
+  footprint is a cost, not a missing capability. `MEMORY_OVERSHOOT_PENALTY` (150)
+  exceeds `RECOMMENDED_TIER_BONUS + TONGYI_SOURCE_BONUS` (160 combined), which is
+  what makes 小 actually beat a recommended 1 GB Tongyi model.
+- **语种场景 is also a rank, not a filter.** The catalogue does not declare which
+  models truly switch language mid-sentence, so inventing that flag would be a
+  claim the app cannot verify; the profile re-orders `bias_families` instead.
 - **Every requirement must be satisfiable by an audiocpp `task`.** There is no
   `spk`/`sv` task in audio.cpp, so CAM++ (the old `core-engine/.../diarizer.py`) is
   **not reproducible** — speech separation comes from a `diar`-task model or from an
@@ -364,6 +423,15 @@ Rules that follow from this:
   composition, not a checkpoint capability.
 - The `[Speaker A]: ` prefix in `subtitle/writer.rs` is fed by `RawChunk.speaker`;
   `subtitle/postprocess.rs` must not merge across differing speakers.
+- **The catalogue is all-or-nothing, so its enums are open.** `load_catalog` fails
+  the whole file on one bad value, which would take every working model down. The
+  survey introduced `speed: "slow"` (7–14B translation models), third-party
+  `source` values, a `gen` role and Python engines, so: `Source` and `Role`/`Engine`
+  carry `#[serde(other)]` catch-alls, `Speed` gained `Slow` (ranked above
+  `Accurate` — different meaning), and `Engine::is_runnable()` gates downloads so a
+  `diffusers`/`transformers` entry is listed but never offered. Tests pin both
+  directions (`unknown_enum_values_degrade_instead_of_failing_the_catalogue`,
+  `the_committed_catalogue_carries_slow_and_survey_vendors`).
 - **Translation models are never part of a `ModelPlan`.** They are `role: "translate"`
   entries with `engine: "llamacpp"`, and `plan::solve` filters the catalogue down to
   `engine == audiocpp && !role.translate` before it looks for candidates. Which
@@ -494,7 +562,15 @@ subtitle is written first and the translated files are additive.
   them: a reply identical to the source, and the prompt's own instruction coming back.
 - **`models.json` schema for a translate entry**: `roles: ["translate"]`,
   `engine: "llamacpp"` (absent means `audiocpp`, so every recognition entry is unchanged),
-  and `prompt_template` naming the prompt wording (`hy_mt`). `capabilities` is declared as
+  and `prompt_template` naming the prompt wording (`hy_mt`, or `generic`/`chatml`/
+  `gemma`/`cohere`/`llama3` for the survey models — an unknown name falls back to
+  `generic`, so a typo degrades the prompt instead of failing the run).
+  `hy_mt_1_8b_q4_k_m` is `tier: "default"`, which is what keeps it the catalogue
+  default now that 39 other translate models exist; without that tier the picker
+  would pick whichever `recommended` entry happened to come first. A translate
+  entry must **not** list `"auto"` in `languages` — that is a source-detection
+  value, and it failed the "every committed translate language has a display
+  name" guard. `capabilities` is declared as
   `timestamps: none / diarization: none / produces_text: true` — it describes what the
   model can do to a subtitle, not a recognition step. `family` is a prompt-template hint
   here, and `source` is `other`, because `Source` is a closed enum and HY-MT belongs to no
@@ -815,10 +891,11 @@ line-parsing subprocess.
 | Path | Purpose |
 |------|---------|
 | `src/App.tsx` | Event listeners for progress/completion/error |
-| `src/store/useStore.ts` | Zustand state, `persist` v5 + migrate; `urlImports` is not persisted |
+| `src/store/useStore.ts` | Zustand state, `persist` v6 + migrate (v6 maps the retired `speedPreference` onto `memoryBudget`); `urlImports` is not persisted |
 | `src/lib/models.ts` | Model commands/events, `MODEL_NOT_INSTALLED_ERROR` |
 | `src/components/Settings.tsx` | Settings shell + its five sidebar groups: `files` / `models` / `translate` / `urlImport` / `system` |
-| `src/components/SettingsModelPlan.tsx` | Model-plan requirements + live preview + manual overrides |
+| `src/components/SettingsModelPlan.tsx` | The plan's four questions (语种场景 / 说话人分离 / 词级时间戳 / 显存占用) + live preview + manual overrides; publishes `data-plan-*` attributes for the pilot scenario |
+| `src/components/SettingsModelsDir.tsx` | The models storage-location card: path, change / reset, and the **only** "open models folder" button (`open_models_dir`) |
 | `src/components/SettingsTranslation.tsx` | Translation switch, target language, translation-model download |
 | `src/components/SettingsUrlImport.tsx` | The `urlImport` Settings group (output dir, Bilibili cookie browser, prefer-local) |
 | `src/components/UrlImportDialog.tsx` | "From a link" panel: paste, per-row errors, language/output dir mirrored from Settings |
@@ -845,7 +922,7 @@ line-parsing subprocess.
 | `src-tauri/src/site/url.rs` | `parse_input`: split, normalise (`p` kept), de-duplicate, Bilibili whitelist |
 | `src-tauri/src/site/lang.rs` | `select`: strict language → one `Pick { tag, kind, source_lang }` |
 | `src-tauri/src/subtitle/writer.rs` | Format writers |
-| `src-tauri/resources/models.json` | Model catalogue (v2 schema, incl. `engine` / `translate` role) |
+| `src-tauri/resources/models.json` | Model catalogue (v2 schema, incl. `engine` / `translate` role; 129 entries from the 模型调查 survey — 89 recognition across 31 families + 40 translation models) |
 | `docs/tech-spec/model-selection-design.md` | Requirement → ModelPlan design |
 | `docs/tech-spec/translation-design.md` | Translation design |
 | `docs/tech-spec/translation-poc.md` | Measured llama.cpp / HY-MT behaviour (pins, speed, format) |
@@ -897,18 +974,18 @@ urlImports: Record<string, UrlImportState>  // In-flight URL imports (NOT persis
 autoStartImports: boolean       // Dialog checkbox; auto-start is pure frontend (NOT persisted)
 ```
 
-Persisted to `localStorage` as `monosub-storage` at `version: 5`. The `migrate` function
+Persisted to `localStorage` as `monosub-storage` at `version: 6`. The `migrate` function
 **drops** `enableNoiseReduction`, `enableVolumeNormalization`, `enableBilingual` and
 `bilingualTargetLang`: those
 settings never reached the engine in the old code either (the Python engine hardcoded
 the filters), so they were dead. The equivalent ffmpeg filters are now always applied.
 
-The v3, v4 and v5 steps **add** fields and must not drop anything:
+The v3, v4 and v5 steps **add** fields and must not drop anything; v6 **replaces** one
+field and migrates its value instead of discarding it:
 
 ```ts
 // settings (added in v3)
 requireWordTimestamps: boolean            // false
-speedPreference: 'fast' | 'balanced' | 'accurate' // 'balanced'
 // top level (added in v3)
 modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>
 
@@ -921,6 +998,12 @@ translationModelId: string                // '' means "catalogue default"
 urlImportOutputDir: string                // '' means ~/Downloads/MonoSub
 bilibiliCookiesBrowser: CookiesBrowser    // '' = not configured → no cookie flag at all
 preferLocalRecognition: boolean           // false: take the platform subtitle when offered
+
+// settings (v6; the recognition plan's four questions)
+languageProfile: 'mandarin' | 'mixed' | 'multilingual'  // 'mandarin'
+memoryBudget: 'small' | 'medium' | 'large'              // 'medium'
+// `speedPreference` was REMOVED in v6: `memoryBudgetFromSpeed` maps
+// fast→small, accurate→large, balanced→medium, so a v5 blob keeps its intent.
 ```
 
 `urlImports` is the one deliberately **non-persisted** slice: an import is an in-flight

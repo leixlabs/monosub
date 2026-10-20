@@ -1,0 +1,243 @@
+# tauri-pilot scenario for the recognition plan's four questions.
+#
+# Requires the app running in dev mode (the pilot plugin is debug-only):
+#
+#   bun run tauri dev                                        # terminal 1
+#   tauri-pilot run src-tauri/tests/pilot/model-plan.toml     # terminal 2
+#
+# The panel asks exactly four things — 语种场景 / 说话人分离 / 词级时间戳 / 显存占用
+# — and all four must change the resolved plan. A toggle that changes nothing is
+# worse than no toggle, so each question gets both directions asserted.
+#
+# Every selector is a `data-testid`, never positional: the panel gained a row in
+# v6 and a `nth-child` selector would have silently retargeted.
+#
+# Resolution is async (`resolve_model_plan` is an IPC round trip), so each
+# assertion is preceded by a `wait` on the *attribute* the panel publishes
+# (`data-plan-models`, …). Reading the rendered text straight after a click races
+# the solver and passed/failed on timing — measured, hence the attribute shape.
+#
+# The expected plans are the ones the shipped `resources/models.json` resolves
+# to (pinned by `engine::plan::tests::real_catalogue_answers_the_four_questions`):
+#
+#   diarization on     → moss_transcribe_diarize_q8_0 (segment timing)
+#   diarization off    → sensevoice_small_q8         (estimated timing)
+#   + word timestamps  → qwen3_asr_0_6b_q8_0         (word timing)
+#   语种场景 中英混合   → qwen3_asr_0_6b_q8_0         (not SenseVoice)
+
+[scenario]
+name = "MonoSub model plan"
+fail_fast = true
+global_timeout_ms = 90000
+
+[[step]]
+name = "reset to the app root"
+action = "navigate"
+url = "http://localhost:5173/"
+
+# Start from default settings: a dev machine keeps `monosub-storage`, so without
+# this the toggles could already be flipped and the assertions would test a stale
+# state instead of the shipped defaults. The second navigate is what makes the
+# deletion take effect — `zustand/persist` hydrates once per page load.
+[[step]]
+name = "clear the persisted store"
+action = "storage-delete"
+key = "monosub-storage"
+
+[[step]]
+name = "reload with default settings"
+action = "navigate"
+url = "http://localhost:5173/"
+
+[[step]]
+name = "wait for the app shell"
+action = "wait"
+selector = "header .no-drag > button:last-child"
+timeout_ms = 15000
+
+[[step]]
+name = "open settings"
+action = "click"
+target = "header .no-drag > button:last-child"
+
+[[step]]
+name = "open the models group"
+action = "click"
+target = "[data-testid='settings-category-models']"
+
+[[step]]
+name = "the plan panel mounts"
+action = "wait"
+selector = "[data-testid='plan-preview']"
+timeout_ms = 5000
+
+# --- 1. 说话人分离 ---------------------------------------------------------
+
+# The v6 default is on, so the one-shot model is the first thing resolved.
+[[step]]
+name = "speaker separation defaults to on and picks the one-shot model"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-id='passthrough:moss']"
+timeout_ms = 10000
+
+[[step]]
+name = "the one-shot plan separates speakers"
+action = "assert-contains"
+target = "[data-testid='plan-preview']"
+expected = "moss_transcribe_diarize_q8_0"
+
+[[step]]
+name = "turn speaker separation off"
+action = "click"
+target = "[data-testid='plan-diarization']"
+
+[[step]]
+name = "the plain plan reports estimated timing, not a word claim"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-timestamps='none']"
+timeout_ms = 10000
+
+[[step]]
+name = "the plan drops the one-shot model"
+action = "assert-contains"
+target = "[data-testid='plan-preview']"
+expected = "sensevoice_small_q8"
+
+# The wording of the timing line is localised, so the assertion reads the
+# machine-readable attribute instead of the rendered text — the same reason every
+# step in this file uses `data-testid` and not a message string.
+[[step]]
+name = "the plain plan reports estimated timing"
+action = "assert-exists"
+target = "[data-testid='plan-preview'][data-plan-timestamps='none']"
+
+# --- 3. 词级时间戳 ---------------------------------------------------------
+
+[[step]]
+name = "ask for word timestamps"
+action = "click"
+target = "[data-testid='plan-word-timestamps']"
+
+[[step]]
+name = "word timestamps move the pick to the aligning model"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-timestamps='word']"
+timeout_ms = 10000
+
+[[step]]
+name = "that model is qwen3_asr"
+action = "assert-contains"
+target = "[data-testid='plan-preview']"
+expected = "qwen3_asr_0_6b_q8_0"
+
+# --- 1. 语种场景 -----------------------------------------------------------
+
+# 中英混合 and 词级时间戳 independently both land on qwen3_asr, so this check is
+# only meaningful with word timestamps off — otherwise it would pass for the
+# wrong reason.
+[[step]]
+name = "drop the word-timestamp requirement first"
+action = "click"
+target = "[data-testid='plan-word-timestamps']"
+
+[[step]]
+name = "the plan returns to SenseVoice"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-models='sensevoice_small_q8']"
+timeout_ms = 10000
+
+[[step]]
+name = "switch the language scene to Chinese + English"
+action = "click"
+target = "[data-testid='plan-language-profile']"
+
+[[step]]
+name = "choose the mixed scene"
+action = "click"
+target = "[data-testid='plan-language-profile-option-mixed']"
+
+[[step]]
+name = "a mixed-language scene must not use the single-token model"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-models='qwen3_asr_0_6b_q8_0']"
+timeout_ms = 10000
+
+# --- 4. 显存占用 -----------------------------------------------------------
+
+[[step]]
+name = "back to Mandarin"
+action = "click"
+target = "[data-testid='plan-language-profile']"
+
+[[step]]
+name = "choose the Mandarin scene"
+action = "click"
+target = "[data-testid='plan-language-profile-option-mandarin']"
+
+[[step]]
+name = "the plan is SenseVoice again"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-models='sensevoice_small_q8']"
+timeout_ms = 10000
+
+[[step]]
+name = "shrink the memory budget"
+action = "click"
+target = "[data-testid='plan-memory-budget']"
+
+[[step]]
+name = "choose the small budget"
+action = "click"
+target = "[data-testid='plan-memory-budget-option-small']"
+
+# SenseVoice is already the small class, so the badge — not the model — is what
+# proves the setting reached the solver.
+[[step]]
+name = "the preview reports the small footprint"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-memory='small']"
+timeout_ms = 10000
+
+# --- and the answers must survive a reload ---------------------------------
+
+[[step]]
+name = "reload"
+action = "navigate"
+url = "http://localhost:5173/"
+
+# `storage-get`'s `expected` is an exact match on the whole value, and
+# `monosub-storage` is a JSON blob — so the check is an `eval` that throws with the
+# actual settings when a field is wrong. That keeps the failure readable instead
+# of dumping the entire persisted state.
+[[step]]
+name = "both answers survived the reload"
+action = "eval"
+script = "(function () { var s = JSON.parse(localStorage.getItem('monosub-storage')).state.settings; if (s.memoryBudget !== 'small' || s.languageProfile !== 'mandarin') { throw new Error('settings after reload: ' + JSON.stringify(s)); } return 'persisted'; })()"
+
+[[step]]
+name = "wait for the app shell after the reload"
+action = "wait"
+selector = "header .no-drag > button:last-child"
+timeout_ms = 15000
+
+[[step]]
+name = "re-open settings"
+action = "click"
+target = "header .no-drag > button:last-child"
+
+[[step]]
+name = "re-open the models group"
+action = "click"
+target = "[data-testid='settings-category-models']"
+
+[[step]]
+name = "the restored plan is the small one"
+action = "wait"
+selector = "[data-testid='plan-preview'][data-plan-memory='small']"
+timeout_ms = 10000
+
+# Clean up so the next scenario starts from defaults.
+[[step]]
+name = "clear the persisted store again"
+action = "storage-delete"
+key = "monosub-storage"

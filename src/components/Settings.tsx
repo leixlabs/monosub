@@ -12,7 +12,6 @@ import {
   Link2,
   Package,
   Download,
-  FolderOpen,
   Trash2,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -41,7 +40,6 @@ import {
   formatModelSize,
   listModels,
   modelManifestSize,
-  openModelsDir,
   recognitionModels,
   removeModel,
   translationModels,
@@ -314,15 +312,6 @@ export function Settings() {
       if (isMountedRef.current) {
         setIsLoadingModels(false);
       }
-    }
-  };
-
-  const handleOpenModelsDir = async () => {
-    try {
-      await openModelsDir();
-    } catch (error) {
-      console.error('[open_models_dir] Failed:', error);
-      setModelActionError(String(error));
     }
   };
 
@@ -637,7 +626,12 @@ export function Settings() {
                       </p>
                       <div className="flex items-center gap-2 shrink-0">
                         {/* Re-reads install state from disk. Useful after copying
-                            models in by hand or changing the storage location. */}
+                            models in by hand or changing the storage location.
+
+                            There is deliberately no "open folder" button here:
+                            `SettingsModelsDir` above already has one, sitting
+                            next to "change location", and two buttons with the
+                            same label within one screen read as a bug. */}
                         <GlassButton
                           variant="outline"
                           size="sm"
@@ -647,14 +641,6 @@ export function Settings() {
                         >
                           <RefreshCw className={`w-4 h-4 ${isLoadingModels ? 'animate-spin' : ''}`} />
                           {t('models.rescan')}
-                        </GlassButton>
-                        <GlassButton
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleOpenModelsDir()}
-                        >
-                          <FolderOpen className="w-4 h-4" />
-                          {t('models.openFolder')}
                         </GlassButton>
                       </div>
                     </div>

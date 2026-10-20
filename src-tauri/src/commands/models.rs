@@ -237,7 +237,6 @@ pub async fn list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String> {
     let statuses = catalog::list(Some(&app)).map_err(|e| e.to_string())?;
     Ok(statuses.into_iter().map(ModelStatus::from_catalog).collect())
 }
-
 /// Start downloading `id` in the background and return immediately.
 ///
 /// Progress/completion arrive as `model_download_progress` /
@@ -402,11 +401,24 @@ async fn cancel_in_flight(id: &str) {
 }
 
 fn find_spec(app: &AppHandle, id: &str) -> Result<ModelSpec, String> {
-    catalog::catalog(Some(app))
+    let spec = catalog::catalog(Some(app))
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|spec| spec.id == id)
-        .ok_or_else(|| format!("unknown model id: {}", id))
+        .ok_or_else(|| format!("unknown model id: {}", id))?;
+
+    // The catalogue may describe models this build cannot run (a `gen` role, a
+    // `transformers`/`diffusers` engine). They are listed so the survey stays in
+    // one place, but downloading a model with no runtime would only spend the
+    // user's bandwidth on a file the app can never load.
+    if !spec.engine.is_runnable() {
+        return Err(format!(
+            "model '{}' needs the '{}' runtime, which this build does not include",
+            id,
+            spec.engine.as_str()
+        ));
+    }
+    Ok(spec)
 }
 
 fn models_root(app: &AppHandle) -> Result<PathBuf, String> {

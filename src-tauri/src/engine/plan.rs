@@ -9,6 +9,12 @@
 //! [`crate::engine::catalog`] — only two things are hardcoded here, both
 //! verbatim from the design: the §5.2 template shapes and the §5.4 language
 //! bias. There is deliberately no generic constraint solver (design §13 risk 7).
+//!
+//! The user answers exactly four questions — 语种场景 ([`LanguageProfile`]),
+//! 说话人分离 (`diarization`), 词级时间戳 (`word_timestamps`) and 显存预算
+//! ([`MemoryBudget`]) — and those four fully determine the plan. Speed is not a
+//! separate question any more: in this catalogue a model's size *is* its speed,
+//! so the 显存预算 answers it as well.
 
 use crate::engine::catalog::{
     self, Capabilities, DiarizationGrade, Engine, ModelSpec, Role, Source, Speed, Tier,
@@ -28,20 +34,127 @@ const NOTHING: Capabilities = Capabilities {
 
 const RECOMMENDED_TIER_BONUS: i32 = 100;
 const TONGYI_SOURCE_BONUS: i32 = 60;
-const SPEED_MATCH_BONUS: i32 = 40;
+const MEMORY_MATCH_BONUS: i32 = 40;
 const INSTALLED_BONUS: i32 = 30;
 const PASSTHROUGH_BONUS: i32 = 20;
 const EXTRA_STEP_PENALTY: i32 = 50;
-const MEMORY_RISK_PENALTY: i32 = 30;
 
-/// Files at or above this size count as "large" for [`memory_risk`] on Metal.
-const LARGE_MODEL_BYTES: u64 = 1_073_741_824; // 1 GiB
+/// Cost of each footprint class a model exceeds the 显存预算 by.
+///
+/// Deliberately larger than [`RECOMMENDED_TIER_BONUS`] + [`TONGYI_SOURCE_BONUS`]
+/// (+160 combined): when the user says 显存小, a 254 MB model must beat a 1 GB
+/// `tier: recommended` Tongyi model, otherwise the budget is decorative. The
+/// rank in [`over_budget_rank`] already orders candidates by fit; this keeps the
+/// plan-level score agreeing with that order.
+const MEMORY_OVERSHOOT_PENALTY: i32 = 150;
+
+/// Footprint-class thresholds: under 512 MB is 小, under 1.5 GB is 中, above is 大.
+/// Chosen against the catalogue so the classes are not empty: SenseVoice is
+/// 254 MB (小), Fun-ASR-Nano / Qwen3-ASR / MOSS are ~0.8–1.2 GB (中).
+const SMALL_MODEL_BYTES: u64 = 512 * 1024 * 1024;
+const MEDIUM_MODEL_BYTES: u64 = 1_536 * 1024 * 1024;
 
 // --- §3.1 requirements -----------------------------------------------------
+
+/// Which languages the media actually contains.
+///
+/// This is the *first* question the user answers, and it re-orders the §5.4 bias
+/// table: `Mandarin` keeps the per-language rows, while `Mixed`/`Multilingual`
+/// move the Qwen / MOSS families to the front. The reason is concrete rather
+/// than stylistic — `sense_asr` emits exactly one language token per session, so
+/// a Chinese-English sentence comes back half-transcribed from it.
+///
+/// It is a **ranking** term, not a filter: the catalogue does not declare which
+/// models truly follow a mid-sentence switch, so turning that into a hard filter
+/// would encode a claim the app cannot verify.
+///
+/// `Mandarin` is the default because MonoSub's users are mostly Chinese and
+/// `sense_asr` is both the fastest and the most accurate choice for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LanguageProfile {
+    /// 普通话为主: Chinese-dominant audio (Simplified or Traditional output).
+    #[default]
+    Mandarin,
+    /// 中英混合: one speaker switching between Chinese and English in a
+    /// sentence. Needs a model that transcribes both without a language switch,
+    /// which rules `sense_asr` out — it emits one token language per session.
+    Mixed,
+    /// 多语种: content that is not Chinese at all (or spans many languages).
+    Multilingual,
+}
+
+impl LanguageProfile {
+    /// Wire spelling. Kept here (not in `commands/plan.rs`) so the front end and
+    /// both commands cannot drift on the three names.
+    pub fn from_wire(value: Option<&str>) -> Self {
+        match value.map(|value| value.trim().to_lowercase()).as_deref() {
+            Some("mixed") | Some("zh-en") | Some("zh_en") => Self::Mixed,
+            Some("multilingual") | Some("multi") => Self::Multilingual,
+            _ => Self::Mandarin,
+        }
+    }
+}
+
+/// How much GPU/unified memory the user is willing to spend (显存占用).
+///
+/// Answers the speed question without asking about speed: within this catalogue
+/// the biggest determinant of both is the weight file, so the budget ranks the
+/// candidates ([`over_budget_rank`]) and shapes the one-shot gate
+/// ([`passthrough_beats_asr`]). It is a *ranking* term, never a hard filter — an
+/// empty bucket still plans the cheapest model and reports no gap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum MemoryBudget {
+    /// 小: an 8 GB machine. Prefers the smallest quantisation of anything.
+    Small,
+    /// 中: the default; a ~1 GB model is fine.
+    #[default]
+    Medium,
+    /// 大: no objection to the biggest model on offer.
+    Large,
+}
+
+impl MemoryBudget {
+    pub fn from_wire(value: Option<&str>) -> Self {
+        match value.map(|value| value.trim().to_lowercase()).as_deref() {
+            Some("small") => Self::Small,
+            Some("large") => Self::Large,
+            _ => Self::Medium,
+        }
+    }
+
+    /// 0 / 1 / 2, so budgets and footprints can be compared as numbers.
+    pub fn rank(self) -> i32 {
+        match self {
+            Self::Small => 0,
+            Self::Medium => 1,
+            Self::Large => 2,
+        }
+    }
+
+    /// Class of a model (or a whole plan) from the bytes its weight files take.
+    pub fn from_bytes(bytes: u64) -> Self {
+        if bytes < SMALL_MODEL_BYTES {
+            Self::Small
+        } else if bytes < MEDIUM_MODEL_BYTES {
+            Self::Medium
+        } else {
+            Self::Large
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+}
 
 /// A transcription's hard capability requirements (design §3.1).
 ///
 /// The user states needs, never model names; [`solve`] turns this into plans.
+/// There are exactly four of them: 语种场景, 说话人分离, 词级时间戳, 显存预算.
 ///
 /// Passthrough is deliberately **not** here: whether one model can emit text +
 /// timestamps + speakers in a single call is a property of the chosen models,
@@ -55,9 +168,13 @@ pub struct Requirements {
     /// App language (`zh` / `zh-tw` / `en` / …); mapped by
     /// [`catalog::map_language`], never by this module.
     pub language: String,
-    /// Speed preference; only ranks models that already pass the hard filters.
-    pub prefer: Speed,
-    /// Device backend; only feeds [`memory_risk`].
+    /// 语种场景 — also owns the family bias of §5.4.
+    pub language_profile: LanguageProfile,
+    /// 显存占用 — the ranking term that used to be a speed preference.
+    pub memory: MemoryBudget,
+    /// Device backend. Kept on the request so the UI's device switch is
+    /// modelled, and so a future per-backend threshold has one place to read it;
+    /// the footprint classes are backend-independent today.
     pub backend: Backend,
 }
 
@@ -67,7 +184,8 @@ impl Default for Requirements {
             word_timestamps: false,
             diarization: false,
             language: "auto".to_string(),
-            prefer: Speed::Balanced,
+            language_profile: LanguageProfile::default(),
+            memory: MemoryBudget::default(),
             backend: Backend::Metal,
         }
     }
@@ -192,6 +310,9 @@ pub struct PlanCost {
     pub steps: usize,
     /// Speed class of the slowest model in the plan.
     pub speed: Speed,
+    /// 显存 class implied by the plan's own weight files, so the UI can tell a
+    /// 254 MB plan from a 1.1 GB one without re-reading the catalogue.
+    pub memory: MemoryBudget,
 }
 
 /// One executable plan: an ordered list of steps (design §3.2).
@@ -317,10 +438,21 @@ pub fn templates_for(req: &Requirements) -> Vec<Template> {
 /// Best catalogue model for `role` under `req`, or `None` when none qualifies.
 ///
 /// Hard filters first: the model must have the role and must be able to serve
-/// the requested language ([`language_ok`]). Candidates are then ordered by the
-/// §5.4 language bias, with the §5.3 [`score`] breaking ties — the bias is what
-/// keeps `sense_asr` ahead of `fun_asr_nano` for Chinese even though the latter
-/// is `tier: recommended` (and therefore +100 on the score alone).
+/// the requested language ([`language_ok`]). Candidates are then ordered by, in
+/// this exact order:
+///
+/// 1. whether it can reach the requested word-timing grade,
+/// 2. the 语种场景 / §5.4 family bias,
+/// 3. whether it fits the 显存预算,
+/// 4. the §5.3 score.
+///
+/// **Capability outranks cost, always.** (1) and (2) are statements about what
+/// the audio *is* — a model that cannot follow a mid-sentence language switch
+/// produces a wrong subtitle no matter how small it is — while (3) is a budget.
+/// Ordering them the other way was a measured bug: with `中英混合` + `显存小` the
+/// solver picked the 254 MB SenseVoice over `qwen3_asr`, i.e. it honoured the
+/// diet and half-transcribed the file. The plan preview shows the footprint it
+/// ended up at, so the overshoot is visible rather than silent.
 ///
 /// Install state is *not* a filter: an uninstalled model is still the right
 /// recommendation, the UI just offers a download (design §5.3, §5.6).
@@ -350,7 +482,8 @@ pub fn best_model_for_role<'a>(
                 // model is still planned, and `gaps()` reports the shortfall
                 // instead of failing the run.
                 word_shortfall_rank(spec, req),
-                bias_rank(&req.language, spec),
+                bias_rank(&req.language, req.language_profile, spec),
+                over_budget_rank(spec, req),
                 -single_model_score(spec, req, installed),
             )
         })
@@ -358,14 +491,37 @@ pub fn best_model_for_role<'a>(
 
 /// 0 when `spec` can reach word timestamps, 1 otherwise; always 0 when the
 /// request does not ask for them.
+///
+/// "Can reach" is narrower than "declares `timestamps: word`". The catalogue now
+/// carries a dozen word-capable ASR families (`parakeet_tdt`, `nemotron_asr`,
+/// `crisperwhisper`, `gigaam_asr`, …) whose words come out of their own decoder,
+/// while this app's word path (`engine::aligned`) drives **one** family: it
+/// passes `qwen3_asr.forced_aligner_path`/`vad_path` as session options and
+/// requires a companion `align`-role entry. Selecting any other family for a
+/// word request would plan a run that cannot happen, so the *runtime's*
+/// capability — [`catalog::ModelSpec::supports_word_timestamps`] — is what this
+/// ranks on. The plain-mode path is unaffected: such a model is still a perfectly
+/// good ASR when word timing is not asked for.
 fn word_shortfall_rank(spec: &ModelSpec, req: &Requirements) -> i32 {
     if !req.word_timestamps {
         return 0;
     }
-    i32::from(spec.capabilities().timestamps < TimestampGrade::Word)
+    i32::from(!spec.supports_word_timestamps())
 }
 
-/// True when `spec` can be asked for `app_lang` (design §5.3 rule 2).
+/// 0 when `spec` fits the requested 显存预算, 1 when it is one class above, 2 when
+/// it is two above.
+///
+/// A rank, not a filter: when nothing in the catalogue fits the budget the
+/// smallest available model is still planned (and reports no gap, because a
+/// bigger-than-asked footprint is a cost, not a missing capability). It sits
+/// *below* the 语种场景 bias in [`best_model_for_role`] for the same reason —
+/// see the note there.
+fn over_budget_rank(spec: &ModelSpec, req: &Requirements) -> i32 {
+    (footprint(spec).rank() - req.memory.rank()).max(0)
+}
+
+/// True when `spec` can be asked for the app language (design §5.3 rule 2).
 ///
 /// The mapping itself is delegated to [`catalog::map_language`], which owns the
 /// `zh-tw → zh` normalisation and the `sense_asr` real-token subset; a concrete
@@ -376,6 +532,12 @@ fn word_shortfall_rank(spec: &ModelSpec, req: &Requirements) -> i32 {
 /// keeps `fun_asr_nano` out of `ko` and `yue`. The same rule keeps `sense_asr`
 /// out of `es`/`de`/`fr`/`pt`, whose tags it accepts but only serves as
 /// auto-detect; the §5.4 table then sends those languages to `qwen3_asr`.
+///
+/// 语种场景 is deliberately **not** a filter here: the catalogue does not declare
+/// which models truly switch language mid-sentence, so inventing that flag would
+/// be a claim the app cannot verify. The profile is a ranking bias instead
+/// ([`bias_families`]) — decisive when several families qualify, harmless when
+/// only one does.
 fn language_ok(spec: &ModelSpec, app_lang: &str) -> bool {
     let requested = app_lang.trim();
 
@@ -397,28 +559,41 @@ fn declares_concrete_language(spec: &ModelSpec) -> bool {
         .any(|declared| !declared.eq_ignore_ascii_case("auto"))
 }
 
-/// First-choice ASR families per language (design §5.4) — a bias, never a filter.
-fn bias_families(language: &str) -> &'static [&'static str] {
-    match language.trim().to_lowercase().as_str() {
-        "zh" | "zh-tw" => &["sense_asr", "fun_asr_nano", "qwen3_asr"],
-        "en" => &["sense_asr", "parakeet_tdt", "qwen3_asr"],
-        "ja" => &["sense_asr", "fun_asr_nano"],
-        // `fun_asr_nano` does not support Korean.
-        "ko" => &["sense_asr"],
-        // Cantonese: SenseVoice is the only model that serves it.
-        "yue" => &["sense_asr"],
-        // These fall back to auto-detect on SenseVoice, so a non-SenseVoice ASR
-        // is preferred (design §5.4).
-        "es" | "de" | "fr" | "pt" => &["qwen3_asr", "cohere_asr", "canary_asr"],
-        // `auto` and anything unnamed: Tongyi first, then the §5.3 score.
-        _ => &["sense_asr"],
+/// First-choice ASR families per 语种场景 and language — a bias, never a filter.
+///
+/// The 语种场景 decides the table when it is not `Mandarin`: `中英混合` and
+/// `多语种` both need a model that transcribes language switches, which only the
+/// Qwen / MOSS families do. For `Mandarin` the per-language rows of §5.4 still
+/// apply, so an English or Japanese file does not get SenseVoice just because
+/// the profile says "普通话为主".
+fn bias_families(language: &str, profile: LanguageProfile) -> &'static [&'static str] {
+    match profile {
+        // 中英混合: one model, no language switch. Qwen3-ASR first (it is the
+        // catalogue's word-timestamp model too), then MOSS.
+        LanguageProfile::Mixed => &["qwen3_asr", "moss_transcribe_diarize"],
+        // 多语种: anything that is not a Chinese-only token model.
+        LanguageProfile::Multilingual => &["qwen3_asr", "moss_transcribe_diarize"],
+        LanguageProfile::Mandarin => match language.trim().to_lowercase().as_str() {
+            "zh" | "zh-tw" => &["sense_asr", "fun_asr_nano", "qwen3_asr"],
+            "en" => &["sense_asr", "parakeet_tdt", "qwen3_asr"],
+            "ja" => &["sense_asr", "fun_asr_nano"],
+            // `fun_asr_nano` does not support Korean.
+            "ko" => &["sense_asr"],
+            // Cantonese: SenseVoice is the only model that serves it.
+            "yue" => &["sense_asr"],
+            // These fall back to auto-detect on SenseVoice, so a non-SenseVoice
+            // ASR is preferred (design §5.4).
+            "es" | "de" | "fr" | "pt" => &["qwen3_asr", "cohere_asr", "canary_asr"],
+            // `auto` and anything unnamed: Tongyi first, then the §5.3 score.
+            _ => &["sense_asr", "qwen3_asr"],
+        },
     }
 }
 
 /// Position of `spec.family` in the §5.4 table; `usize::MAX` when the table does
 /// not name it, which leaves the §5.3 score in charge for that role.
-fn bias_rank(language: &str, spec: &ModelSpec) -> usize {
-    bias_families(language)
+fn bias_rank(language: &str, profile: LanguageProfile, spec: &ModelSpec) -> usize {
+    bias_families(language, profile)
         .iter()
         .position(|family| *family == spec.family)
         .unwrap_or(usize::MAX)
@@ -462,32 +637,50 @@ fn single_model_score(spec: &ModelSpec, req: &Requirements, installed: &dyn Fn(&
     if spec.source == Some(Source::Tongyi) {
         total += TONGYI_SOURCE_BONUS;
     }
-    total += speed_match(spec.speed, req.prefer);
+    total += memory_match(spec, req);
     if installed(&spec.id) {
         total += INSTALLED_BONUS;
     }
-    total -= MEMORY_RISK_PENALTY * memory_risk(spec, req.backend);
 
     total
 }
 
-/// Design §5.3 `speed_match`. Under `Speed::Accurate` the term is inverted, so
-/// slowness scores higher: fast 0, balanced 20, accurate 40.
-fn speed_match(speed: Option<Speed>, prefer: Speed) -> i32 {
-    let rank = speed_rank(speed);
+/// Design §5.3's `speed_match`, now answered by the 显存预算.
+///
+/// Within this catalogue "faster" and "smaller" are the same ladder — SenseVoice
+/// Q8 is 254 MB and the fastest thing on offer, Fun-ASR-Nano is 1.0 GB and
+/// balanced, and the largest files are the slowest — so one term replaces the old
+/// `fast`/`balanced`/`accurate` preference:
+///
+/// * 小: the 254 MB class earns +40, and every class above costs 150 a piece.
+/// * 中: a matching class earns +40, a smaller one +20 (smaller is never wrong,
+///   only not what was asked for).
+/// * 大: no reward at all, because everything fits; tier, source, install state
+///   and the language bias decide alone, so accuracy wins.
+fn memory_match(spec: &ModelSpec, req: &Requirements) -> i32 {
+    let over = over_budget_rank(spec, req);
+    if over > 0 {
+        return -MEMORY_OVERSHOOT_PENALTY * over;
+    }
 
-    match prefer {
-        Speed::Accurate => SPEED_MATCH_BONUS * rank / 2,
-        Speed::Fast => i32::from(rank == 0) * SPEED_MATCH_BONUS,
-        Speed::Balanced => i32::from(rank == 1) * SPEED_MATCH_BONUS,
+    match req.memory {
+        MemoryBudget::Large => 0,
+        _ if footprint(spec).rank() == req.memory.rank() => MEMORY_MATCH_BONUS,
+        _ => MEMORY_MATCH_BONUS / 2,
     }
 }
 
-/// Fast 0, balanced 1, accurate 2; an undeclared speed counts as balanced.
+/// Fast 0, balanced 1, accurate 2, slow 3; an undeclared speed counts as balanced.
+///
+/// `Slow` sits *above* accurate because they mean different things: `accurate`
+/// is "this is the careful model for its size", `slow` is "this is a 7–14B model
+/// that will take noticeably longer". Collapsing them would make a 14B
+/// translation model look as fast as a 1.8B one.
 fn speed_rank(speed: Option<Speed>) -> i32 {
     match speed {
         Some(Speed::Fast) => 0,
         Some(Speed::Accurate) => 2,
+        Some(Speed::Slow) => 3,
         Some(Speed::Balanced) | None => 1,
     }
 }
@@ -496,31 +689,20 @@ fn speed_from_rank(rank: i32) -> Speed {
     match rank {
         0 => Speed::Fast,
         2 => Speed::Accurate,
+        3 => Speed::Slow,
         _ => Speed::Balanced,
     }
 }
 
-/// Coarse memory-pressure hint, 0 (low) … 2 (high), used only by the §5.3 score.
+/// Coarse footprint class of one model's weight files.
 ///
-/// Quantisation is read from the model file name — `bf16`/`f16`/`f32` cost the
-/// most, `q8_*`/`q6_*` a little, `q4_*`/`q5_*` the least (anything unlabelled
-/// counts as `q8`-like) — and one extra point is added when the backend is Metal
-/// and the model is large ([`LARGE_MODEL_BYTES`]), because unified memory is
-/// shared with the OS.
-fn memory_risk(spec: &ModelSpec, backend: Backend) -> i32 {
-    let name = spec.model_file.to_ascii_lowercase();
-    let base = if name.contains("bf16") || name.contains("f16") || name.contains("f32") {
-        2
-    } else if name.contains("q4") || name.contains("q5") {
-        0
-    } else {
-        1
-    };
-
-    let bytes: u64 = spec.files.iter().map(|file| file.size).sum();
-    let large_on_metal = backend == Backend::Metal && bytes >= LARGE_MODEL_BYTES;
-
-    (base + i32::from(large_on_metal)).min(2)
+/// This is what 显存占用 actually means: the GGUF has to be resident, so its byte
+/// size is the floor on memory use, and in this catalogue it is also the ladder
+/// that speed follows. Quantisation is *not* consulted here — a q4 model that
+/// still weighs 1.5 GB needs the same 1.5 GB — so `over_budget_rank` and the
+/// `memory_match` term can be read straight off the download size the UI shows.
+fn footprint(spec: &ModelSpec) -> MemoryBudget {
+    MemoryBudget::from_bytes(spec.files.iter().map(|file| file.size).sum())
 }
 
 fn diar_rank(grade: DiarizationGrade) -> i32 {
@@ -626,7 +808,8 @@ pub fn solve(
             passthrough: false,
             cost: PlanCost {
                 steps: 0,
-                speed: req.prefer,
+                speed: Speed::Balanced,
+                memory: req.memory,
             },
             capabilities: NOTHING,
             gaps,
@@ -687,13 +870,24 @@ fn passthrough_spec<'a>(catalogue: &'a [ModelSpec], steps: &[PlanStep]) -> Optio
         .and_then(|step| find(catalogue, &step.model_id))
 }
 
-/// Row 1's condition (design §5.2): offer the passthrough plan only when its
-/// model is in a strictly faster speed class than the ASR pick, or serves the
-/// requested language concretely where the ASR pick would fall back to `auto`.
+/// Row 1's condition (design §5.2): offer the passthrough plan only when it is
+/// genuinely the better tool for the stated requirements.
+///
+/// Three ways it can win, in the order the user reasons about them:
+///
+/// 1. It is smaller than the ASR pick, so it fits a tighter 显存预算.
+/// 2. It serves the requested language concretely where the ASR pick would fall
+///    back to `auto`.
+/// 3. The 语种场景 is `中英混合`/`多语种` and the one-shot model is the higher-ranked
+///    family for it — the plain ASR in that case is a Chinese-family model that
+///    cannot follow a mid-sentence language switch.
 fn passthrough_beats_asr(req: &Requirements, passthrough: &ModelSpec, asr: &ModelSpec) -> bool {
-    speed_rank(passthrough.speed) < speed_rank(asr.speed)
+    footprint(passthrough).rank() < footprint(asr).rank()
         || (language_concrete(passthrough, &req.language)
             && !language_concrete(asr, &req.language))
+        || (req.language_profile != LanguageProfile::Mandarin
+            && bias_rank(&req.language, req.language_profile, passthrough)
+                < bias_rank(&req.language, req.language_profile, asr))
 }
 
 /// True when [`catalog::map_language`] returns a concrete tag rather than `auto`.
@@ -873,9 +1067,16 @@ fn suggest_model(catalogue: &[ModelSpec], kind: StepKind) -> Option<String> {
 /// already chose instead of downloading a second ASR. A word-capable ASR is the
 /// fallback for a catalogue that has no aligner.
 fn suggest_word_model(catalogue: &[ModelSpec]) -> Option<String> {
+    // An align-role entry is offered first (see the sort below), and that is the
+    // only "download" that can fix a run: the word path needs the aligner *and*
+    // a family the runtime drives. Filtering on `capabilities()` alone would
+    // offer `parakeet_tdt` — a model that claims word timing this app cannot
+    // produce — so the filter is the runtime capability.
     let mut candidates: Vec<&ModelSpec> = catalogue
         .iter()
-        .filter(|spec| spec.capabilities().timestamps >= TimestampGrade::Word)
+        .filter(|spec| {
+            spec.has_role(Role::Align) || spec.supports_word_timestamps()
+        })
         .collect();
 
     candidates.sort_by_key(|spec| (spec.has_role(Role::Align), suggestion_key(spec)));
@@ -950,18 +1151,38 @@ fn model_ids(steps: &[PlanStep]) -> Vec<String> {
     ids
 }
 
-/// Cost hint: step count plus the slowest model's speed class.
+/// Cost hint: step count, the slowest model's speed class, and the 显存 class the
+/// plan's own weight files imply.
 fn plan_cost(steps: &[PlanStep], catalogue: &[ModelSpec], req: &Requirements) -> PlanCost {
-    let slowest = steps
+    let specs: Vec<&ModelSpec> = steps
         .iter()
         .filter_map(|step| find(catalogue, &step.model_id))
+        .collect();
+
+    let slowest = specs
+        .iter()
         .map(|spec| speed_rank(spec.speed))
         .max()
-        .unwrap_or_else(|| speed_rank(Some(req.prefer)));
+        // No model step at all (the gap plan): fall back to the budget itself,
+        // which is the only hint the caller gave us.
+        .unwrap_or(req.memory.rank());
+
+    // Summing the distinct model files is the closest thing to a footprint we
+    // can compute without loading a model: a composed plan loads both.
+    let mut bytes = 0u64;
+    let mut seen: Vec<&str> = Vec::new();
+    for spec in &specs {
+        if seen.contains(&spec.id.as_str()) {
+            continue;
+        }
+        seen.push(&spec.id);
+        bytes += spec.files.iter().map(|file| file.size).sum::<u64>();
+    }
 
     PlanCost {
         steps: steps.len(),
         speed: speed_from_rank(slowest),
+        memory: MemoryBudget::from_bytes(bytes),
     }
 }
 
@@ -1072,13 +1293,13 @@ fn refresh_plan_summary(plan: &mut ModelPlan, catalogue: &[ModelSpec]) {
     plan.id = plan_id(&plan.steps);
     plan.capabilities = union_capabilities(&plan.steps, catalogue);
 
-    // Cost needs the requirements only for its fallback speed; the slowest real
-    // model in the plan is what matters once steps exist.
+    // Cost needs the requirements only for the fallback hints; the real models
+    // in the plan are what matters once steps exist.
     plan.cost = plan_cost(
         &plan.steps,
         catalogue,
         &Requirements {
-            prefer: plan.cost.speed,
+            memory: plan.cost.memory,
             ..Requirements::default()
         },
     );
@@ -1733,25 +1954,184 @@ mod tests {
         assert_eq!(best.id, "sensevoice_small_q8");
     }
 
-    /// `memory_risk` is a pure function of the spec: lower for `q4_k` than for
-    /// `q8_0`, higher for bf16, and one point worse on Metal for a large file.
+    /// `footprint` is a pure function of the weight-file bytes — the number the
+    /// download row already shows — so a user can tell which 显存 bucket a model
+    /// lands in without running it. Quantisation is deliberately *not* consulted:
+    /// a q4 file that still weighs 1.5 GB needs the same 1.5 GB.
     #[test]
-    fn memory_risk_ranks_quantisation_and_backend_size() {
-        let q4 = spec_of("moss_transcribe_diarize_q4_k");
-        let q8 = spec_of("moss_transcribe_diarize_q8_0");
-        let small = spec_of("nemotron_3_diar_q8_0");
+    fn footprint_is_decided_by_download_size_not_quantisation() {
+        let q8 = spec_of("moss_transcribe_diarize_q8_0"); // 1.13 GB
+        let q4 = spec_of("moss_transcribe_diarize_q4_k"); // 758 MB
+        let sense = spec_of("sensevoice_small_q8"); // 254 MB
+        let tiny = spec_of("nemotron_3_diar_q8_0"); // 107 MB
 
-        assert!(memory_risk(&q4, Backend::Metal) < memory_risk(&q8, Backend::Metal));
-        assert_eq!(memory_risk(&q8, Backend::Cpu), 1);
+        assert_eq!(footprint(&sense), MemoryBudget::Small);
+        assert_eq!(footprint(&tiny), MemoryBudget::Small);
         assert_eq!(
-            memory_risk(&q8, Backend::Metal),
-            2,
-            "a 1 GiB+ file on Metal costs an extra point"
+            footprint(&q4),
+            MemoryBudget::Medium,
+            "758 MB is 中 even though it is the q4 quantisation"
+        );
+        assert_eq!(footprint(&q8), MemoryBudget::Medium);
+        assert_eq!(
+            MemoryBudget::from_bytes(2 * 1024 * 1024 * 1024),
+            MemoryBudget::Large,
+            "a 2 GB model is 大"
+        );
+    }
+
+    /// 显存预算 must be decisive, not decorative: under 小 a 254 MB SenseVoice has
+    /// to beat a 1 GB `tier: recommended` Tongyi model.
+    #[test]
+    fn small_memory_budget_picks_the_smallest_model() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        let req = Requirements {
+            memory: MemoryBudget::Small,
+            ..req()
+        };
+
+        let best = best_model_for_role(&catalogue, &installed, Role::Asr, &req)
+            .expect("an ASR model fits");
+        assert_eq!(best.id, "sensevoice_small_q8");
+        assert_eq!(footprint(best), MemoryBudget::Small);
+
+        let plans = solve(&catalogue, &installed, &req);
+        assert_eq!(
+            plans[0].model_ids,
+            vec!["sensevoice_small_q8".to_string()]
+        );
+        assert_eq!(plans[0].cost.memory, MemoryBudget::Small);
+    }
+
+    /// A capability outranks a budget. `中英混合` + `显存小` must still plan the
+    /// 1 GB multilingual model, because the alternative is a subtitle that drops
+    /// half the sentence — and the plan must *say* it went over budget rather
+    /// than claim a small footprint.
+    ///
+    /// Regression: the budget was ranked above the language bias, so this
+    /// combination silently picked the 254 MB SenseVoice for mixed-language
+    /// audio, which is the one thing the profile exists to prevent.
+    #[test]
+    fn a_language_capability_outranks_the_memory_budget() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        let req = Requirements {
+            language_profile: LanguageProfile::Mixed,
+            memory: MemoryBudget::Small,
+            ..req()
+        };
+
+        let plans = solve(&catalogue, &installed, &req);
+
+        assert_eq!(
+            plans[0].model_ids,
+            vec!["qwen3_asr_0_6b_q8_0".to_string()],
+            "the multilingual model must win over the smaller single-token one"
         );
         assert_eq!(
-            memory_risk(&small, Backend::Metal),
-            memory_risk(&small, Backend::Cpu),
-            "a small file is not penalised for being on Metal"
+            plans[0].cost.memory,
+            MemoryBudget::Medium,
+            "the plan must admit the footprint it actually needs"
+        );
+        assert!(
+            plans[0].gaps.is_empty(),
+            "overshooting a budget is a cost, never a gap: {:?}",
+            plans[0].gaps
+        );
+    }
+
+    /// A budget nothing fits must still plan the closest model: an overshoot is a
+    /// cost, not a missing capability, so no gap is reported.
+    #[test]
+    fn an_unreachable_memory_budget_still_plans_and_reports_no_gap() {
+        // Drop the only 小 entry, so every remaining ASR is one class over.
+        let catalogue: Vec<ModelSpec> = catalogue()
+            .into_iter()
+            .filter(|spec| spec.id != "sensevoice_small_q8")
+            .collect();
+        let installed = all_installed();
+        let req = Requirements {
+            memory: MemoryBudget::Small,
+            ..req()
+        };
+
+        let plans = solve(&catalogue, &installed, &req);
+
+        assert_eq!(
+            plans[0].model_ids,
+            vec!["fun_asr_nano_2512_q8_0".to_string()],
+            "the closest fit (one class over) is still planned"
+        );
+        assert_eq!(plans[0].cost.memory, MemoryBudget::Medium);
+        assert!(
+            plans[0].gaps.is_empty(),
+            "a footprint over budget is not a capability gap: {:?}",
+            plans[0].gaps
+        );
+    }
+
+    /// 中英混合 is a promise about the audio that a single-language token model
+    /// cannot keep, so the profile must move the pick off SenseVoice even though
+    /// the §5.4 table puts it first for Chinese.
+    #[test]
+    fn mixed_language_profile_moves_the_pick_off_sense_asr() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        let req = Requirements {
+            language_profile: LanguageProfile::Mixed,
+            ..req()
+        };
+
+        let best = best_model_for_role(&catalogue, &installed, Role::Asr, &req)
+            .expect("a multilingual ASR is available");
+        assert_eq!(best.family, "qwen3_asr");
+        assert_ne!(best.family, "sense_asr");
+
+        let plans = solve(&catalogue, &installed, &req);
+        assert_eq!(
+            plans[0].model_ids,
+            vec!["qwen3_asr_0_6b_q8_0".to_string()]
+        );
+    }
+
+    /// `多语种` for a non-Chinese language: the profile and the language agree, and
+    /// the answer is still the multilingual ASR.
+    #[test]
+    fn multilingual_profile_serves_spanish_with_a_multilingual_asr() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        let req = Requirements {
+            language: "es".to_string(),
+            language_profile: LanguageProfile::Multilingual,
+            ..Requirements::default()
+        };
+
+        let best = best_model_for_role(&catalogue, &installed, Role::Asr, &req)
+            .expect("Qwen3-ASR serves Spanish");
+        assert_eq!(best.id, "qwen3_asr_0_6b_q8_0");
+    }
+
+    /// `Mandarin` must not disturb the §5.4 table: the default profile is what
+    /// keeps SenseVoice first for Chinese.
+    #[test]
+    fn mandarin_profile_keeps_the_per_language_table() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+
+        let chinese = best_model_for_role(&catalogue, &installed, Role::Asr, &req())
+            .expect("Chinese has an ASR model");
+        assert_eq!(chinese.id, "sensevoice_small_q8");
+
+        let spanish = Requirements {
+            language: "es".to_string(),
+            ..Requirements::default()
+        };
+        let best = best_model_for_role(&catalogue, &installed, Role::Asr, &spanish)
+            .expect("Spanish has an ASR model");
+        assert_eq!(
+            best.id, "qwen3_asr_0_6b_q8_0",
+            "普通话为主 must not claim Spanish audio"
         );
     }
 
@@ -1964,5 +2344,138 @@ mod tests {
             "composed plan needs a Diarize step, got {:?}",
             composed.steps
         );
+    }
+
+    /// Regression: with the full survey catalogue loaded, several families
+    /// declare `timestamps: word` (`parakeet_tdt`, `nemotron_asr`,
+    /// `crisperwhisper`, `gigaam_asr`, …) but only qwen3 has a runtime path here
+    /// (`engine::aligned` passes qwen3-scoped session options). Ranking on the
+    /// declaration alone made the solver plan `parakeet_tdt` for a word request,
+    /// which then silently degraded to estimated timing.
+    #[test]
+    fn word_timestamps_only_plan_the_family_this_app_can_align() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let real =
+            crate::engine::catalog::load_catalog(path).expect("committed models.json parses");
+        let installed = all_installed();
+
+        let claims: Vec<&str> = real
+            .iter()
+            .filter(|spec| spec.capabilities().timestamps >= TimestampGrade::Word)
+            .map(|spec| spec.id.as_str())
+            .collect();
+        assert!(
+            claims.len() > 1,
+            "the catalogue must exercise this: several models claim word timing"
+        );
+        assert!(
+            claims.iter().any(|id| id.starts_with("parakeet")),
+            "expected a non-qwen3 model among the claimers, got {claims:?}"
+        );
+
+        let plans = solve(
+            &real,
+            &installed,
+            &Requirements {
+                language: "zh".to_string(),
+                word_timestamps: true,
+                ..Requirements::default()
+            },
+        );
+        let chosen: Vec<&str> = plans[0].model_ids.iter().map(String::as_str).collect();
+        assert_eq!(
+            chosen,
+            vec!["qwen3_asr_0_6b_q8_0"],
+            "only the family with an implemented word path may be planned"
+        );
+
+        // ...and the download suggestion must be the aligner, not another ASR
+        // that claims a capability this app cannot deliver.
+        let gap = plans[0]
+            .gaps
+            .iter()
+            .find(|gap| gap.requirement == "word_timestamps");
+        if let Some(gap) = gap {
+            let suggested = gap.suggested_model_id.as_deref().unwrap_or_default();
+            assert!(
+                suggested.contains("forced_aligner"),
+                "the fix for a word gap is the aligner, got {suggested:?}"
+            );
+        }
+    }
+
+    /// The four questions the Settings panel asks must each change the answer
+    /// when resolved against the REAL committed catalogue. This is the guard
+    /// that the UI is not decorative: a toggle that changes nothing is worse
+    /// than no toggle at all.
+    #[test]
+    fn real_catalogue_answers_the_four_questions() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let real =
+            crate::engine::catalog::load_catalog(path).expect("committed models.json parses");
+        let installed = all_installed();
+
+        let picked = |req: &Requirements| {
+            solve(&real, &installed, req)
+                .into_iter()
+                .next()
+                .expect("a plan is always returned")
+                .model_ids
+        };
+
+        // 1. 语种场景: 中英混合 must not land on the Chinese-only SenseVoice.
+        let mandarin = picked(&Requirements {
+            language: "zh".to_string(),
+            ..Requirements::default()
+        });
+        let mixed = picked(&Requirements {
+            language: "zh".to_string(),
+            language_profile: LanguageProfile::Mixed,
+            ..Requirements::default()
+        });
+        assert!(
+            mandarin.iter().any(|id| id == "sensevoice_small_q8"),
+            "普通话为主 should use SenseVoice, got {mandarin:?}"
+        );
+        assert!(
+            !mixed.iter().any(|id| id == "sensevoice_small_q8"),
+            "中英混合 must not use a single-language-token model, got {mixed:?}"
+        );
+
+        // 2. 说话人分离: the passthrough model must appear.
+        let spoken = picked(&Requirements {
+            language: "zh".to_string(),
+            diarization: true,
+            ..Requirements::default()
+        });
+        assert!(
+            spoken.iter().any(|id| id.starts_with("moss")),
+            "speaker separation should pick MOSS, got {spoken:?}"
+        );
+
+        // 3. 词级时间戳: the word capable model replaces the plain ASR.
+        let words = picked(&Requirements {
+            language: "zh".to_string(),
+            word_timestamps: true,
+            ..Requirements::default()
+        });
+        assert!(
+            words.iter().any(|id| id.starts_with("qwen3_asr")),
+            "word timestamps need qwen3_asr, got {words:?}"
+        );
+
+        // 4. 显存占用: 小 must not spend a 1 GB model on a plain transcript.
+        let small = picked(&Requirements {
+            language: "zh".to_string(),
+            memory: MemoryBudget::Small,
+            ..Requirements::default()
+        });
+        assert_eq!(small, vec!["sensevoice_small_q8".to_string()]);
     }
 }

@@ -89,6 +89,14 @@ impl Default for Capabilities {
 }
 
 /// Role a model can fill in a plan (`engine/plan.rs` step kinds).
+///
+/// `Gen` and `Unknown` exist so the catalogue can carry entries this app does
+/// not run yet (the audio.cpp build also ships `tts`/`gen`/`s2s`/`svc` loaders).
+/// They are **inert**: `plan::solve` only ever looks for the five recognition
+/// roles plus `translate`, so such an entry can never enter a plan, and
+/// `commands::models` groups it out of the recognition and translation lists.
+/// Parsing them is still required — one unrecognised `role` string would fail
+/// the whole `models.json` load and take every working model down with it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
@@ -101,6 +109,12 @@ pub enum Role {
     /// recognition plan: the solver filters translate models out before it
     /// looks for candidates (see `plan::solve`).
     Translate,
+    /// Audio/music generation. Not implementable here: this app's pipeline is
+    /// transcription → subtitle, with no audio output stage.
+    Gen,
+    /// Any role this build does not know, kept loadable rather than fatal.
+    #[serde(other)]
+    Other,
 }
 
 impl Role {
@@ -113,6 +127,8 @@ impl Role {
             Role::Diar => "diar",
             Role::Passthrough => "passthrough",
             Role::Translate => "translate",
+            Role::Gen => "gen",
+            Role::Other => "other",
         }
     }
 }
@@ -129,6 +145,14 @@ pub enum Engine {
     #[default]
     Audiocpp,
     Llamacpp,
+    /// Python inference stacks (`transformers` / `diffusers` / `pytorch`).
+    ///
+    /// Same reasoning as [`Role::Other`]: they can never run here — this project
+    /// has no Python runtime by design (see AGENTS.md) — but they must parse, so
+    /// that a catalogue which describes them stays loadable. `Unknown` absorbs
+    /// any future name.
+    #[serde(other)]
+    Unknown,
 }
 
 impl Engine {
@@ -137,20 +161,54 @@ impl Engine {
         match self {
             Engine::Audiocpp => "audiocpp",
             Engine::Llamacpp => "llamacpp",
+            Engine::Unknown => "unknown",
         }
+    }
+
+    /// True for the two engines this app can actually spawn.
+    ///
+    /// `transformers`/`diffusers`/`pytorch` entries are catalogue-only: the app
+    /// has no Python runtime, so they are listed (so the survey stays readable in
+    /// one place) and never offered for download.
+    pub fn is_runnable(self) -> bool {
+        matches!(self, Engine::Audiocpp | Engine::Llamacpp)
     }
 }
 
 /// Speed class, used only for same-capability ranking (design §5.3).
+///
+/// `Slow` is not cosmetic: the catalogue gained real 7–14B translation models
+/// (`alma_13b`, `qwen3_14b`, `mistral_7b_q8_0`) whose whole point is that they
+/// are *slower* than the 1.8B default. Without it those entries would fail to
+/// deserialize, i.e. one bad model would take the whole catalogue down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Speed {
     Fast,
     Balanced,
     Accurate,
+    Slow,
 }
 
-/// Upstream provenance, used for the "Tongyi first" tie-break (design §5.3).
+impl Speed {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Speed::Fast => "fast",
+            Speed::Balanced => "balanced",
+            Speed::Accurate => "accurate",
+            Speed::Slow => "slow",
+        }
+    }
+}
+
+/// Upstream provenance, used for the "Tongyi first" tie-break (design §5.3) and
+/// for grouping the model list by vendor.
+///
+/// This is a closed enum in Rust but an open field on the wire: `#[serde(other)]`
+/// maps any vendor the code does not know onto `Other`, so adding a catalogue
+/// entry for a new vendor (Cohere, Google, Meta, …) never breaks deserialization.
+/// `Other` still means "no bias" in the solver, which is the correct default for
+/// a vendor-specific tie-break we did not write a rule for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
@@ -158,6 +216,12 @@ pub enum Source {
     Nvidia,
     Openmoss,
     Qwen,
+    Cohere,
+    Google,
+    Meta,
+    Mistral,
+    Unbabel,
+    #[serde(other)]
     Other,
 }
 
@@ -169,6 +233,11 @@ impl Source {
             Source::Nvidia => "nvidia",
             Source::Openmoss => "openmoss",
             Source::Qwen => "qwen",
+            Source::Cohere => "cohere",
+            Source::Google => "google",
+            Source::Meta => "meta",
+            Source::Mistral => "mistral",
+            Source::Unbabel => "unbabel",
             Source::Other => "other",
         }
     }
@@ -267,11 +336,46 @@ pub struct LanguageToken {
     pub token: String,
 }
 
+/// The audio.cpp family whose forced-aligner session options this app knows how
+/// to drive ([`crate::engine::aligned`]).
+///
+/// Word timing is not a generic CLI feature here: `--words-out` is honoured by
+/// several families, but the *path* this app implements is qwen3's — it passes
+/// `qwen3_asr.forced_aligner_path` and `qwen3_asr.vad_path` as family-scoped
+/// session options and needs a companion `align`-role entry for the aligner
+/// weights. A family that emits words from its own decoder (parakeet, nemotron,
+/// crisperwhisper, gigaam) would need a different invocation, so it must not be
+/// planned for a word-timestamp request until that path exists.
+///
+/// Kept as a constant rather than a `models.json` field because it describes the
+/// *runtime*, not the model: the day a second family is wired up, this becomes a
+/// list and every word-capable entry starts qualifying on its own.
+pub const WORD_ALIGNED_FAMILY: &str = "qwen3_asr";
+
 impl ModelSpec {
     /// Effective capabilities, applying the v1 fallback when the entry did not
     /// declare any (design §4.2).
     pub fn capabilities(&self) -> Capabilities {
         self.capabilities_raw.unwrap_or_default()
+    }
+
+    /// True when a word-timestamp request can actually be honoured by *this*
+    /// app for this model.
+    ///
+    /// Two conditions, and both are load-bearing:
+    ///
+    /// 1. the model declares `timestamps: word` — a claim about the checkpoint;
+    /// 2. its family is [`WORD_ALIGNED_FAMILY`] — a claim about the code path.
+    ///
+    /// The second is why this is not [`ModelSpec::capabilities`]: with the survey
+    /// catalogue loaded, `parakeet_tdt` and `nemotron_asr` also declare `word`,
+    /// and ranking on the declaration alone made the solver pick them for a
+    /// word request — a run that then silently fell back to estimated timing.
+    /// Capability that cannot be delivered is worse than no capability, because
+    /// the user only finds out in the output.
+    pub fn supports_word_timestamps(&self) -> bool {
+        self.capabilities().timestamps >= TimestampGrade::Word
+            && self.family == WORD_ALIGNED_FAMILY
     }
 
     /// True when the model can fill `role`; a v1 entry with no `roles` defaults
@@ -651,6 +755,74 @@ mod tests {
     fn committed_catalog() -> Vec<ModelSpec> {
         let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/resources/models.json"));
         load_catalog(path).expect("committed models.json parses")
+    }
+
+    /// The committed catalogue carries ~120 optional models from the survey
+    /// spreadsheets, not just the 10 defaults. Three of them used to fail
+    /// deserialization (a `slow` speed, a third-party `source`, a `gen` role /
+    /// non-C++ engine), and because `load_catalog` is all-or-nothing that took
+    /// EVERY model down — including the ones that work.
+    ///
+    /// These tests pin the enum flexibility that prevents a repeat: an unknown
+    /// vendor degrades to `Other`, an unknown engine to `Unknown`, and neither
+    /// is ever offered for download or picked by the solver.
+    #[test]
+    fn unknown_enum_values_degrade_instead_of_failing_the_catalogue() {
+        let specs = parse_inline(
+            r#"{"models": [
+              {
+                "id": "vendored", "family": "sense_asr", "display_name": "V",
+                "target_directory": "V", "model_file": "v.gguf",
+                "files": [{"path": "v.gguf", "url": "https://x/v.gguf", "size": 1}],
+                "languages": ["auto"], "license": "MIT",
+                "roles": ["asr"], "speed": "slow", "source": "no-such-vendor"
+              },
+              {
+                "id": "musical", "family": "ace_step", "display_name": "M",
+                "target_directory": "M", "model_file": "m.gguf",
+                "files": [{"path": "m.gguf", "url": "https://x/m.gguf", "size": 1}],
+                "languages": ["auto"], "license": "MIT",
+                "roles": ["gen"], "engine": "diffusers", "speed": "balanced"
+              }
+            ]}"#,
+        );
+
+        assert_eq!(specs.len(), 2, "one odd entry must not sink the whole file");
+        assert_eq!(specs[0].speed, Some(Speed::Slow));
+        assert_eq!(
+            specs[0].source,
+            Some(Source::Other),
+            "an unknown vendor is 'no bias', not a parse error"
+        );
+        assert_eq!(specs[1].engine, Engine::Unknown);
+        assert!(specs[1].has_role(Role::Gen));
+        assert!(
+            !specs[1].engine.is_runnable(),
+            "a Python-engine entry must never be offered for download"
+        );
+        assert!(specs[0].engine.is_runnable());
+    }
+
+    /// `slow` must not be conflated with `accurate`: they mean different things
+    /// (14B model vs. careful small model), and the cost badge is derived from
+    /// the rank.
+    #[test]
+    fn the_committed_catalogue_carries_slow_and_survey_vendors() {
+        let specs = committed_catalog();
+        assert!(
+            specs.iter().any(|spec| spec.speed == Some(Speed::Slow)),
+            "the survey includes 7-14B translation models"
+        );
+        assert!(
+            specs
+                .iter()
+                .any(|spec| spec.source == Some(Source::Google)),
+            "gemma entries carry a real vendor, not Other"
+        );
+        assert!(
+            specs.iter().all(|spec| spec.engine.is_runnable()),
+            "the committed file only lists models this build can run"
+        );
     }
 
     /// Parse an in-memory catalogue document (the crate has no `tempfile`).

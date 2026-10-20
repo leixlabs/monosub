@@ -18,7 +18,8 @@ use tauri::AppHandle;
 
 use crate::engine::catalog::{self, Capabilities, DiarizationGrade, Speed, TimestampGrade};
 use crate::engine::plan::{
-    self, Gap, ModelPlan, PlanCost, PlanStep, Requirements, StepKind,
+    self, Gap, LanguageProfile, MemoryBudget, ModelPlan, PlanCost, PlanStep, Requirements,
+    StepKind,
 };
 use crate::engine::Backend;
 
@@ -45,8 +46,12 @@ pub struct PlanRequirementsRequest {
     #[serde(alias = "enable_diarization")]
     pub enable_diarization: Option<bool>,
     pub language: Option<String>,
-    #[serde(alias = "speed_preference")]
-    pub speed_preference: Option<String>,
+    /// 语种场景: `mandarin` / `mixed` / `multilingual`.
+    #[serde(alias = "language_profile")]
+    pub language_profile: Option<String>,
+    /// 显存占用: `small` / `medium` / `large`.
+    #[serde(alias = "memory_budget")]
+    pub memory_budget: Option<String>,
     pub device: Option<String>,
     /// Manual `role -> model_id` pins (design §8.2.3), same spelling as
     /// `TranscribeRequest.model_overrides` so one store slice drives both.
@@ -69,6 +74,8 @@ pub struct PlanStepDto {
 pub struct PlanCostDto {
     pub steps: usize,
     pub speed: &'static str,
+    /// 显存 class the plan's own weight files imply (`small`/`medium`/`large`).
+    pub memory: &'static str,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -109,13 +116,18 @@ pub struct PlanResponse {
     pub gaps: Vec<GapDto>,
 }
 
-/// Map `fast` / `balanced` / `accurate`; anything else is `Balanced`.
-pub fn speed_from_wire(value: Option<&str>) -> Speed {
-    match value.map(|value| value.trim().to_lowercase()).as_deref() {
-        Some("fast") => Speed::Fast,
-        Some("accurate") => Speed::Accurate,
-        _ => Speed::Balanced,
-    }
+/// Map `small` / `medium` / `large`; anything else is `Medium`.
+///
+/// Kept as a thin wrapper over [`MemoryBudget::from_wire`] so the three
+/// spellings live in exactly one place — the solver module, which the Settings
+/// preview and the transcription run both call.
+pub fn memory_from_wire(value: Option<&str>) -> MemoryBudget {
+    MemoryBudget::from_wire(value)
+}
+
+/// Map `mandarin` / `mixed` / `multilingual`; anything else is `Mandarin`.
+pub fn language_profile_from_wire(value: Option<&str>) -> LanguageProfile {
+    LanguageProfile::from_wire(value)
 }
 
 /// Same rule as `transcribe::resolve_backend`: only an explicit `cpu` forces
@@ -135,7 +147,8 @@ impl PlanRequirementsRequest {
             word_timestamps: self.require_word_timestamps.unwrap_or(false),
             diarization: self.enable_diarization.unwrap_or(false),
             language: self.language.clone().unwrap_or_else(|| "zh".to_string()),
-            prefer: speed_from_wire(self.speed_preference.as_deref()),
+            language_profile: language_profile_from_wire(self.language_profile.as_deref()),
+            memory: memory_from_wire(self.memory_budget.as_deref()),
             backend: backend_from_device(self.device.as_deref()),
         }
     }
@@ -153,11 +166,7 @@ fn step_kind_name(kind: StepKind) -> &'static str {
 }
 
 fn speed_name(speed: Speed) -> &'static str {
-    match speed {
-        Speed::Fast => "fast",
-        Speed::Balanced => "balanced",
-        Speed::Accurate => "accurate",
-    }
+    speed.as_str()
 }
 
 fn timestamp_name(grade: TimestampGrade) -> &'static str {
@@ -203,6 +212,7 @@ impl From<PlanCost> for PlanCostDto {
         Self {
             steps: cost.steps,
             speed: speed_name(cost.speed),
+            memory: cost.memory.label(),
         }
     }
 }
@@ -263,6 +273,9 @@ pub async fn resolve_model_plan(
         word_timestamps = req.word_timestamps,
         diarization = req.diarization,
         language = %req.language,
+        language_profile = ?req.language_profile,
+        memory = req.memory.label(),
+        backend = ?req.backend,
         candidates = candidates.len(),
         chosen = candidates.first().map(|plan| plan.id.as_str()).unwrap_or("<none>"),
         "resolved model plan"
@@ -283,6 +296,7 @@ pub async fn resolve_model_plan(
             cost: PlanCostDto {
                 steps: 0,
                 speed: speed_name(Speed::Balanced),
+                memory: req.memory.label(),
             },
             capabilities: Capabilities {
                 timestamps: TimestampGrade::None,
@@ -307,11 +321,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn speed_and_backend_mapping() {
-        assert_eq!(speed_from_wire(Some("fast")), Speed::Fast);
-        assert_eq!(speed_from_wire(Some("ACCURATE")), Speed::Accurate);
-        assert_eq!(speed_from_wire(Some("nonsense")), Speed::Balanced);
-        assert_eq!(speed_from_wire(None), Speed::Balanced);
+    fn memory_and_profile_and_backend_mapping() {
+        assert_eq!(memory_from_wire(Some("small")), MemoryBudget::Small);
+        assert_eq!(memory_from_wire(Some("LARGE")), MemoryBudget::Large);
+        assert_eq!(memory_from_wire(Some("nonsense")), MemoryBudget::Medium);
+        assert_eq!(memory_from_wire(None), MemoryBudget::Medium);
+
+        assert_eq!(
+            language_profile_from_wire(Some("mixed")),
+            LanguageProfile::Mixed
+        );
+        assert_eq!(
+            language_profile_from_wire(Some("Multilingual")),
+            LanguageProfile::Multilingual
+        );
+        assert_eq!(
+            language_profile_from_wire(Some("nonsense")),
+            LanguageProfile::Mandarin
+        );
+        assert_eq!(language_profile_from_wire(None), LanguageProfile::Mandarin);
 
         assert_eq!(backend_from_device(Some("cpu")), Backend::Cpu);
         assert_eq!(
@@ -330,7 +358,8 @@ mod tests {
         assert!(!req.word_timestamps);
         assert!(!req.diarization);
         assert_eq!(req.language, "zh");
-        assert_eq!(req.prefer, Speed::Balanced);
+        assert_eq!(req.memory, MemoryBudget::Medium);
+        assert_eq!(req.language_profile, LanguageProfile::Mandarin);
     }
 
     #[test]
@@ -339,7 +368,8 @@ mod tests {
             require_word_timestamps: Some(true),
             enable_diarization: Some(true),
             language: Some("ko".to_string()),
-            speed_preference: Some("fast".to_string()),
+            language_profile: Some("mixed".to_string()),
+            memory_budget: Some("small".to_string()),
             device: Some("cpu".to_string()),
             model_overrides: None,
         }
@@ -348,7 +378,8 @@ mod tests {
         assert!(req.word_timestamps);
         assert!(req.diarization);
         assert_eq!(req.language, "ko");
-        assert_eq!(req.prefer, Speed::Fast);
+        assert_eq!(req.language_profile, LanguageProfile::Mixed);
+        assert_eq!(req.memory, MemoryBudget::Small);
         assert_eq!(req.backend, Backend::Cpu);
     }
 
@@ -363,7 +394,8 @@ mod tests {
             "requireWordTimestamps": true,
             "enableDiarization": true,
             "language": "zh",
-            "speedPreference": "fast",
+            "languageProfile": "mixed",
+            "memoryBudget": "small",
             "device": "cpu",
             "modelOverrides": { "asr": "qwen3_asr_0_6b_q8_0" },
         }))
@@ -371,7 +403,8 @@ mod tests {
 
         assert_eq!(request.require_word_timestamps, Some(true));
         assert_eq!(request.enable_diarization, Some(true));
-        assert_eq!(request.speed_preference.as_deref(), Some("fast"));
+        assert_eq!(request.language_profile.as_deref(), Some("mixed"));
+        assert_eq!(request.memory_budget.as_deref(), Some("small"));
         assert_eq!(
             request
                 .model_overrides
@@ -384,7 +417,8 @@ mod tests {
         let req = request.to_requirements();
         assert!(req.word_timestamps, "the toggle must reach the solver");
         assert!(req.diarization, "the toggle must reach the solver");
-        assert_eq!(req.prefer, Speed::Fast);
+        assert_eq!(req.language_profile, LanguageProfile::Mixed);
+        assert_eq!(req.memory, MemoryBudget::Small);
     }
 
     /// The snake_case spellings from design §9.1 keep working as aliases, so a
@@ -394,14 +428,16 @@ mod tests {
         let request: PlanRequirementsRequest = serde_json::from_value(serde_json::json!({
             "require_word_timestamps": true,
             "enable_diarization": true,
-            "speed_preference": "accurate",
+            "language_profile": "multilingual",
+            "memory_budget": "large",
             "model_overrides": { "diar": "sortformer_diar_4spk_q8_0" },
         }))
         .expect("snake_case aliases deserialize");
 
         assert_eq!(request.require_word_timestamps, Some(true));
         assert_eq!(request.enable_diarization, Some(true));
-        assert_eq!(request.speed_preference.as_deref(), Some("accurate"));
+        assert_eq!(request.language_profile.as_deref(), Some("multilingual"));
+        assert_eq!(request.memory_budget.as_deref(), Some("large"));
         assert!(request.model_overrides.is_some());
     }
 
@@ -463,6 +499,7 @@ mod tests {
             cost: PlanCost {
                 steps: 1,
                 speed: Speed::Balanced,
+                memory: MemoryBudget::Medium,
             },
             capabilities: Capabilities {
                 timestamps: TimestampGrade::Segment,
@@ -481,6 +518,7 @@ mod tests {
         assert_eq!(dto.steps[0].kind, "passthrough");
         assert_eq!(dto.steps[0].task, "asr");
         assert_eq!(dto.cost.speed, "balanced");
+        assert_eq!(dto.cost.memory, "medium");
         assert_eq!(dto.capabilities.diarization, "turns_with_text");
         assert_eq!(dto.gaps[0].requirement, "word_timestamps");
         assert!(dto.passthrough);

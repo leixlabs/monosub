@@ -19,10 +19,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
-use crate::engine::catalog::{ModelSpec, Speed};
-use crate::engine::plan::{
-    self, ModelPlan, Requirements, StepKind,
-};
+use crate::engine::catalog::ModelSpec;
+use crate::engine::plan::{self, ModelPlan, Requirements, StepKind};
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
 use crate::translate;
@@ -60,8 +58,10 @@ pub struct TranscribeRequest {
     // frontend that sends none of them keeps today's behaviour exactly. ---
     /// Word-level timestamps needed.
     pub require_word_timestamps: Option<bool>,
-    /// `fast` / `balanced` / `accurate`.
-    pub speed_preference: Option<String>,
+    /// 语种场景: `mandarin` / `mixed` / `multilingual`.
+    pub language_profile: Option<String>,
+    /// 显存占用: `small` / `medium` / `large`.
+    pub memory_budget: Option<String>,
     /// Manual `role -> model_id` overrides.
     pub model_overrides: Option<HashMap<String, String>>,
     // --- translation (translation-design §7). All optional so an older
@@ -204,7 +204,8 @@ pub async fn start_transcription(
         device,
         enable_diarization,
         require_word_timestamps,
-        speed_preference,
+        language_profile,
+        memory_budget,
         model_overrides,
         translate_enabled,
         target_language,
@@ -244,7 +245,10 @@ pub async fn start_transcription(
         word_timestamps: require_word_timestamps.unwrap_or(false),
         diarization: enable_diarization,
         language: language.clone(),
-        prefer: speed_from_request(speed_preference.as_deref()),
+        language_profile: crate::engine::plan::LanguageProfile::from_wire(
+            language_profile.as_deref(),
+        ),
+        memory: memory_from_request(memory_budget.as_deref()),
         backend,
     };
 
@@ -1149,13 +1153,12 @@ fn derive_output_paths(
     paths
 }
 
-/// Map `fast` / `balanced` / `accurate`; anything else is `Balanced`.
-fn speed_from_request(value: Option<&str>) -> Speed {
-    match value.map(|value| value.trim().to_lowercase()).as_deref() {
-        Some("fast") => Speed::Fast,
-        Some("accurate") => Speed::Accurate,
-        _ => Speed::Balanced,
-    }
+/// Map `small` / `medium` / `large`; anything else is `Medium`.
+///
+/// Kept as a thin wrapper over [`crate::engine::plan::MemoryBudget::from_wire`]
+/// so the run and the Settings preview cannot drift on the three spellings.
+fn memory_from_request(value: Option<&str>) -> crate::engine::plan::MemoryBudget {
+    crate::engine::plan::MemoryBudget::from_wire(value)
 }
 
 // Manual overrides live in the solver module (`plan::apply_model_overrides`),
@@ -1204,6 +1207,7 @@ fn remove_partial_outputs(outputs: &[PathBuf], started: SystemTime) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::engine::catalog::Speed;
     use std::time::Duration;
 
 
@@ -1469,11 +1473,23 @@ mod tests {
     }
 
     #[test]
-    fn speed_request_mapping_defaults_to_balanced() {
-        assert_eq!(speed_from_request(Some("fast")), Speed::Fast);
-        assert_eq!(speed_from_request(Some("ACCURATE")), Speed::Accurate);
-        assert_eq!(speed_from_request(Some("nonsense")), Speed::Balanced);
-        assert_eq!(speed_from_request(None), Speed::Balanced);
+    fn memory_request_mapping_defaults_to_medium() {
+        assert_eq!(
+            memory_from_request(Some("small")),
+            crate::engine::plan::MemoryBudget::Small
+        );
+        assert_eq!(
+            memory_from_request(Some("LARGE")),
+            crate::engine::plan::MemoryBudget::Large
+        );
+        assert_eq!(
+            memory_from_request(Some("nonsense")),
+            crate::engine::plan::MemoryBudget::Medium
+        );
+        assert_eq!(
+            memory_from_request(None),
+            crate::engine::plan::MemoryBudget::Medium
+        );
     }
 
     #[test]
@@ -1526,6 +1542,7 @@ mod tests {
             cost: crate::engine::plan::PlanCost {
                 steps: 1,
                 speed: Speed::Fast,
+                memory: crate::engine::plan::MemoryBudget::Medium,
             },
             capabilities: crate::engine::catalog::Capabilities::default(),
             gaps: Vec::new(),
@@ -1594,6 +1611,7 @@ mod tests {
             cost: crate::engine::plan::PlanCost {
                 steps: 1,
                 speed: Speed::Fast,
+                memory: crate::engine::plan::MemoryBudget::Medium,
             },
             capabilities: Capabilities::default(),
             gaps: Vec::new(),

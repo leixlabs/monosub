@@ -3,6 +3,7 @@ import { Info, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { useStore } from '@/store/useStore';
+import type { LanguageProfile, MemoryBudget } from '@/lib/modelPlan';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassSwitch } from '@/components/ui/glass-switch';
@@ -19,11 +20,18 @@ import { resolveModelPlan, type ModelPlan, type PlanResponse } from '@/lib/model
 /**
  * Settings ▸ Models ▸ "Recognition plan" (design §8.1).
  *
- * Requirements-driven: the user states needs (word timestamps, speaker
- * separation, speed), and the solver returns a plan
- * which is previewed live. Every manual override pins one step; the solver
- * fills the rest. A missing model is surfaced as a gap with a download action
- * rather than as a broken feature (design §5.6).
+ * Four questions, and those four fully determine the plan:
+ *
+ *   1. 语种场景 — 普通话为主 / 中英混合 / 多语种
+ *   2. 说话人分离
+ *   3. 词级时间戳
+ *   4. 显存占用 — 小 / 中 / 大
+ *
+ * Speed is deliberately absent: within this catalogue a model's weight size
+ * decides its footprint *and* its throughput, so asking both would be one
+ * question too many. Every manual override pins one step; the solver fills the
+ * rest. A missing model is surfaced as a gap with a download action rather than
+ * as a broken feature (design §5.6).
  */
 
 const SLOT_ORDER = ['vad', 'asr', 'diar'] as const;
@@ -101,7 +109,8 @@ export function SettingsModelPlan() {
       requireWordTimestamps: settings.requireWordTimestamps,
       enableDiarization: settings.defaultDiarization,
       language: settings.outputLanguage,
-      speedPreference: settings.speedPreference,
+      languageProfile: settings.languageProfile,
+      memoryBudget: settings.memoryBudget,
       // Overrides are applied to the preview so the user sees their pinning.
       // This must be sent: without it the preview showed the solver's unpinned
       // plan while the run executed the pinned one.
@@ -124,7 +133,8 @@ export function SettingsModelPlan() {
   }, [
     settings.requireWordTimestamps,
     settings.defaultDiarization,
-    settings.speedPreference,
+    settings.languageProfile,
+    settings.memoryBudget,
     settings.outputLanguage,
     modelOverrides,
   ]);
@@ -199,19 +209,24 @@ export function SettingsModelPlan() {
           {t('modelPlan.title')}
         </h3>
 
-        {/* Requirements */}
+        {/* The four questions (design §5.2 inputs). */}
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.wordTimestamps')}</span>
+              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.languageProfile')}</span>
               <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
-                {t('modelPlan.wordTimestampsHint')}
+                {t('modelPlan.languageProfileHint')}
               </p>
             </div>
-            <GlassSwitch
-              checked={settings.requireWordTimestamps}
-              onCheckedChange={(checked) => updateSettings({ requireWordTimestamps: checked })}
-              aria-label={t('modelPlan.wordTimestamps')}
+            <CustomSelect<LanguageProfile>
+              value={settings.languageProfile}
+              onChange={(value) => updateSettings({ languageProfile: value })}
+              testId="plan-language-profile"
+              options={[
+                { value: 'mandarin', label: t('modelPlan.languageMandarin') },
+                { value: 'mixed', label: t('modelPlan.languageMixed') },
+                { value: 'multilingual', label: t('modelPlan.languageMultilingual') },
+              ]}
             />
           </div>
 
@@ -225,27 +240,59 @@ export function SettingsModelPlan() {
             <GlassSwitch
               checked={settings.defaultDiarization}
               onCheckedChange={(checked) => updateSettings({ defaultDiarization: checked })}
+              data-testid="plan-diarization"
               aria-label={t('modelPlan.diarization')}
             />
           </div>
 
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.wordTimestamps')}</span>
+              <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
+                {t('modelPlan.wordTimestampsHint')}
+              </p>
+            </div>
+            <GlassSwitch
+              checked={settings.requireWordTimestamps}
+              onCheckedChange={(checked) => updateSettings({ requireWordTimestamps: checked })}
+              data-testid="plan-word-timestamps"
+              aria-label={t('modelPlan.wordTimestamps')}
+            />
+          </div>
 
           <div className="flex items-center justify-between gap-4">
-            <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.speed')}</span>
-            <CustomSelect
-              value={settings.speedPreference}
-              onChange={(value) => updateSettings({ speedPreference: value })}
+            <div className="min-w-0">
+              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.memoryBudget')}</span>
+              <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
+                {t('modelPlan.memoryBudgetHint')}
+              </p>
+            </div>
+            <CustomSelect<MemoryBudget>
+              value={settings.memoryBudget}
+              onChange={(value) => updateSettings({ memoryBudget: value })}
+              testId="plan-memory-budget"
               options={[
-                { value: 'fast', label: t('modelPlan.speedFast') },
-                { value: 'balanced', label: t('modelPlan.speedBalanced') },
-                { value: 'accurate', label: t('modelPlan.speedAccurate') },
+                { value: 'small', label: t('modelPlan.memorySmall') },
+                { value: 'medium', label: t('modelPlan.memoryMedium') },
+                { value: 'large', label: t('modelPlan.memoryLarge') },
               ]}
             />
           </div>
         </div>
 
         {/* Live preview of the resolved plan */}
-        <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-2">
+        <div
+          data-testid="plan-preview"
+          // The resolved plan as machine-readable attributes: resolution is
+          // async, so a scenario (or a support report) needs a way to wait for
+          // "the answer is in" rather than polling the rendered text.
+          data-plan-id={effectivePlan?.id ?? ''}
+          data-plan-models={effectivePlan?.modelIds.join(',') ?? ''}
+          data-plan-memory={effectivePlan?.cost.memory ?? ''}
+          data-plan-timestamps={effectivePlan?.capabilities.timestamps ?? ''}
+          data-plan-resolving={isResolving ? 'true' : 'false'}
+          className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-2"
+        >
           <div className="flex items-center gap-2">
             <span className="text-xxs uppercase tracking-wide text-text-tertiary dark:text-gray-500">
               {t('modelPlan.effective')}
@@ -262,6 +309,35 @@ export function SettingsModelPlan() {
               </p>
               <p className="text-xxs text-text-tertiary dark:text-gray-500">
                 {effectivePlan.modelIds.join(' + ') || '—'}
+              </p>
+              {/*
+                The footprint class comes from the chosen models' own weight
+                files, so this line and the download size can never disagree.
+                The timing grade is read from `capabilities.timestamps` rather
+                than from the plan title, because the same shape can reach
+                segment or word timing depending on the ASR that fills it —
+                "VAD + ASR" is estimated timing with SenseVoice and measured
+                word timing with qwen3_asr.
+              */}
+              <p className="text-xxs text-text-tertiary dark:text-gray-600">
+                {t('modelPlan.planFootprint', {
+                  memory: t(
+                    {
+                      small: 'modelPlan.memorySmall',
+                      medium: 'modelPlan.memoryMedium',
+                      large: 'modelPlan.memoryLarge',
+                    }[effectivePlan.cost.memory],
+                  ),
+                })}
+                {' · '}
+                {t(
+                  {
+                    word: 'modelPlan.timestampWord',
+                    segment: 'modelPlan.timestampSegment',
+                    turns: 'modelPlan.timestampTurns',
+                    none: 'modelPlan.timestampEstimate',
+                  }[effectivePlan.capabilities.timestamps],
+                )}
               </p>
               {(plan?.candidates.length ?? 0) > 1 && (
                 <button

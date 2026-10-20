@@ -133,6 +133,13 @@ const LANGUAGE_NAMES: &[(&str, &str)] = &[
     ("mn", "Mongolian"),
     ("ug", "Uyghur"),
     ("yue", "Cantonese"),
+    // `alma` trains on English↔Icelandic among its 10 directions; the survey
+    // catalogue lists it, so the prompt needs a name for it.
+    ("is", "Icelandic"),
+    // Greek: Cohere Transcribe and Aya list it.
+    ("el", "Greek"),
+    // Romanian: GigaAM / Parakeet / Cohere all cover it.
+    ("ro", "Romanian"),
 ];
 
 /// Human-readable name for a tag, falling back to the tag itself.
@@ -198,6 +205,9 @@ const CHINESE_NAMES: &[(&str, &str)] = &[
     ("mn", "蒙古语"),
     ("ug", "维吾尔语"),
     ("yue", "粤语"),
+    ("is", "冰岛语"),
+    ("el", "希腊语"),
+    ("ro", "罗马尼亚语"),
 ];
 
 /// The target's name in Chinese, falling back to the English name for a tag this

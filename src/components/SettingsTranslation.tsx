@@ -49,6 +49,9 @@ export function SettingsTranslation({
 
   const available = translationModels(models);
 
+  // Endonyms, so the list is readable whatever the UI language is. Ordered like
+  // `TRANSLATE_TARGET_LANGUAGES`, and exhaustive by type: adding a target without
+  // a label fails `tsc` rather than rendering a bare tag.
   const languageLabels: Record<TranslateTargetLanguage, string> = {
     en: 'English',
     zh: '简体中文',
@@ -59,6 +62,35 @@ export function SettingsTranslation({
     fr: 'Français',
     de: 'Deutsch',
     pt: 'Português',
+    ar: 'العربية',
+    bn: 'বাংলা',
+    bo: 'བོད་ཡིག',
+    cs: 'Čeština',
+    fa: 'فارسی',
+    gu: 'ગુજરાતી',
+    he: 'עברית',
+    hi: 'हिन्दी',
+    id: 'Bahasa Indonesia',
+    it: 'Italiano',
+    kk: 'Қазақша',
+    km: 'ខ្មែរ',
+    mn: 'Монгол',
+    mr: 'मराठी',
+    ms: 'Bahasa Melayu',
+    my: 'မြန်မာ',
+    nl: 'Nederlands',
+    pl: 'Polski',
+    ru: 'Русский',
+    ta: 'தமிழ்',
+    te: 'తెలుగు',
+    th: 'ไทย',
+    tl: 'Filipino',
+    tr: 'Türkçe',
+    ug: 'ئۇيغۇرچە',
+    uk: 'Українська',
+    ur: 'اردو',
+    vi: 'Tiếng Việt',
+    yue: '粵語',
   };
 
   const targetOptions: SelectOption<TranslateTargetLanguage>[] = TRANSLATE_TARGET_LANGUAGES.map(

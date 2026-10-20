@@ -15,6 +15,11 @@ interface CustomSelectProps<T extends string = string> {
   triggerClassName?: string;
   menuClassName?: string;
   disabled?: boolean;
+  /**
+   * `data-testid` for the trigger button, so a pilot scenario can address this
+   * select without a positional selector (`tests/pilot/*.toml`).
+   */
+  testId?: string;
 }
 
 export function CustomSelect<T extends string = string>({
@@ -25,6 +30,7 @@ export function CustomSelect<T extends string = string>({
   triggerClassName,
   menuClassName,
   disabled = false,
+  testId,
 }: CustomSelectProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -119,6 +125,7 @@ export function CustomSelect<T extends string = string>({
       <button
         type="button"
         role="combobox"
+        data-testid={testId}
         aria-expanded={isOpen}
         aria-controls={listId}
         disabled={disabled}
@@ -163,6 +170,7 @@ export function CustomSelect<T extends string = string>({
                 type="button"
                 key={option.value}
                 role="option"
+                data-testid={testId ? `${testId}-option-${option.value}` : undefined}
                 aria-selected={isSelected}
                 onMouseEnter={() => setHighlightedIndex(index)}
                 onClick={() => {
