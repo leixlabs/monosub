@@ -161,7 +161,9 @@
     "rescan": "Rescan",
     "rescanHint": "Re-read install state from disk (use after copying models in by hand)",
     "recognitionTitle": "Recognition models",
-    "translationTitle": "Translation models"
+    "translationTitle": "Translation models",
+    "unverified": "Unverified",
+    "unverifiedHint": "Not yet run end to end; it may not work"
   },
   "errors": {
     "modelNotInstalled": "The speech model is not installed. Click this file's error badge to see details and download it.",
@@ -243,7 +245,6 @@
     "slotNone": "(none)",
     "gapTitle": "No model plan can satisfy the current requirements",
     "gapSuggest": "Suggested download: {{model}} ({{size}})",
-    "planPassthroughMoss": "One-shot: transcript + timestamps + speakers",
     "planAsrVad": "VAD + ASR",
     "planAsrDiar": "VAD + ASR + speaker separation",
     "reasonTongyi": "Tongyi-family preferred",

@@ -34,7 +34,7 @@ pub const TASK: &str = "diar";
 ///
 /// Measured on v0.9.1 (PoC §3.1):
 /// `[{"start_sample":1120,"end_sample":159360,"speaker_id":"S01","confidence":0,"text":"…"}]`.
-/// `text` is present for the `asr`-family passthrough model and absent for
+/// `text` is present for `moss_transcribe_diarize` and absent for
 /// diar-only models, hence `Option`. `confidence` is always `0` in practice and
 /// is deliberately not represented: it must never be used as a filter.
 #[derive(Debug, Deserialize)]
@@ -54,13 +54,30 @@ pub struct DiarTurn {
     pub end_s: f64,
     /// Raw CLI label, e.g. `S01`.
     pub speaker_id: String,
-    /// Turn text when the model provides it (passthrough path).
+    /// Turn text when the model provides it (MOSS).
     pub text: Option<String>,
 }
 
 /// Convert a sample offset to seconds at [`SAMPLE_RATE`].
 pub fn samples_to_seconds(sample: u64) -> f64 {
     sample as f64 / SAMPLE_RATE as f64
+}
+
+/// Duration of a 16 kHz mono s16le WAV, in seconds.
+///
+/// Read from the file length rather than by shelling out to ffprobe: the pipeline
+/// guarantees this exact format before any inference runs (see
+/// [`crate::engine::wav`]). A file that cannot be stat'ed yields `0.0`, which the
+/// caller clamps — a diarization attempt is not worth failing over a stat.
+fn wav_duration_seconds(wav_path: &Path) -> f64 {
+    const HEADER_BYTES: u64 = 44;
+    match std::fs::metadata(wav_path) {
+        Ok(meta) => {
+            let data = meta.len().saturating_sub(HEADER_BYTES);
+            data as f64 / (SAMPLE_RATE as f64 * 2.0)
+        }
+        Err(_) => 0.0,
+    }
 }
 
 /// Parse a `--turns-out` document (design §6.4; PoC §3.1).
@@ -197,6 +214,16 @@ pub async fn detect_turns(
             .map_err(|e| EngineError::Io(format!("create {}: {}", parent.display(), e)))?;
     }
 
+    // `sortformer_diar` builds a fixed-capacity graph sized by `session_len_sec`
+    // (default 20 s) and fails the whole run past it:
+    //
+    //   audiocpp_cli failed: request exceeds fixed graph capacity
+    //
+    // Measured: 19 s succeeds, 20 s fails. The audio's duration is therefore
+    // passed as the session length, rounded up so a boundary case cannot trip it.
+    let duration_s = wav_duration_seconds(wav_path);
+    let session_len = (duration_s.ceil() + 1.0).max(1.0);
+
     let invocation = CliInvocation {
         task: TASK.to_string(),
         family: spec.family.clone(),
@@ -206,6 +233,8 @@ pub async fn detect_turns(
         args: vec![
             "--turns-out".to_string(),
             out_path.to_string_lossy().into_owned(),
+            "--session-option".to_string(),
+            format!("{}.session_len_sec={}", spec.family, session_len),
         ],
     };
 

@@ -308,6 +308,19 @@ pub struct ModelSpec {
     pub speed: Option<Speed>,
     pub source: Option<Source>,
     pub tier: Option<Tier>,
+    /// Whether this entry has actually been run end to end on this machine.
+    ///
+    /// Orthogonal to [`Self::tier`]: `tier` says how much we *recommend* a model,
+    /// this says whether anyone *verified* it works. The catalogue carries the
+    /// whole 模型调查 survey, and a model that loads is not necessarily a model
+    /// that runs — a GGUF can declare a family and still fail on the CLI, and
+    /// several families have never been exercised here.
+    ///
+    /// Unverified models stay **selectable**: they rank below verified ones and
+    /// the UI labels them, but the solver will still plan one when it is the only
+    /// candidate. Refusing to plan them outright would hide most of the
+    /// catalogue behind a manual override.
+    pub verified: bool,
     pub licenses: Vec<License>,
     /// Other catalogue ids this model cannot work without (v3).
     ///
@@ -459,6 +472,10 @@ struct ModelWire {
     source: Option<Source>,
     #[serde(default)]
     tier: Option<Tier>,
+    /// Absent means "never verified", which is the honest default for a
+    /// catalogue entry nobody has run.
+    #[serde(default)]
+    verified: bool,
     #[serde(default)]
     licenses: Vec<LicenseWire>,
     #[serde(default)]
@@ -533,6 +550,7 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
             speed: model.speed,
             source: model.source,
             tier: model.tier,
+            verified: model.verified,
             licenses: model
                 .licenses
                 .into_iter()
@@ -890,7 +908,9 @@ mod tests {
         assert_eq!(caps.timestamps, TimestampGrade::Segment);
         assert_eq!(caps.diarization, DiarizationGrade::TurnsWithText);
         assert!(caps.produces_text);
-        assert!(moss.has_role(Role::Passthrough));
+        // No `passthrough` role any more: MOSS runs the same VAD-segmented
+        // pipeline as every other ASR model (docs/tech-spec/audiocpp-moss-poc.md §5).
+        assert!(!moss.has_role(Role::Passthrough));
         assert!(moss.has_role(Role::Asr));
         assert!(!moss.has_role(Role::Diar));
         assert_eq!(moss.speed, Some(Speed::Balanced));
@@ -1300,6 +1320,7 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
+            verified: false,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),

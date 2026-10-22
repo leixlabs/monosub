@@ -35,11 +35,17 @@ export type LanguageProfile = 'mandarin' | 'mixed' | 'multilingual';
  */
 export type MemoryBudget = 'small' | 'medium' | 'large';
 
+/**
+ * The steps a plan can contain.
+ *
+ * There is no `passthrough` kind: a model that emits text + timestamps +
+ * speakers in one call (MOSS) is still planned as `asr` and still runs per VAD
+ * chunk, which is what keeps long audio inside a fixed decode budget.
+ */
 export type PlanStepKind =
   | 'vad'
   | 'asr'
   | 'diarize'
-  | 'passthrough'
   | 'turn_attribution';
 
 export type TimestampGradeName = 'none' | 'turns' | 'segment' | 'word';
@@ -101,7 +107,6 @@ export interface ModelPlan {
   titleKey: string;
   modelIds: string[];
   steps: PlanStep[];
-  passthrough: boolean;
   cost: PlanCost;
   capabilities: PlanCapabilities;
   gaps: PlanGap[];

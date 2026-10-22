@@ -9,12 +9,13 @@ pub mod aligned;
 pub mod catalog;
 pub mod cli;
 pub mod diar;
-pub mod direct;
 pub mod plan;
+pub mod spec;
 pub mod vad;
 pub mod wav;
 pub mod words;
 
+use crate::engine::diar::SAMPLE_RATE;
 use crate::paths::AppPaths;
 use std::path::PathBuf;
 
@@ -31,7 +32,7 @@ pub struct RawChunk {
     pub speaker: Option<String>,
     /// The ASR's own language tag (`<|zh|>` → `zh`), extracted before
     /// `subtitle::postprocess::clean_text` deletes it (translation-design §5).
-    /// `None` when the source produced no tag — the passthrough model does not,
+    /// `None` when the source produced no tag — MOSS does not,
     /// and that means "unknown", never an error.
     pub language: Option<String>,
 }
@@ -156,6 +157,10 @@ const REQUEST_CHUNK_MODE: &str = "none";
 /// Stem of the ASR `--text-out` path. The CLI appends `_<safe_id>` plus `.txt`
 /// and prints `text_out[<id>]=<path>`, which we prefer over guessing the name.
 const TEXT_OUT_STEM: &str = "seg.txt";
+
+/// Stem of the ASR `--segments-out` path, named by the same rule
+/// (`<stem>_<safe_id>.json`). Only segment-capable models write it.
+const SEGMENTS_OUT_STEM: &str = "segs.json";
 
 /// How many chunks go into one `--request-sequence` invocation (spec §7 risk 9).
 const MAX_CHUNKS_PER_BATCH: usize = 200;
@@ -290,11 +295,25 @@ async fn transcribe_estimated(
         wav::slice(&audio, chunk.start_sample, chunk.end_sample, &out_path)?;
     }
 
+    // Which per-request fields this family accepts. Resolved once per file: it
+    // is a property of the model, not of the batch.
+    let options = spec::request_options(&spec.family, Some(&model_file));
+    tracing::debug!(
+        task_id = %task_id,
+        family = %spec.family,
+        language_option = options.language,
+        chunk_mode_option = options.audio_chunk_mode,
+        "resolved per-request options"
+    );
+
     // Step 3b: transcribe. Each batch is one session, so the model loads once.
     let mut texts: Vec<String> = Vec::with_capacity(total);
+    // Real cue boundaries per chunk, when the model emitted them.
+    let mut spans_by_chunk: std::collections::HashMap<usize, Vec<SegmentSpan>> =
+        std::collections::HashMap::new();
     let mut done = 0usize;
     for batch in chunks.chunks(MAX_CHUNKS_PER_BATCH) {
-        let results = transcribe_batch(
+        let (results, segments) = transcribe_batch(
             paths,
             dir,
             &model_file,
@@ -307,6 +326,7 @@ async fn transcribe_estimated(
             batch,
             total,
             done,
+            options,
             on_progress,
         )
         .await?;
@@ -314,27 +334,61 @@ async fn transcribe_estimated(
         for chunk in batch {
             texts.push(results.get(&chunk.index).cloned().unwrap_or_default());
         }
+        for (index, spans) in segments {
+            spans_by_chunk.insert(index, spans);
+        }
         done += batch.len();
         on_progress(done, total, "Transcribing");
     }
 
-    // Step 4 is `subtitle::postprocess`; keep the chunk times intact here so it
-    // can distribute each chunk's duration proportionally.
-    let out = chunks
-        .iter()
-        .zip(texts)
-        .map(|(chunk, text)| RawChunk {
-            start_s: chunk.start_s(),
-            end_s: chunk.end_s(),
-            // The language tag must be read BEFORE it is cleaned away further
-            // down the pipeline (translation-design §5); `clean_text` runs in
-            // `subtitle::postprocess`, not here, so `text` is still raw.
-            language: crate::subtitle::postprocess::extract_language_tag(&text),
-            text,
-            // The VAD-sequence path has no speaker model, so no label here.
-            speaker: None,
-        })
-        .collect();
+    // Step 4 is `subtitle::postprocess`. A chunk whose model emitted real
+    // segment boundaries is expanded into one `RawChunk` per segment, so the
+    // subtitle stage uses *measured* cue times; a chunk without them stays a
+    // single chunk covering the VAD window, which the post-processor then splits
+    // and estimates within.
+    //
+    // Expanding rather than re-timing keeps `RawChunk` the one currency of the
+    // pipeline: `subtitle::postprocess` sees more, shorter chunks and needs no
+    // knowledge of where the boundaries came from.
+    let mut out = Vec::with_capacity(chunks.len());
+    for (chunk, text) in chunks.iter().zip(texts) {
+        match spans_by_chunk.get(&chunk.index) {
+            Some(spans) if !spans.is_empty() => {
+                for span in spans {
+                    // Segment offsets are relative to the chunk, so the chunk's
+                    // own start is the base. Clamped to the chunk so a model
+                    // that overshoots cannot place a cue past the audio it was
+                    // given.
+                    let start_s = chunk.start_s() + span.start_sample as f64 / SAMPLE_RATE as f64;
+                    let end_s = chunk.start_s() + span.end_sample as f64 / SAMPLE_RATE as f64;
+                    out.push(RawChunk {
+                        start_s: start_s.min(chunk.end_s()),
+                        end_s: end_s.clamp(start_s, chunk.end_s()),
+                        // Segments carry their own text; a span without text
+                        // falls back to the chunk's transcript.
+                        text: if span.text.trim().is_empty() {
+                            text.clone()
+                        } else {
+                            span.text.clone()
+                        },
+                        language: crate::subtitle::postprocess::extract_language_tag(&text),
+                        speaker: None,
+                    });
+                }
+            }
+            _ => out.push(RawChunk {
+                start_s: chunk.start_s(),
+                end_s: chunk.end_s(),
+                // The language tag must be read BEFORE it is cleaned away further
+                // down the pipeline (translation-design §5); `clean_text` runs in
+                // `subtitle::postprocess`, not here, so `text` is still raw.
+                language: crate::subtitle::postprocess::extract_language_tag(&text),
+                text,
+                // The VAD-sequence path has no speaker model, so no label here.
+                speaker: None,
+            }),
+        }
+    }
 
     Ok(out)
 }
@@ -354,10 +408,17 @@ async fn transcribe_batch(
     batch: &[vad::VadChunk],
     total: usize,
     done_before: usize,
+    options: spec::RequestOptions,
     on_progress: &ProgressFn<'_>,
-) -> Result<std::collections::HashMap<usize, String>, EngineError> {
+) -> Result<
+    (
+        std::collections::HashMap<usize, String>,
+        std::collections::HashMap<usize, Vec<SegmentSpan>>,
+    ),
+    EngineError,
+> {
     let vad_dir = cli::resolve_vad_path(paths)?;
-    let requests_path = write_requests(dir, batch, language)?;
+    let requests_path = write_requests(dir, batch, language, options)?;
 
     // `done` may only ever increase for a given file. A Metal attempt can emit
     // metrics and *then* fail, so without a shared floor the retry would report a
@@ -424,9 +485,16 @@ async fn run_sequence(
     total: usize,
     done_before: usize,
     on_progress: &ProgressFn<'_>,
-) -> Result<std::collections::HashMap<usize, String>, EngineError> {
+) -> Result<
+    (
+        std::collections::HashMap<usize, String>,
+        std::collections::HashMap<usize, Vec<SegmentSpan>>,
+    ),
+    EngineError,
+> {
     let out_dir = dir.join("out");
     let text_out = out_dir.join(TEXT_OUT_STEM);
+    let segments_out = out_dir.join(SEGMENTS_OUT_STEM);
 
     let invocation = CliInvocation {
         task: ASR_TASK.to_string(),
@@ -435,7 +503,7 @@ async fn run_sequence(
         // Sequence mode names every chunk inside requests.json.
         audio: None,
         backend,
-        args: asr_args(requests_path, &text_out, vad_dir, family),
+        args: asr_args(requests_path, &text_out, &segments_out, vad_dir, family),
     };
 
     // Ids are `c0000`-style, so the CLI's `safe_output_name` leaves them alone.
@@ -522,7 +590,84 @@ async fn run_sequence(
         )));
     }
 
-    Ok(results)
+    // Real per-cue boundaries, when the model emitted them. Absent for models
+    // without segment support (`sense_asr` writes no `segs_*.json` at all), and
+    // absence is success: the caller falls back to estimated timing.
+    let segments = read_segments(&out_dir, &segments_out, batch);
+
+    Ok((results, segments))
+}
+
+/// Read the `--segments-out` documents for one batch.
+///
+/// Each file is `<stem>_<safe_id>.json`, the same naming rule as `--text-out`.
+/// A missing or unparseable file is logged and skipped rather than failing the
+/// run: the transcript is already complete without it.
+fn read_segments(
+    out_dir: &std::path::Path,
+    segments_out: &std::path::Path,
+    batch: &[vad::VadChunk],
+) -> std::collections::HashMap<usize, Vec<SegmentSpan>> {
+    let mut segments = std::collections::HashMap::new();
+
+    for chunk in batch {
+        let id = chunk_id(chunk.index);
+        let path = unsafe_output_name(segments_out, &id);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            // The common case for a model without segment support.
+            Err(_) => continue,
+        };
+        match parse_segments(&raw) {
+            Ok(spans) if !spans.is_empty() => {
+                segments.insert(chunk.index, spans);
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                chunk = chunk.index,
+                path = %path.display(),
+                error = %error,
+                "unreadable segments file; estimating this chunk's timing"
+            ),
+        }
+    }
+
+    let _ = out_dir;
+    segments
+}
+
+/// One segment as the CLI reports it: chunk-relative sample offsets plus text.
+///
+/// Measured shape (MOSS via `--request-sequence`):
+/// `[{"start_sample":0,"end_sample":96320,"confidence":0,"text":"…"}]`.
+/// Offsets are **relative to the chunk**, so the caller adds the chunk start.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentSpan {
+    pub start_sample: u64,
+    pub end_sample: u64,
+    pub text: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct RawSegmentSpan {
+    start_sample: u64,
+    end_sample: u64,
+    #[serde(default)]
+    text: String,
+}
+
+/// Parse a `--segments-out` document.
+fn parse_segments(raw: &str) -> Result<Vec<SegmentSpan>, String> {
+    let raw_spans: Vec<RawSegmentSpan> =
+        serde_json::from_str(raw).map_err(|e| format!("parse segments: {}", e))?;
+    Ok(raw_spans
+        .into_iter()
+        .map(|span| SegmentSpan {
+            start_sample: span.start_sample,
+            end_sample: span.end_sample,
+            text: span.text,
+        })
+        .collect())
 }
 
 /// `--request-sequence` arguments. Deliberately contains no `--request-option`
@@ -535,6 +680,7 @@ async fn run_sequence(
 fn asr_args(
     requests_path: &std::path::Path,
     text_out: &std::path::Path,
+    segments_out: &std::path::Path,
     vad_dir: &std::path::Path,
     family: &str,
 ) -> Vec<String> {
@@ -543,6 +689,15 @@ fn asr_args(
         requests_path.to_string_lossy().into_owned(),
         "--text-out".to_string(),
         text_out.to_string_lossy().into_owned(),
+        // Asked of every family, not only the ones known to emit it.
+        // `--segments-out` is a global CLI flag: a model without segment
+        // support accepts it and simply writes no file (measured with
+        // `sense_asr`, which produced only `seg_c*.txt`). Passing it
+        // conditionally would need a per-family capability table that does not
+        // exist, and the read side already treats a missing file as "fall back
+        // to estimated timing".
+        "--segments-out".to_string(),
+        segments_out.to_string_lossy().into_owned(),
     ];
 
     if family_takes_vad_model_path(family) {
@@ -569,20 +724,34 @@ fn family_takes_vad_model_path(family: &str) -> bool {
 ///
 /// Relative `audio` paths resolve against the document's directory (PoC §4.2),
 /// so the bare chunk file name is enough — everything lives in `dir`.
+///
+/// `options` decides which per-request fields may be written. `audiocpp_cli`
+/// rejects an unknown one and fails the whole run, and 7 of the 30 ASR families
+/// declare neither `language` nor `audio_chunk_mode` (see [`spec`]), so writing
+/// them unconditionally made those models unusable.
 fn write_requests(
     dir: &std::path::Path,
     batch: &[vad::VadChunk],
     language: &str,
+    options: spec::RequestOptions,
 ) -> Result<PathBuf, EngineError> {
     let requests: Vec<serde_json::Value> = batch
         .iter()
         .map(|chunk| {
-            serde_json::json!({
+            let mut request = serde_json::json!({
                 "id": chunk_id(chunk.index),
                 "audio": wav::chunk_file_name(chunk.index),
-                "language": language,
-                "options": { "audio_chunk_mode": REQUEST_CHUNK_MODE },
-            })
+            });
+
+            if options.language {
+                request["language"] = serde_json::Value::String(language.to_string());
+            }
+            if options.audio_chunk_mode {
+                request["options"] =
+                    serde_json::json!({ "audio_chunk_mode": REQUEST_CHUNK_MODE });
+            }
+
+            request
         })
         .collect();
 
@@ -780,12 +949,57 @@ mod tests {
         assert_eq!(path, PathBuf::from("/w/out/seg_c0000.txt"));
     }
 
+    /// Measured shape from MOSS through `--request-sequence`.
+    #[test]
+    fn segments_parse_the_measured_wire_shape() {
+        let raw = r#"[{"start_sample":0,"end_sample":96320,"confidence":0,"text":"第一句。"},
+                      {"start_sample":100000,"end_sample":150000,"confidence":0,"text":"第二句。"}]"#;
+        let spans = parse_segments(raw).expect("parse");
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].start_sample, 0);
+        assert_eq!(spans[0].end_sample, 96320);
+        assert_eq!(spans[0].text, "第一句。");
+        assert_eq!(spans[1].start_sample, 100000);
+    }
+
+    #[test]
+    fn segments_tolerate_a_missing_text_field() {
+        // The shape is shared with `--turns-out`, where diar-only models omit
+        // `text`; a missing field must not fail the whole chunk.
+        let spans = parse_segments(r#"[{"start_sample":10,"end_sample":20}]"#).expect("parse");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].text, "");
+    }
+
+    #[test]
+    fn segments_naming_matches_the_text_out_convention() {
+        // `<stem>_<safe_id>.json`, exactly as `--text-out` does it.
+        let out = std::path::Path::new("/w/out/segs.json");
+        assert_eq!(
+            unsafe_output_name(out, "c0000"),
+            PathBuf::from("/w/out/segs_c0000.json")
+        );
+    }
+
+    #[test]
+    fn a_missing_segments_file_is_not_a_failure() {
+        // `sense_asr` writes no segments at all; that must read as "no real
+        // timing available", never as an error.
+        let dir = std::env::temp_dir().join(format!("monosub-segs-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let batch = vec![vad::VadChunk { index: 0, start_sample: 0, end_sample: 16000 }];
+        let segments = read_segments(&dir, &dir.join("segs.json"), &batch);
+        assert!(segments.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn sequence_args_never_pass_request_option() {
         // PoC §4.1: `--request-option` + `--request-sequence` is rejected.
         let args = asr_args(
             std::path::Path::new("/w/requests.json"),
             std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/w/out/segs.json"),
             std::path::Path::new("/res/models/silero_vad"),
             "sense_asr",
         );
@@ -810,6 +1024,7 @@ mod tests {
         let qwen = asr_args(
             std::path::Path::new("/w/requests.json"),
             std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/w/out/segs.json"),
             std::path::Path::new("/res/models/silero_vad"),
             "qwen3_asr",
         );
@@ -824,6 +1039,7 @@ mod tests {
         let fun = asr_args(
             std::path::Path::new("/w/requests.json"),
             std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/w/out/segs.json"),
             std::path::Path::new("/res/models/silero_vad"),
             "fun_asr_nano",
         );
@@ -844,7 +1060,8 @@ mod tests {
             vad::VadChunk { index: 0, start_sample: 0, end_sample: 16000 },
             vad::VadChunk { index: 7, start_sample: 80000, end_sample: 240000 },
         ];
-        let path = write_requests(&dir, &batch, "zh").expect("write requests.json");
+        let path = write_requests(&dir, &batch, "zh", spec::RequestOptions::ALL)
+            .expect("write requests.json");
         let written: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
@@ -857,6 +1074,55 @@ mod tests {
         assert_eq!(requests[0]["options"]["audio_chunk_mode"], "none");
         assert_eq!(requests[1]["id"], "c0007");
         assert_eq!(requests[1]["audio"], "chunk_0007.wav");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The bug this signature exists to fix: a family that declares neither
+    /// option must receive neither, because `audiocpp_cli` fails the whole run
+    /// on an unknown one.
+    ///
+    /// Measured against MOSS:
+    /// `audiocpp_cli failed: unknown MOSS-Transcribe-Diarize request option: language`.
+    #[test]
+    fn requests_json_omits_options_the_family_rejects() {
+        let dir = std::env::temp_dir().join(format!("monosub-req-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let batch = vec![vad::VadChunk { index: 0, start_sample: 0, end_sample: 16000 }];
+        let path = write_requests(&dir, &batch, "zh", spec::RequestOptions::NONE)
+            .expect("write requests.json");
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        let request = &written["requests"][0];
+        // The two fields that must survive.
+        assert_eq!(request["id"], "c0000");
+        assert_eq!(request["audio"], "chunk_0000.wav");
+        // The two that must not be present at all — an explicit `null` would
+        // still be an unknown option to the CLI.
+        assert!(request.get("language").is_none(), "language must be absent: {request}");
+        assert!(request.get("options").is_none(), "options must be absent: {request}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// One option on, the other off: the two are resolved independently, because
+    /// several families declare `audio_chunk_mode` without `language`.
+    #[test]
+    fn requests_json_trims_the_two_options_independently() {
+        let dir = std::env::temp_dir().join(format!("monosub-req-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let batch = vec![vad::VadChunk { index: 0, start_sample: 0, end_sample: 16000 }];
+        let options = spec::RequestOptions { language: false, audio_chunk_mode: true };
+        let path = write_requests(&dir, &batch, "zh", options).expect("write requests.json");
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+
+        let request = &written["requests"][0];
+        assert!(request.get("language").is_none());
+        assert_eq!(request["options"]["audio_chunk_mode"], "none");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

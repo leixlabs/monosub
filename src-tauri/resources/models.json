@@ -1225,7 +1225,8 @@
           "url": "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE"
         }
       ],
-      "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf)"
+      "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf)",
+      "verified": true
     },
     {
       "id": "gemma_3_12b_it_q4_k_m",
@@ -3331,7 +3332,6 @@
         "produces_text": true
       },
       "roles": [
-        "passthrough",
         "asr"
       ],
       "speed": "balanced",
@@ -3387,7 +3387,6 @@
         "produces_text": true
       },
       "roles": [
-        "passthrough",
         "asr"
       ],
       "speed": "accurate",
@@ -3441,7 +3440,6 @@
         "produces_text": true
       },
       "roles": [
-        "passthrough",
         "asr"
       ],
       "speed": "balanced",
@@ -3454,7 +3452,8 @@
           "url": "https://www.apache.org/licenses/LICENSE-2.0"
         }
       ],
-      "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. Q8_0 preserves words and speakers; the recommended passthrough default."
+      "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. Q8_0 preserves words and speakers; the recommended passthrough default.",
+      "verified": true
     },
     {
       "id": "nemotron_3_5_asr_streaming_0_6b_f16",
@@ -6106,7 +6105,8 @@
           "tag": "fa",
           "token": "Persian"
         }
-      ]
+      ],
+      "verified": true
     },
     {
       "id": "qwen3_forced_aligner_0_6b_q8_0",
@@ -6155,7 +6155,8 @@
           "url": "https://www.apache.org/licenses/LICENSE-2.0"
         }
       ],
-      "attribution": "Qwen3-ForcedAligner-0.6B (Qwen/Qwen3-ForcedAligner-0.6B). Not bundled: downloaded on demand. word_timestamps for qwen3_asr, also the `align` task."
+      "attribution": "Qwen3-ForcedAligner-0.6B (Qwen/Qwen3-ForcedAligner-0.6B). Not bundled: downloaded on demand. word_timestamps for qwen3_asr, also the `align` task.",
+      "verified": true
     },
     {
       "id": "qwen3_asr_1_7b_f16",
@@ -6582,7 +6583,8 @@
           "url": "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE"
         }
       ],
-      "attribution": "SenseVoice-Small (FunAudioLLM/SenseVoiceSmall)"
+      "attribution": "SenseVoice-Small (FunAudioLLM/SenseVoiceSmall)",
+      "verified": true
     },
     {
       "id": "sortformer_diar_4spk_q8_0",
@@ -6622,7 +6624,8 @@
           "url": "https://creativecommons.org/licenses/by-nc/4.0/"
         }
       ],
-      "attribution": "Sortformer Diar 4spk v1 (nvidia/diar_sortformer_4spk-v1). CC-BY-NC-4.0 — non-commercial use only; MonoSub is a personal learning project, so it is listed for attribution and local use. Speaker turns only (max 4 speakers), no text."
+      "attribution": "Sortformer Diar 4spk v1 (nvidia/diar_sortformer_4spk-v1). CC-BY-NC-4.0 — non-commercial use only; MonoSub is a personal learning project, so it is listed for attribution and local use. Speaker turns only (max 4 speakers), no text.",
+      "verified": true
     },
     {
       "id": "sortformer_diar_4spk_v1_f16",

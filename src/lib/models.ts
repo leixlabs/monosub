@@ -52,6 +52,14 @@ export interface ModelStatus {
   produces_text: boolean;
   source: string | null;
   tier: string | null;
+  /**
+   * Whether this model has been run end to end and is known to work.
+   *
+   * Independent of `installed`: a model can be downloaded and still never
+   * verified. Unverified entries stay selectable — the solver ranks them below
+   * verified ones — so the UI only has to *label* them, not hide them.
+   */
+  verified: boolean;
   installed: boolean;
   size_on_disk: number;
 }
@@ -165,6 +173,7 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
     produces_text: manifest.produces_text !== false,
     source: typeof manifest.source === 'string' ? manifest.source : null,
     tier: typeof manifest.tier === 'string' ? manifest.tier : null,
+    verified: status.verified === true,
     installed: status.installed === true,
     size_on_disk: asNumber(status.size_on_disk),
   };

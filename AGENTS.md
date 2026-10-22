@@ -132,7 +132,7 @@ monosub/
 │   │   │   ├── cli.rs           # Binary resolution, spawn, stderr ring buffer
 │   │   │   ├── catalog.rs       # models.json, install checks, language mapping
 │   │   │   ├── plan.rs          # Requirement → ModelPlan solver (pure, unit-tested)
-│   │   │   ├── direct.rs        # Passthrough path: one unsplit call, parses turns/segments
+│   │   │   ├── spec.rs          # GGUF spec → which --request-option a family accepts
 │   │   │   ├── aligned.rs       # Word-timestamps path: one call + --words-out
 │   │   │   ├── words.rs         # words.json parsing (samples → seconds)
 │   │   │   ├── vad.rs           # silero_vad invocation + chunk parsing
@@ -319,15 +319,12 @@ Rust checks every model in the plan is installed
     ↓
 FFmpeg extracts 16 kHz mono s16le WAV (cached next to the media as *_audio.wav)
     ↓
-┌── plan.passthrough ──────────────────────────────────────────────┐
-│ audiocpp_cli --task asr  (one unsplit call)                       │
-│   --segments-out / --turns-out  → text + times + speakers         │
-└───────────────────────────────────────────────────────────────────┘
-   or
-┌── multi-stage ───────────────────────────────────────────────────┐
+┌── every model, one pipeline ─────────────────────────────────────┐
 │ audiocpp_cli --task vad      → vad_chunks.json (speech segments)  │
 │ Rust slices the WAV per chunk, writes requests.json               │
+│   (fields trimmed to what the family declares — engine/spec.rs)   │
 │ audiocpp_cli --task asr --request-sequence → one text per chunk   │
+│   --segments-out → real cue boundaries when the model emits them  │
 │ (opt) --task diar → turns → Rust turn attribution by overlap      │
 └───────────────────────────────────────────────────────────────────┘
     ↓
@@ -360,15 +357,15 @@ Requirements { language_profile (语种场景), diarization, word_timestamps,
                memory (显存占用), language, backend }
         │
         ▼  engine/plan.rs  (pure functions; unit-testable without AppHandle)
- ModelPlan { steps: [Vad | Asr | Align | Diarize | Passthrough | TurnAttribution], … }
+ ModelPlan { steps: [Vad | Asr | Align | Diarize | TurnAttribution], … }
         │
-        ▼  engine/mod.rs → engine/direct.rs (passthrough) or the VAD-sequence pipeline
+        ▼  engine/mod.rs → the VAD → slice → requests.json → sequence pipeline
 ```
 
 | # | Setting | Values | What it decides |
 |---|---|---|---|
 | 1 | `languageProfile` | `mandarin` / `mixed` / `multilingual` | the family bias (§5.4). `mixed`/`multilingual` re-rank the table toward the models that follow a mid-sentence language switch, so `sense_asr` (one token language per session) stops being the pick for Chinese. |
-| 2 | `defaultDiarization` | bool | whether a `Passthrough` or `Asr+Diarize+TurnAttribution` template is enumerated |
+| 2 | `defaultDiarization` | bool | whether the `Asr+Diarize+TurnAttribution` template is enumerated |
 | 3 | `requireWordTimestamps` | bool | `word_shortfall_rank` — a ranking term, not a filter, so a catalogue without a word-capable ASR still plans one and reports a gap |
 | 4 | `memoryBudget` | `small` / `medium` / `large` | `footprint(spec)` (weight-file bytes) → `over_budget_rank` + the `memory_match` score term |
 
@@ -417,13 +414,16 @@ Rules that follow from this:
   `spk`/`sv` task in audio.cpp, so CAM++ (the old `core-engine/.../diarizer.py`) is
   **not reproducible** — speech separation comes from a `diar`-task model or from an
   ASR model that emits speaker labels itself.
-- **Passthrough is a first-class mode.** When the plan's single step is a
-  `Passthrough` model (`moss_transcribe_diarize`, which emits text + timestamps +
-  speaker labels in one call), the whole VAD → slice → `requests.json` → sequence
-  pipeline is **skipped** and the file is transcribed unsplit. Per-request options
-  may then go on the command line, since no `--request-sequence` is involved
-  (PoC §4.1) — but note `--request-option` and `--request-sequence` still must not
-  be combined.
+- **There is no one-shot / "passthrough" path any more.** It existed for exactly
+  one model (`moss_transcribe_diarize`) and was removed: that call decoded the
+  whole file under a single `--max-tokens` budget, so long audio truncated with
+  `MOSS-Transcribe-Diarize reached max_tokens before EOS` (measured: a 5-minute
+  clip already failed, a 17-minute one needed 6928 tokens against a 6223 budget).
+  Every model now runs per VAD chunk, which bounds the decode budget by the chunk
+  length (≤15 s) instead of the file length — a 4-hour input is as safe as a
+  30-second one. Speaker labels come from a `diar` model plus Rust turn
+  attribution, never from the ASR model's own output, because per-chunk speaker
+  ids are not comparable across chunks.
 - **Diarization requires a non-Tongyi model.** Neither `sense_asr` nor `fun_asr_nano`
   exposes speaker output; FunASR's "ASR + VAD + CAM++" pipeline is a *Python*
   composition, not a checkpoint capability.
@@ -452,7 +452,8 @@ Two timing sources exist and they must not be mixed:
 
 | Model | Timing | How cues get their times |
 |---|---|---|
-| `sense_asr`, `fun_asr_nano`, MOSS passthrough | none / segment | **estimated**: the VAD chunk window is shared out in proportion to character count (`postprocess::distribute_times`). The chunk boundary is the only real anchor. |
+| `sense_asr`, `fun_asr_nano` | none | **estimated**: the VAD chunk window is shared out in proportion to character count (`postprocess::distribute_times`). The chunk boundary is the only real anchor. |
+| `moss_transcribe_diarize` | segment | **measured** where the model emits `--segments-out` (one `RawChunk` per segment, offsets shifted by the chunk start); estimation is the fallback when a chunk wrote none. |
 | `qwen3_asr` + its forced aligner | word | **measured**: a cue starts at its first word and ends at its last (`postprocess::group_words_into_cues`). No estimation at all. |
 
 `qwen3_asr` runs a **different pipeline** when word timing is asked for
@@ -1015,7 +1016,7 @@ location; `MONOSUB_CONFIG_DIR=~/.monosub` is the supported way to get that liter
 | `src/lib/urlImport.ts` | `parse_url_input` / `start_url_import` wrappers + the `url_import_*` listeners |
 | `src-tauri/src/engine/mod.rs` | The transcription pipeline (dispatches on the plan) |
 | `src-tauri/src/engine/plan.rs` | Requirement → ModelPlan solver |
-| `src-tauri/src/engine/direct.rs` | Passthrough (one-shot) inference path |
+| `src-tauri/src/engine/spec.rs` | Reads `audiocpp.model_spec.json` out of a GGUF to learn which `--request-option`s a family accepts (3 layers: GGUF → measured negative list → safe default) |
 | `src-tauri/src/engine/aligned.rs` | Word-timestamp path: one `qwen3_asr` call with `--words-out` |
 | `src-tauri/src/engine/words.rs` | `words.json` parsing, sample→seconds, script-aware joining |
 | `src-tauri/src/engine/cli.rs` | Binary resolution + process management |
@@ -1232,6 +1233,56 @@ extension swap.
   error. The app writes an empty subtitle.
 - `--session-option sense_asr.vad_model_path=<dir>` must be passed explicitly, or the
   CLI falls back to its own relative `assets/…` path.
+
+### Which `--request-option`s a model accepts
+
+`audiocpp_cli` validates every per-request option against the selected model's
+family spec and **fails the whole run** on an unknown one:
+
+```text
+audiocpp_cli failed: unknown MOSS-Transcribe-Diarize request option: language
+```
+
+`engine/mod.rs::write_requests` used to write `language` and `audio_chunk_mode`
+into every request unconditionally. That only works for families that declare
+both — 7 of the 30 ASR families declare neither, so selecting any of them failed
+immediately. `engine/spec.rs` resolves the answer in three layers:
+
+1. **The GGUF itself.** Every model carries its family spec in the
+   `audiocpp.model_spec.json` metadata KV, so the answer travels with the file
+   and a model downloaded next year needs no code change. The CLI cannot be asked:
+   `--list-loaders --json` reports only `api_endpoints` / `instructions_policy` /
+   `tasks`, and `--inspect --model` reports task/mode/language/config but no
+   options.
+2. **A measured negative list**, because not every GGUF embeds a *full* spec.
+   `qwen3_asr` and `qwen3_forced_aligner` ship two keys (`family`, `sources`) —
+   yet `qwen3_asr` really does accept `language`. A minimal spec must therefore
+   fall through, never be read as "accepts nothing".
+3. **A safe default**: an unknown family keeps the historic behaviour (send the
+   options), so a future family degrades to what it does today instead of
+   silently losing its language hint.
+
+A negative list rather than a positive one is deliberate — the default for an
+unrecognised family is "send", which is what every model got before.
+
+`--segments-out` needs no such table: it is a global CLI flag. A model without
+segment support accepts it and simply writes no file (measured with `sense_asr`),
+and the read side treats a missing file as "fall back to estimated timing".
+
+### Verified vs unverified models
+
+`models.json` carries `verified: bool`, orthogonal to `tier`: `tier` says how much
+a model is *recommended*, `verified` says whether anyone actually ran it end to
+end. A model that loads is not necessarily a model that works — a GGUF can declare
+a family and still fail on the CLI.
+
+Unverified models stay **selectable**. They lose `VERIFIED_BONUS` (45) in the
+solver's score, which is larger than `INSTALLED_BONUS` (30) but smaller than
+`RECOMMENDED_TIER_BONUS` (100) — so a verified model that still needs a download
+beats an unverified one already on disk, while 显存预算 and language fit still
+outrank verification. The UI labels them (`models.unverified`) instead of hiding
+them; filtering them out would hide most of the catalogue behind a manual
+override.
 
 ### Skipping existing subtitles (`skipExistingSubtitle`)
 

@@ -9,7 +9,7 @@
 //! (all fields optional, design §9.1) onto [`Requirements`], and returns a
 //! camelCase DTO the frontend consumes directly.
 //!
-//! The mapping helpers ([`passthrough_from_wire`], [`speed_from_wire`],
+//! The mapping helpers ([`memory_from_wire`], [`speed_from_wire`],
 //! [`backend_from_device`]) are deliberately pure so they can be tested without
 //! constructing an `AppHandle`.
 
@@ -26,8 +26,9 @@ use crate::engine::Backend;
 /// Wire request for `resolve_model_plan`. Every field is optional so an older
 /// frontend that sends nothing still gets the documented defaults.
 ///
-/// There is deliberately no passthrough field: whether a single model can emit
-/// text + timestamps + speakers is decided by the solver at runtime.
+/// There is deliberately no "one-shot" field: whether a model can emit text +
+/// timestamps + speakers is a property of the chosen model, decided by the
+/// solver at runtime.
 ///
 /// The accepted spelling is **camelCase**, matching the camelCase response DTOs
 /// and `src/lib/modelPlan.ts`. The snake_case spellings from design §9.1 are
@@ -101,7 +102,6 @@ pub struct ModelPlanDto {
     pub title_key: &'static str,
     pub model_ids: Vec<String>,
     pub steps: Vec<PlanStepDto>,
-    pub passthrough: bool,
     pub cost: PlanCostDto,
     pub capabilities: CapabilitiesDto,
     pub gaps: Vec<GapDto>,
@@ -174,7 +174,6 @@ fn step_kind_name(kind: StepKind) -> &'static str {
         StepKind::Asr => "asr",
         StepKind::Align => "align",
         StepKind::Diarize => "diarize",
-        StepKind::Passthrough => "passthrough",
         StepKind::TurnAttribution => "turn_attribution",
     }
 }
@@ -248,7 +247,6 @@ impl From<ModelPlan> for ModelPlanDto {
             title_key: plan.title_key,
             model_ids: plan.model_ids,
             steps: plan.steps.into_iter().map(PlanStepDto::from).collect(),
-            passthrough: plan.passthrough,
             cost: plan.cost.into(),
             capabilities: plan.capabilities.into(),
             gaps: plan.gaps.into_iter().map(GapDto::from).collect(),
@@ -307,7 +305,6 @@ pub async fn resolve_model_plan(
             title_key: "modelPlan.gapTitle",
             model_ids: Vec::new(),
             steps: Vec::new(),
-            passthrough: false,
             cost: PlanCostDto {
                 steps: 0,
                 speed: speed_name(Speed::Balanced),
@@ -348,8 +345,8 @@ pub async fn resolve_model_plan(
 ///
 /// The five requirement fields are copied from [`Requirements`] (canonical
 /// spellings) rather than from the wire request, so an alias like `zh-en` or a
-/// missing field cannot be stored verbatim. `model_ids` / `passthrough` are the
-/// solver's output — a cache the CLI re-verifies, not the authority.
+/// missing field cannot be stored verbatim. `model_ids` is the solver's output —
+/// a cache the CLI re-verifies, not the authority.
 fn recognition_plan_from_requirements(
     req: &Requirements,
     plan: &ModelPlanDto,
@@ -361,7 +358,6 @@ fn recognition_plan_from_requirements(
         diarization: req.diarization,
         language: req.language.clone(),
         model_ids: plan.model_ids.clone(),
-        passthrough: plan.passthrough,
     }
 }
 
@@ -530,6 +526,7 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
+            verified: false,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
@@ -554,16 +551,15 @@ mod tests {
     #[test]
     fn dto_mapping_preserves_step_and_gap_fields() {
         let plan = ModelPlan {
-            id: "passthrough:moss".to_string(),
-            title_key: "modelPlan.planPassthroughMoss",
+            id: "asr:moss".to_string(),
+            title_key: "modelPlan.planAsrVad",
             model_ids: vec!["moss_transcribe_diarize_q8_0".to_string()],
             steps: vec![PlanStep {
-                kind: StepKind::Passthrough,
+                kind: StepKind::Asr,
                 model_id: "moss_transcribe_diarize_q8_0".to_string(),
                 task: "asr".to_string(),
                 family: "moss_transcribe_diarize".to_string(),
             }],
-            passthrough: true,
             cost: PlanCost {
                 steps: 1,
                 speed: Speed::Balanced,
@@ -582,14 +578,13 @@ mod tests {
         };
 
         let dto = ModelPlanDto::from(plan);
-        assert_eq!(dto.id, "passthrough:moss");
-        assert_eq!(dto.steps[0].kind, "passthrough");
+        assert_eq!(dto.id, "asr:moss");
+        assert_eq!(dto.steps[0].kind, "asr");
         assert_eq!(dto.steps[0].task, "asr");
         assert_eq!(dto.cost.speed, "balanced");
         assert_eq!(dto.cost.memory, "medium");
         assert_eq!(dto.capabilities.diarization, "turns_with_text");
         assert_eq!(dto.gaps[0].requirement, "word_timestamps");
-        assert!(dto.passthrough);
     }
 
     /// The plan written to `settings.json` must carry the four answers in their
@@ -612,7 +607,6 @@ mod tests {
             title_key: "modelPlan.planWord",
             model_ids: vec!["qwen3_asr_0_6b_q8_0".to_string()],
             steps: Vec::new(),
-            passthrough: false,
             cost: PlanCostDto {
                 steps: 1,
                 speed: "balanced",
@@ -635,7 +629,6 @@ mod tests {
         assert!(!persisted.diarization);
         assert_eq!(persisted.language, "en");
         assert_eq!(persisted.model_ids, vec!["qwen3_asr_0_6b_q8_0"]);
-        assert!(!persisted.passthrough);
     }
 
     /// A request that uses a documented alias (`zh-en`) or omits a field must
@@ -653,7 +646,6 @@ mod tests {
             title_key: "modelPlan.planDefault",
             model_ids: Vec::new(),
             steps: Vec::new(),
-            passthrough: false,
             cost: PlanCostDto {
                 steps: 0,
                 speed: "balanced",

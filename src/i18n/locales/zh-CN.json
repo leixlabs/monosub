@@ -211,7 +211,9 @@
     "rescan": "重新检测",
     "rescanHint": "重新从磁盘读取安装状态（手动拷入模型后可用）",
     "recognitionTitle": "识别模型",
-    "translationTitle": "翻译模型"
+    "translationTitle": "翻译模型",
+    "unverified": "未验证",
+    "unverifiedHint": "尚未完整实测，可能无法正常工作"
   },
   "modelPlan": {
     "title": "识别方案",
@@ -243,7 +245,6 @@
     "slotNone": "（不使用）",
     "gapTitle": "当前需求没有可用的模型方案",
     "gapSuggest": "建议下载 {{model}}（{{size}}）",
-    "planPassthroughMoss": "直出：转写+时间戳+说话人",
     "planAsrVad": "VAD + ASR",
     "planAsrDiar": "VAD + ASR + 说话人分离",
     "reasonTongyi": "阿里系优先",

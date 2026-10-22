@@ -331,7 +331,6 @@ pub async fn start_transcription(
         task_id = %task_id,
         plan = %plan.id,
         models = ?plan.model_ids,
-        passthrough = plan.passthrough,
         "model plan selected"
     );
 
@@ -538,7 +537,9 @@ pub async fn transcribe_file(
     // model" is a transition only; the work happens under "Transcribing".
     //
     // `words` is only ever non-empty on the aligned path, where cue timing comes
-    // from the words rather than from their chunk window.
+    // from the words rather than from their chunk window. Declared here and
+    // filled inside the block so the post-process call below can borrow it.
+    #[allow(unused_assignments)]
     let mut words: Vec<engine::words::Word> = Vec::new();
     let chunks = {
         let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
@@ -567,21 +568,13 @@ pub async fn transcribe_file(
             }
         };
 
-        // M8-4: dispatch on the plan. A passthrough plan makes ONE unsplit call
-        // (design §6.1); anything else runs the existing VAD → sequence
-        // pipeline, optionally followed by diarization + turn attribution.
-        if params.plan.passthrough {
-            engine::direct::transcribe_direct(
-                paths,
-                &params.task_id,
-                audio.path(),
-                &params.model_id,
-                params.backend,
-                &on_progress,
-            )
-            .await
-            .map_err(engine_failure)?
-        } else {
+        // Every model runs the same VAD → slice → `--request-sequence` pipeline,
+        // then optionally diarization + turn attribution. There is no one-shot
+        // path: a model that emits text + timestamps + speakers in a single call
+        // (MOSS) is still fed per VAD chunk, which is what keeps a multi-hour
+        // file inside a fixed decode budget
+        // (docs/tech-spec/audiocpp-moss-poc.md §5).
+        {
             let transcription =
                 engine::transcribe_words(paths, &params.task_id, audio.path(), &opts, &on_progress)
                     .await
@@ -801,10 +794,10 @@ pub async fn translate_and_write(
 ///    `subtitle::postprocess::clean_text` deleted the tags; the cleaned segments
 ///    no longer carry them.
 /// 2. The requested language, when it is not `auto`, so an explicit choice wins
-///    over the absence of tags (the moss / passthrough path emits none).
+///    over the absence of tags (MOSS emits none).
 /// 3. A script census over the transcript (§5's "简单的文字脚本统计兜底"). This
 ///    is the only case the census exists for: `auto` was requested AND the model
-///    gave no tag, which is exactly the passthrough path.
+///    gave no tag, which is exactly the MOSS path.
 /// 4. `None` — genuinely unknown. The caller then translates rather than skips.
 fn detected_language(chunks: &[engine::RawChunk], requested: &str) -> Option<String> {
     let tags = chunks.iter().map(|chunk| chunk.language.as_deref());
@@ -1659,6 +1652,7 @@ mod tests {
                 speed: None,
                 source: None,
                 tier: None,
+                verified: false,
                 licenses: Vec::new(),
                 requires: Vec::new(),
                 language_tokens: Vec::new(),
@@ -1675,7 +1669,6 @@ mod tests {
                 task: "asr".to_string(),
                 family: "sense_asr".to_string(),
             }],
-            passthrough: false,
             cost: crate::engine::plan::PlanCost {
                 steps: 1,
                 speed: Speed::Fast,
@@ -1729,6 +1722,7 @@ mod tests {
             speed: Some(Speed::Balanced),
             source: None,
             tier: None,
+            verified: false,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
@@ -1744,7 +1738,6 @@ mod tests {
                 task: "asr".to_string(),
                 family: "sense_asr".to_string(),
             }],
-            passthrough: false,
             cost: crate::engine::plan::PlanCost {
                 steps: 1,
                 speed: Speed::Fast,
@@ -2343,7 +2336,6 @@ mod tests {
         // Cover every branch of `plan::title_key` plus the empty-plan gap key.
         let keys = [
             "modelPlan.gapTitle",
-            "modelPlan.planPassthroughMoss",
             "modelPlan.planAsrDiar",
             "modelPlan.planAsrVad",
         ];

@@ -8,7 +8,7 @@
 //!
 //! - [`distribute_times`] *estimates* cue times by sharing a chunk's window out
 //!   in proportion to character count. That is the only option when the model
-//!   emits no word timing (SenseVoice, MOSS passthrough) and it is what makes a
+//!   emits no word timing (SenseVoice, MOSS) and it is what makes a
 //!   chunk boundary the only real timing anchor.
 //! - [`group_words_into_cues`] *uses* word timing: a cue starts at its first
 //!   word and ends at its last. No estimation is involved, which is why the old
@@ -39,8 +39,8 @@ const LANGUAGE_TAGS: &[&str] = &["zh", "en", "yue", "ja", "ko"];
 /// Extract the ASR's own language tag (`<|zh|>`) from a raw transcript.
 ///
 /// `clean_text` deletes every `<|…|>` tag, so the language has to be read *here,
-/// before cleaning*, or it is lost for good (design §5). The passthrough model
-/// emits no such tag, which is why the result is an `Option` rather than a
+/// before cleaning*, or it is lost for good (design §5). MOSS emits no such tag,
+/// which is why the result is an `Option` rather than a
 /// string.
 pub fn extract_language_tag(raw: &str) -> Option<String> {
     let mut rest = raw;
@@ -65,7 +65,7 @@ pub fn extract_language_tag(raw: &str) -> Option<String> {
 ///
 /// Majority wins; a tie breaks to the tag seen first, so the same input always
 /// yields the same answer. `None` when no chunk carried a tag: the moss /
-/// passthrough path emits none, and "unknown" is the documented signal to
+/// MOSS emits none, and "unknown" is the documented signal to
 /// translate rather than to skip (design §5).
 pub fn dominant_language<'a>(tags: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
     // A Vec rather than a map: first-seen order is what breaks a tie.

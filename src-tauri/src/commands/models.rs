@@ -99,7 +99,7 @@ pub struct ModelStatus {
     // --- v2 capability fields (design §7.6): drive UI grouping and the
     // "can this plan run?" checks without a second round trip. ---
     /// `roles` as declared in `models.json` (`asr` / `vad` / `align` / `diar` /
-    /// `passthrough` / `translate`); empty means the v1 fallback `["asr"]`.
+    /// `translate`); empty means the v1 fallback `["asr"]`.
     pub roles: Vec<String>,
     /// Inference engine: `audiocpp` (recognition) or `llamacpp` (translation),
     /// so the UI can group the two lists apart (translation-design §9).
@@ -116,6 +116,12 @@ pub struct ModelStatus {
     pub source: Option<String>,
     /// `tier` (`default` / `recommended` / `optional` / `experimental`).
     pub tier: Option<String>,
+    /// Whether this model has been run end to end and is known to work.
+    ///
+    /// Distinct from `installed`: a model can be downloaded and still never
+    /// verified (it may not even run). The UI labels unverified entries and the
+    /// solver ranks them below verified ones, but they stay selectable.
+    pub verified: bool,
     /// Every manifest file present with a matching size.
     pub installed: bool,
     /// Bytes currently on disk (`0` when not installed).
@@ -167,6 +173,7 @@ impl ModelStatus {
             produces_text: capabilities.produces_text,
             source: spec.source.map(|source| source.as_str().to_string()),
             tier: spec.tier.map(|tier| tier.as_str().to_string()),
+            verified: false,
             installed: status.installed,
             size_on_disk: status.size_on_disk,
         }
@@ -989,6 +996,7 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
+            verified: false,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
@@ -1032,6 +1040,7 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
+            verified: false,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),

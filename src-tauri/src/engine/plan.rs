@@ -36,7 +36,16 @@ const RECOMMENDED_TIER_BONUS: i32 = 100;
 const TONGYI_SOURCE_BONUS: i32 = 60;
 const MEMORY_MATCH_BONUS: i32 = 40;
 const INSTALLED_BONUS: i32 = 30;
-const PASSTHROUGH_BONUS: i32 = 20;
+/// Reward for a model this project has actually run end to end.
+///
+/// Larger than [`INSTALLED_BONUS`]: a verified model that still needs a download
+/// is a better bet than an unverified one already on disk. Smaller than
+/// [`RECOMMENDED_TIER_BONUS`]: verification is evidence about *reliability*, not a
+/// substitute for being the right tool — 显存预算 and language fit still outrank
+/// it, so a verified model that is three sizes too big does not win.
+///
+/// Never a filter: unverified models remain planable, they just lose the bonus.
+const VERIFIED_BONUS: i32 = 45;
 const EXTRA_STEP_PENALTY: i32 = 50;
 
 /// Cost of each footprint class a model exceeds the 显存预算 by.
@@ -99,9 +108,8 @@ impl LanguageProfile {
 ///
 /// Answers the speed question without asking about speed: within this catalogue
 /// the biggest determinant of both is the weight file, so the budget ranks the
-/// candidates ([`over_budget_rank`]) and shapes the one-shot gate
-/// ([`passthrough_beats_asr`]). It is a *ranking* term, never a hard filter — an
-/// empty bucket still plans the cheapest model and reports no gap.
+/// candidates ([`over_budget_rank`]). It is a *ranking* term, never a hard
+/// filter — an empty bucket still plans the cheapest model and reports no gap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum MemoryBudget {
     /// 小: an 8 GB machine. Prefers the smallest quantisation of anything.
@@ -156,9 +164,8 @@ impl MemoryBudget {
 /// The user states needs, never model names; [`solve`] turns this into plans.
 /// There are exactly four of them: 语种场景, 说话人分离, 词级时间戳, 显存预算.
 ///
-/// Passthrough is deliberately **not** here: whether one model can emit text +
-/// timestamps + speakers in a single call is a property of the chosen models,
-/// so the solver decides it at runtime rather than asking the user.
+/// Which models can emit text + timestamps + speakers in one call is a property
+/// of the chosen model, not a user question, so it is never asked here.
 #[derive(Debug, Clone)]
 pub struct Requirements {
     /// Word-level timestamps needed (precise alignment / clipping).
@@ -245,21 +252,16 @@ pub enum StepKind {
     Align,
     /// Speaker turns only (`nemotron_3_diar` / `sortformer_diar`).
     Diarize,
-    /// One call emitting text + timestamps + speakers (`moss_transcribe_diarize`).
-    Passthrough,
     /// Pure Rust: attribute ASR segments to diar turns (design §6.4).
     TurnAttribution,
 }
 
 impl StepKind {
     /// The audio.cpp `--task` this step runs; empty for the Rust-only step.
-    ///
-    /// `Passthrough` is `asr` because the CLI is invoked as
-    /// `--task asr --family moss_transcribe_diarize` (design §6.3).
     fn task(self) -> &'static str {
         match self {
             StepKind::Vad => "vad",
-            StepKind::Asr | StepKind::Passthrough => "asr",
+            StepKind::Asr => "asr",
             StepKind::Align => "align",
             StepKind::Diarize => "diar",
             StepKind::TurnAttribution => "",
@@ -273,7 +275,6 @@ impl StepKind {
             StepKind::Asr => Some(Role::Asr),
             StepKind::Align => Some(Role::Align),
             StepKind::Diarize => Some(Role::Diar),
-            StepKind::Passthrough => Some(Role::Passthrough),
             StepKind::TurnAttribution => None,
         }
     }
@@ -283,7 +284,7 @@ impl StepKind {
     fn override_task(self) -> Option<&'static str> {
         match self {
             StepKind::Vad => Some("vad"),
-            StepKind::Asr | StepKind::Passthrough => Some("asr"),
+            StepKind::Asr => Some("asr"),
             StepKind::Align => Some("align"),
             StepKind::Diarize => Some("diar"),
             StepKind::TurnAttribution => None,
@@ -297,7 +298,6 @@ impl StepKind {
             StepKind::Asr => "asr",
             StepKind::Align => "align",
             StepKind::Diarize => "diar",
-            StepKind::Passthrough => "passthrough",
             StepKind::TurnAttribution => "turns",
         }
     }
@@ -318,8 +318,7 @@ pub struct PlanCost {
 /// One executable plan: an ordered list of steps (design §3.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelPlan {
-    /// Stable id for UI display and logs (`passthrough:moss`,
-    /// `asr+diar+turns:nemotron`).
+    /// Stable id for UI display and logs (`asr:moss`, `asr+diar+turns:nemotron`).
     pub id: String,
     /// i18n key for the human-readable title (design §8.3).
     pub title_key: &'static str,
@@ -327,8 +326,6 @@ pub struct ModelPlan {
     pub model_ids: Vec<String>,
     /// Ordered steps; empty only for a gap-bearing plan.
     pub steps: Vec<PlanStep>,
-    /// True when a single step emits text + timestamps + speakers.
-    pub passthrough: bool,
     /// Relative cost, for badges and sorting hints.
     pub cost: PlanCost,
     /// What the plan actually provides — the union of its steps' capabilities.
@@ -360,56 +357,32 @@ pub struct Gap {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Template {
     pub steps: Vec<StepKind>,
-    gate: TemplateGate,
-}
-
-/// The condition under which a passthrough candidate is offered at all.
-///
-/// Both conditions come from the §5.2 table's parentheticals; without them the
-/// passthrough plan wins on the §5.3 score alone (MOSS is `tier: recommended`)
-/// and plain ASR could never be the answer. The decision is automatic: the user
-/// never selects a passthrough mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TemplateGate {
-    /// Always a candidate.
-    Always,
-    /// Row 1 "② `Passthrough`（若模型更快/更合语种）": only when it is genuinely
-    /// better than the plain-ASR pick.
-    BeatsPlainAsr,
 }
 
 impl Template {
     fn always(steps: Vec<StepKind>) -> Self {
-        Self {
-            steps,
-            gate: TemplateGate::Always,
-        }
-    }
-
-    fn gated(steps: Vec<StepKind>, gate: TemplateGate) -> Self {
-        Self { steps, gate }
+        Self { steps }
     }
 }
 
 /// The candidate plan shapes for `req` (design §5.2), in priority order.
 ///
 /// Four hardcoded combinations — word-level × speaker separation — never a
-/// generic constraint solve. Whether the passthrough candidate is offered is
-/// decided by its [`TemplateGate`], not by the caller.
+/// generic constraint solve.
+///
+/// Every combination starts with `Asr`, and every model is recognised through
+/// the same VAD → slice → `--request-sequence` pipeline. There is no one-shot
+/// "passthrough" template any more: a model that can emit text + timestamps +
+/// speakers in one call still runs per VAD chunk, which is what makes long
+/// audio safe (see `docs/tech-spec/audiocpp-moss-poc.md` §5).
 pub fn templates_for(req: &Requirements) -> Vec<Template> {
     match (req.word_timestamps, req.diarization) {
-        (false, false) => vec![
-            Template::always(vec![StepKind::Asr]),
-            Template::gated(vec![StepKind::Passthrough], TemplateGate::BeatsPlainAsr),
-        ],
-        (false, true) => vec![
-            Template::always(vec![StepKind::Passthrough]),
-            Template::always(vec![
-                StepKind::Asr,
-                StepKind::Diarize,
-                StepKind::TurnAttribution,
-            ]),
-        ],
+        (false, false) => vec![Template::always(vec![StepKind::Asr])],
+        (false, true) => vec![Template::always(vec![
+            StepKind::Asr,
+            StepKind::Diarize,
+            StepKind::TurnAttribution,
+        ])],
         (true, false) => vec![
             // One ASR step, provided it can reach word timestamps — either
             // natively or through a declared `requires` aligner, which the ASR
@@ -420,16 +393,12 @@ pub fn templates_for(req: &Requirements) -> Vec<Template> {
             // planning it as a separate step would plan something that never
             // runs.
             Template::always(vec![StepKind::Asr]),
-            Template::gated(vec![StepKind::Passthrough], TemplateGate::BeatsPlainAsr),
         ],
-        (true, true) => vec![
-            Template::always(vec![StepKind::Passthrough]),
-            Template::always(vec![
-                StepKind::Asr,
-                StepKind::Diarize,
-                StepKind::TurnAttribution,
-            ]),
-        ],
+        (true, true) => vec![Template::always(vec![
+            StepKind::Asr,
+            StepKind::Diarize,
+            StepKind::TurnAttribution,
+        ])],
     }
 }
 
@@ -602,8 +571,8 @@ fn bias_rank(language: &str, profile: LanguageProfile, spec: &ModelSpec) -> usiz
 /// Design §5.3 score for one plan.
 ///
 /// Per-model terms are summed across the plan's model steps, so a pipeline
-/// reflects every model it loads; the passthrough bonus and the per-extra-step
-/// penalty apply once, to the plan.
+/// reflects every model it loads; the per-extra-step penalty applies once, to
+/// the plan.
 pub fn score(
     plan: &ModelPlan,
     req: &Requirements,
@@ -619,9 +588,6 @@ pub fn score(
         total += single_model_score(spec, req, installed);
     }
 
-    if plan.passthrough {
-        total += PASSTHROUGH_BONUS;
-    }
     total -= EXTRA_STEP_PENALTY * (plan.steps.len() as i32 - 1).max(0);
 
     total
@@ -640,6 +606,9 @@ fn single_model_score(spec: &ModelSpec, req: &Requirements, installed: &dyn Fn(&
     total += memory_match(spec, req);
     if installed(&spec.id) {
         total += INSTALLED_BONUS;
+    }
+    if spec.verified {
+        total += VERIFIED_BONUS;
     }
 
     total
@@ -769,7 +738,6 @@ pub fn solve(
                     id: plan_id(&steps),
                     title_key: title_key(&steps),
                     model_ids: model_ids(&steps),
-                    passthrough: steps.iter().any(|step| step.kind == StepKind::Passthrough),
                     cost: plan_cost(&steps, catalogue, req),
                     capabilities,
                     gaps: plan_gaps,
@@ -777,8 +745,6 @@ pub fn solve(
                 });
             }
             Err(FillError::MissingModel(kind)) => missing.push(kind),
-            // A gated template was never offered; there is nothing to explain.
-            Err(FillError::Gated) => {}
         }
     }
 
@@ -805,7 +771,6 @@ pub fn solve(
             title_key: "modelPlan.gapTitle",
             model_ids: Vec::new(),
             steps: Vec::new(),
-            passthrough: false,
             cost: PlanCost {
                 steps: 0,
                 speed: Speed::Balanced,
@@ -823,8 +788,6 @@ pub fn solve(
 enum FillError {
     /// No catalogue model qualified for this step.
     MissingModel(StepKind),
-    /// The passthrough candidate did not meet its viability condition.
-    Gated,
 }
 
 /// Pick a model for every step of `template`, or report why it cannot be filled.
@@ -848,51 +811,7 @@ fn fill_template(
         }
     }
 
-    if template.gate == TemplateGate::BeatsPlainAsr {
-        let (Some(passthrough), Some(asr)) = (
-            passthrough_spec(catalogue, &steps),
-            best_model_for_role(catalogue, installed, Role::Asr, req),
-        ) else {
-            return Err(FillError::Gated);
-        };
-        if !passthrough_beats_asr(req, passthrough, asr) {
-            return Err(FillError::Gated);
-        }
-    }
-
     Ok(steps)
-}
-
-fn passthrough_spec<'a>(catalogue: &'a [ModelSpec], steps: &[PlanStep]) -> Option<&'a ModelSpec> {
-    steps
-        .iter()
-        .find(|step| step.kind == StepKind::Passthrough)
-        .and_then(|step| find(catalogue, &step.model_id))
-}
-
-/// Row 1's condition (design §5.2): offer the passthrough plan only when it is
-/// genuinely the better tool for the stated requirements.
-///
-/// Three ways it can win, in the order the user reasons about them:
-///
-/// 1. It is smaller than the ASR pick, so it fits a tighter 显存预算.
-/// 2. It serves the requested language concretely where the ASR pick would fall
-///    back to `auto`.
-/// 3. The 语种场景 is `中英混合`/`多语种` and the one-shot model is the higher-ranked
-///    family for it — the plain ASR in that case is a Chinese-family model that
-///    cannot follow a mid-sentence language switch.
-fn passthrough_beats_asr(req: &Requirements, passthrough: &ModelSpec, asr: &ModelSpec) -> bool {
-    footprint(passthrough).rank() < footprint(asr).rank()
-        || (language_concrete(passthrough, &req.language)
-            && !language_concrete(asr, &req.language))
-        || (req.language_profile != LanguageProfile::Mandarin
-            && bias_rank(&req.language, req.language_profile, passthrough)
-                < bias_rank(&req.language, req.language_profile, asr))
-}
-
-/// True when [`catalog::map_language`] returns a concrete tag rather than `auto`.
-fn language_concrete(spec: &ModelSpec, app_lang: &str) -> bool {
-    catalog::map_language(spec, app_lang) != "auto"
 }
 
 /// What a filled plan provides: the union over its model steps.
@@ -900,7 +819,7 @@ fn language_concrete(spec: &ModelSpec, app_lang: &str) -> bool {
 /// [`StepKind::TurnAttribution`] is the Rust step that joins ASR text onto diar
 /// turns, so a plan containing it upgrades a `Turns` model to `TurnsWithText`
 /// (design §6.4) — that is what makes the composed plan satisfy a diarization
-/// requirement without a passthrough model.
+/// requirement.
 fn union_capabilities(steps: &[PlanStep], catalogue: &[ModelSpec]) -> Capabilities {
     let mut capabilities = NOTHING;
     let mut attributed = false;
@@ -1014,7 +933,6 @@ fn gap_for_step(catalogue: &[ModelSpec], kind: StepKind) -> Gap {
         StepKind::Asr => ("asr", "no ASR model matches the requested language"),
         StepKind::Align => ("align", "no word-level aligner is available"),
         StepKind::Diarize => ("diarization", "no speaker-separation model is available"),
-        StepKind::Passthrough => ("passthrough", "no one-shot model is available"),
         StepKind::TurnAttribution => (
             "turns",
             "speaker attribution needs a diarization model",
@@ -1104,19 +1022,14 @@ fn plan_id(steps: &[PlanStep]) -> String {
     }
 }
 
-/// Model the plan id is keyed on (design §3.2: `passthrough:moss`,
-/// `asr+diar+turns:nemotron`): the passthrough model when there is one, else the
-/// last non-ASR model step — the step that makes this plan distinctive.
+/// Model the plan id is keyed on (design §3.2: `asr:moss`,
+/// `asr+diar+turns:nemotron`): the last non-ASR model step — the step that makes
+/// this plan distinctive — else the ASR model itself.
 fn id_anchor(steps: &[PlanStep]) -> Option<&PlanStep> {
     steps
         .iter()
-        .find(|step| step.kind == StepKind::Passthrough)
-        .or_else(|| {
-            steps
-                .iter()
-                .rev()
-                .find(|step| step.kind != StepKind::Asr && !step.model_id.is_empty())
-        })
+        .rev()
+        .find(|step| step.kind != StepKind::Asr && !step.model_id.is_empty())
         .or_else(|| steps.iter().find(|step| !step.model_id.is_empty()))
 }
 
@@ -1129,8 +1042,6 @@ fn id_anchor(steps: &[PlanStep]) -> Option<&PlanStep> {
 fn title_key(steps: &[PlanStep]) -> &'static str {
     if steps.is_empty() {
         "modelPlan.gapTitle"
-    } else if steps.iter().any(|step| step.kind == StepKind::Passthrough) {
-        "modelPlan.planPassthroughMoss"
     } else if steps.iter().any(|step| step.kind == StepKind::Diarize) {
         "modelPlan.planAsrDiar"
     } else {
@@ -1278,8 +1189,7 @@ pub fn apply_model_overrides(
     }
 
     // A pin changes what the plan *is*, not just which file it loads: the title,
-    // id, capabilities, passthrough flag and cost all describe the old model
-    // set. Recomputing them here is what keeps the Settings preview honest —
+    // id, capabilities and cost all describe the old model set. Recomputing them here is what keeps the Settings preview honest —
     // without it the preview showed "SenseVoice + VAD" while listing
     // `qwen3_asr + sortformer` underneath the same label.
     refresh_plan_summary(plan, catalogue);
@@ -1288,7 +1198,6 @@ pub fn apply_model_overrides(
 /// Recompute every derived field of `plan` from its (possibly overridden) steps.
 fn refresh_plan_summary(plan: &mut ModelPlan, catalogue: &[ModelSpec]) {
     plan.model_ids = model_ids(&plan.steps);
-    plan.passthrough = plan.steps.iter().any(|step| step.kind == StepKind::Passthrough);
     plan.title_key = title_key(&plan.steps);
     plan.id = plan_id(&plan.steps);
     plan.capabilities = union_capabilities(&plan.steps, catalogue);
@@ -1337,6 +1246,10 @@ mod tests {
         languages: &'static [&'static str],
         model_file: &'static str,
         size: u64,
+        /// Defaults to `false` so a fixture that does not care is unverified,
+        /// exactly like a real catalogue entry nobody has run.
+        #[allow(dead_code)]
+        verified: bool,
     }
 
     fn spec(fake: FakeModel) -> ModelSpec {
@@ -1362,6 +1275,7 @@ mod tests {
             speed: Some(fake.speed),
             source: Some(fake.source),
             tier: Some(fake.tier),
+            verified: fake.verified,
             licenses: Vec::new(),
             // Only the ASR whose word-timestamp claim is conditional on another
             // model needs a dependency; keeping it out of `FakeModel` avoids
@@ -1394,6 +1308,7 @@ mod tests {
                 languages: SENSE_LANGS,
                 model_file: "sensevoice-small-q8-audiocpp-v1.gguf",
                 size: 254_211_200,
+                verified: false,
             }),
             spec(FakeModel {
                 id: "fun_asr_nano_2512_q8_0",
@@ -1410,6 +1325,7 @@ mod tests {
                 languages: NANO_LANGS,
                 model_file: "fun-asr-nano-2512-q8_0.gguf",
                 size: 1_045_334_432,
+                verified: false,
             }),
             spec(FakeModel {
                 id: "qwen3_asr_0_6b_q8_0",
@@ -1426,6 +1342,7 @@ mod tests {
                 languages: QWEN_LANGS,
                 model_file: "qwen3-asr-0.6b-q8_0.gguf",
                 size: 1_151_272_416,
+                verified: false,
             }),
             spec(FakeModel {
                 id: "qwen3_forced_aligner_0_6b_q8_0",
@@ -1442,11 +1359,12 @@ mod tests {
                 languages: ALIGN_LANGS,
                 model_file: "qwen3-forced-aligner-0.6b-q8_0.gguf",
                 size: 1_129_966_496,
+                verified: false,
             }),
             spec(FakeModel {
                 id: "moss_transcribe_diarize_q8_0",
                 family: "moss_transcribe_diarize",
-                roles: &[Role::Passthrough, Role::Asr],
+                roles: &[Role::Asr],
                 capabilities: Capabilities {
                     timestamps: TimestampGrade::Segment,
                     diarization: DiarizationGrade::TurnsWithText,
@@ -1458,11 +1376,12 @@ mod tests {
                 languages: MOSS_LANGS,
                 model_file: "moss-transcribe-diarize-q8_0.gguf",
                 size: 1_132_110_560,
+                verified: false,
             }),
             spec(FakeModel {
                 id: "moss_transcribe_diarize_q4_k",
                 family: "moss_transcribe_diarize",
-                roles: &[Role::Passthrough, Role::Asr],
+                roles: &[Role::Asr],
                 capabilities: Capabilities {
                     timestamps: TimestampGrade::Segment,
                     diarization: DiarizationGrade::TurnsWithText,
@@ -1474,6 +1393,7 @@ mod tests {
                 languages: MOSS_LANGS,
                 model_file: "moss-transcribe-diarize-q4_k.gguf",
                 size: 758_293_216,
+                verified: false,
             }),
             spec(FakeModel {
                 id: "nemotron_3_diar_q8_0",
@@ -1490,6 +1410,7 @@ mod tests {
                 languages: AGNOSTIC_LANGS,
                 model_file: "nemotron-3-diarization-q8_0.gguf",
                 size: 106_675_136,
+                verified: false,
             }),
         ]
     }
@@ -1518,8 +1439,7 @@ mod tests {
     }
 
     /// No word timestamps, no diarization: the plain-ASR template is the only
-    /// viable one, because the row-1 passthrough candidate is gated out — MOSS is
-    /// neither faster than SenseVoice nor a better language match for Chinese.
+    /// viable one: plain ASR is the only shape, and the pick is SenseVoice.
     /// Regression: a `vad`-role override must reach `model_ids` so
     /// `commands::transcribe` can hand it to the engine, and it must not become
     /// `model_ids[0]` — that slot is the ASR model the run transcribes with.
@@ -1584,7 +1504,6 @@ mod tests {
         assert_eq!(plans.len(), 1, "only the plain-ASR template is viable");
         assert_eq!(plans[0].model_ids, vec!["sensevoice_small_q8".to_string()]);
         assert_eq!(plans[0].steps[0].kind, StepKind::Asr);
-        assert!(!plans[0].passthrough);
         assert_eq!(plans[0].id, "asr:sense");
         assert_eq!(plans[0].title_key, "modelPlan.planAsrVad");
         assert!(plans[0].gaps.is_empty());
@@ -1594,12 +1513,17 @@ mod tests {
         assert_eq!(best.id, "sensevoice_small_q8");
     }
 
-    /// Speaker separation with a passthrough model present: the solver picks
-    /// the one-shot MOSS plan automatically (fewer steps, own timestamps and
-    /// labels), with the composed plan as the runner-up. No user setting is
-    /// involved — this is a runtime capability decision.
+    /// Speaker separation always composes `Asr + Diarize + TurnAttribution`.
+    ///
+    /// There used to be a competing one-shot template in which MOSS emitted text
+    /// + timestamps + speakers in a single unsplit call, and the solver picked it
+    /// on score. It is gone: that call decoded the whole file under one
+    /// `--max-tokens` budget, so a multi-hour input truncated
+    /// (`MOSS-Transcribe-Diarize reached max_tokens before EOS`, measured at
+    /// 17 min). Every model now runs per VAD chunk, and speaker separation comes
+    /// from the diar model.
     #[test]
-    fn diarization_automatically_prefers_the_passthrough_plan() {
+    fn diarization_always_composes_asr_diar_and_turn_attribution() {
         let catalogue = catalogue();
         let installed = all_installed();
         let req = Requirements {
@@ -1609,36 +1533,25 @@ mod tests {
 
         let plans = solve(&catalogue, &installed, &req);
 
-        assert!(!plans.is_empty());
-        assert!(plans[0].passthrough, "the one-shot plan wins on score");
+        assert_eq!(plans.len(), 1, "one template, no competing one-shot shape");
         assert_eq!(
-            plans[0].model_ids,
-            vec!["moss_transcribe_diarize_q8_0".to_string()]
+            plans[0].steps.iter().map(|step| step.kind).collect::<Vec<_>>(),
+            vec![StepKind::Asr, StepKind::Diarize, StepKind::TurnAttribution]
         );
-        assert_eq!(plans[0].steps.len(), 1);
-        assert_eq!(plans[0].steps[0].kind, StepKind::Passthrough);
-        assert_eq!(plans[0].steps[0].task, "asr");
-        assert_eq!(plans[0].id, "passthrough:moss");
         assert_eq!(
             plans[0].capabilities.diarization,
             DiarizationGrade::TurnsWithText
         );
         assert!(plans[0].gaps.is_empty());
-
-        // The composed alternative is still offered as a candidate, so the UI
-        // can explain the trade-off (and it is the fallback when MOSS is not
-        // installed).
-        assert!(
-            plans.iter().any(|plan| !plan.passthrough),
-            "the composed ASR+diar plan must remain a candidate"
-        );
+        // The ASR model is chosen on merit, not because a one-shot model existed.
+        assert_eq!(plans[0].steps[0].kind, StepKind::Asr);
     }
 
-    /// The composed alternative to passthrough: SenseVoice is reused, a `diar`
-    /// model supplies turns and the pure-Rust step attributes them — so the
-    /// plan ends with `TurnAttribution` and still reports speaker coverage.
+    /// The composed shape in detail: SenseVoice is reused, a `diar` model
+    /// supplies turns and the pure-Rust step attributes them — so the plan ends
+    /// with `TurnAttribution` and still reports speaker coverage.
     #[test]
-    fn diarization_composes_asr_diar_turns_when_passthrough_scores_lower() {
+    fn diarization_composes_asr_diar_turns() {
         let catalogue = catalogue();
         let installed = all_installed();
         let req = Requirements {
@@ -1648,11 +1561,7 @@ mod tests {
 
         let plans = solve(&catalogue, &installed, &req);
 
-        // The composed plan is a real candidate even though MOSS outranks it.
-        let plan = plans
-            .iter()
-            .find(|plan| !plan.passthrough)
-            .expect("the composed template is viable");
+        let plan = &plans[0];
         assert_eq!(
             plan.steps.iter().map(|step| step.kind).collect::<Vec<_>>(),
             vec![StepKind::Asr, StepKind::Diarize, StepKind::TurnAttribution]
@@ -1675,9 +1584,9 @@ mod tests {
         assert!(plan.gaps.is_empty());
     }
 
-    /// Word-level + speakers. The passthrough plan (MOSS) still wins on score but
-    /// only reaches segment timing, so it must keep admitting the shortfall; the
-    /// composed ASR plan reaches word timing through the aligner dependency.
+    /// Word-level + speakers. The plan reaches word timing through the aligner
+    /// dependency; a model that only reaches segment timing must keep admitting
+    /// the shortfall.
     ///
     /// Rewritten from `word_and_diarization_reports_the_word_timestamp_gap`: that
     /// test also asserted every plan reports a word gap, which was only true while
@@ -1695,7 +1604,6 @@ mod tests {
         let plans = solve(&catalogue, &installed, &req);
 
         assert!(!plans.is_empty(), "speaker separation is still satisfiable");
-        assert!(plans[0].passthrough, "the passthrough plan scores higher");
 
         // No plan may claim an alignment step: the aligner runs *inside* the ASR
         // session, so a planned step would never execute.
@@ -1706,40 +1614,57 @@ mod tests {
             "an Align step is never executed, so it must not be planned"
         );
 
-        // The passthrough plan separates speakers in one call and tops out at
-        // segment timing, so it must admit the shortfall.
-        let passthrough = &plans[0];
+        // The only shape: ASR (word-capable, via the aligner dependency) + a diar
+        // model + the pure-Rust attribution step.
+        let plan = &plans[0];
         assert_eq!(
-            passthrough.model_ids,
-            vec!["moss_transcribe_diarize_q8_0".to_string()],
-            "MOSS answers both requirements except word timing"
+            plan.steps.iter().map(|step| step.kind).collect::<Vec<_>>(),
+            vec![StepKind::Asr, StepKind::Diarize, StepKind::TurnAttribution]
         );
-        assert_eq!(passthrough.capabilities.timestamps, TimestampGrade::Segment);
-        assert_eq!(passthrough.capabilities.diarization, DiarizationGrade::TurnsWithText);
+        assert_eq!(plan.capabilities.timestamps, TimestampGrade::Word);
+        assert_eq!(plan.capabilities.diarization, DiarizationGrade::TurnsWithText);
         assert!(
-            passthrough
-                .gaps
-                .iter()
-                .any(|gap| gap.requirement == "word_timestamps"),
-            "the passthrough plan hides the word shortfall it actually has"
-        );
-
-        // The composed plan keeps speaker coverage AND reaches word timing, so it
-        // must report no word gap at all.
-        let composed = plans
-            .iter()
-            .find(|plan| !plan.passthrough)
-            .expect("the composed template is viable");
-        assert_eq!(composed.capabilities.timestamps, TimestampGrade::Word);
-        assert_eq!(composed.capabilities.diarization, DiarizationGrade::TurnsWithText);
-        assert!(
-            composed
-                .gaps
+            plan.gaps
                 .iter()
                 .all(|gap| gap.requirement != "word_timestamps"),
             "a plan that reaches word timing must not claim a shortfall: {:?}",
-            composed.gaps
+            plan.gaps
         );
+    }
+
+    /// A model that cannot reach word timing still gets planned, and must keep
+    /// admitting the shortfall rather than silently estimating.
+    #[test]
+    fn a_word_request_that_only_reaches_segment_timing_reports_the_gap() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        // Ask for word timing on a catalogue whose only ASR models top out at
+        // segment timing: no aligner requirement is declared by any of them.
+        let asr_only: Vec<crate::engine::catalog::ModelSpec> = catalogue
+            .into_iter()
+            .filter(|spec| spec.has_role(Role::Asr) && !spec.has_role(Role::Diar))
+            .collect();
+        let req = Requirements {
+            word_timestamps: true,
+            ..req()
+        };
+
+        let plans = solve(&asr_only, &installed, &req);
+
+        if plans.is_empty() || plans[0].steps.is_empty() {
+            // Nothing could be solved at all; the gap plan explains it.
+            return;
+        }
+        let plan = &plans[0];
+        if plan.capabilities.timestamps != TimestampGrade::Word {
+            assert!(
+                plan.gaps
+                    .iter()
+                    .any(|gap| gap.requirement == "word_timestamps"),
+                "estimated timing must be reported as a gap: {:?}",
+                plan.gaps
+            );
+        }
     }
 
     /// Word timestamps without diarization: `qwen3_asr` satisfies it, and the
@@ -1863,7 +1788,7 @@ mod tests {
     }
 
     /// A catalogue with no speaker-capable model at all (no `diar` model and no
-    /// passthrough model) must produce a gap plus a concrete download
+    /// diar model) must produce a gap plus a concrete download
     /// suggestion, never an error.
     #[test]
     fn missing_diar_models_return_a_gap_with_a_suggestion() {
@@ -1905,10 +1830,11 @@ mod tests {
         }
     }
 
-    /// Without a `diar` model but WITH the passthrough model, the solver still
-    /// satisfies speaker separation — via the one-shot plan (design §5.2 row 2).
+    /// Without a `diar` model, the solver still
+    /// With no diar model at all, speaker separation is unsatisfiable and the
+    /// solver must report a gap rather than silently dropping the requirement.
     #[test]
-    fn missing_diar_model_falls_back_to_passthrough() {
+    fn missing_diar_model_reports_a_gap_instead_of_a_one_shot_fallback() {
         let catalogue: Vec<ModelSpec> = catalogue()
             .into_iter()
             .filter(|spec| spec.id != "nemotron_3_diar_q8_0")
@@ -1922,11 +1848,15 @@ mod tests {
         let plans = solve(&catalogue, &installed, &req);
 
         assert!(!plans.is_empty());
+        let plan = &plans[0];
+        // Either a diar step is present (some other diar model was picked) or the
+        // plan admits it cannot separate speakers. A one-shot model must not be
+        // used as an implicit substitute.
+        let has_diar = plan.steps.iter().any(|step| step.kind == StepKind::Diarize);
         assert!(
-            plans[0].passthrough,
-            "the one-shot plan is the only way to get speakers"
+            has_diar || plan.gaps.iter().any(|gap| gap.requirement == "diarization"),
+            "without a diar model the plan must either compose one or report the gap: {plan:?}"
         );
-        assert!(plans[0].gaps.is_empty());
     }
 
     /// The language bias (§5.4) sends es/de/fr/pt to a non-SenseVoice ASR, and
@@ -2164,6 +2094,7 @@ mod tests {
             languages: &["zh", "en", "ja"],
             model_file: "HY-MT1.5-1.8B-Q4_K_M.gguf",
             size: 1_133_080_512,
+            verified: false,
         }));
         // ...and one that is flagged on the engine alone, with a recognition-
         // looking role, to prove the engine filter is what does the work.
@@ -2182,6 +2113,7 @@ mod tests {
             languages: SENSE_LANGS,
             model_file: "lookalike.gguf",
             size: 10,
+            verified: false,
         }));
         let last = with_translate.len() - 1;
         with_translate[last].engine = Engine::Llamacpp;
@@ -2243,6 +2175,7 @@ mod tests {
             languages: SENSE_LANGS,
             model_file: "lookalike.gguf",
             size: 10,
+            verified: false,
         });
         llama.engine = Engine::Llamacpp;
         catalogue.push(llama);
@@ -2258,36 +2191,111 @@ mod tests {
         );
     }
 
-    /// Templates are enumerated purely from the capability requirements; there
-    /// is no passthrough knob any more, so the counts are the §5.2 table rows.
+    /// Templates are enumerated purely from the capability requirements, and
+    /// there is exactly one shape per combination — no competing one-shot plan.
     #[test]
     fn templates_are_enumerated_from_capability_requirements() {
         let plain = req();
         let templates = templates_for(&plain);
-        assert_eq!(templates.len(), 2, "row 1 offers Asr and Passthrough");
+        assert_eq!(templates.len(), 1);
         assert_eq!(templates[0].steps, vec![StepKind::Asr]);
-        assert_eq!(templates[1].steps, vec![StepKind::Passthrough]);
 
         let spoken = Requirements {
             diarization: true,
             ..plain.clone()
         };
         let templates = templates_for(&spoken);
-        assert_eq!(templates.len(), 2, "row 2 offers Passthrough and Asr+Diar+Turns");
+        assert_eq!(templates.len(), 1);
         assert_eq!(
             templates[0].steps,
-            vec![StepKind::Passthrough],
-            "the one-shot plan is listed first"
-        );
-        assert_eq!(
-            templates[1].steps,
             vec![StepKind::Asr, StepKind::Diarize, StepKind::TurnAttribution]
+        );
+
+        let words = Requirements {
+            word_timestamps: true,
+            ..plain
+        };
+        let templates = templates_for(&words);
+        assert_eq!(templates.len(), 1);
+        assert_eq!(templates[0].steps, vec![StepKind::Asr]);
+    }
+
+    /// A verified model outranks an otherwise-identical unverified one, but
+    /// verification never becomes a filter: an unverified model is still planned
+    /// when it is the only candidate.
+    #[test]
+    fn verified_outranks_unverified_but_is_never_a_filter() {
+        let base = |verified: bool| {
+            spec(FakeModel {
+                id: "asr_a",
+                family: "sense_asr",
+                roles: &[Role::Asr],
+                capabilities: Capabilities {
+                    timestamps: TimestampGrade::None,
+                    diarization: DiarizationGrade::None,
+                    produces_text: true,
+                },
+                speed: Speed::Fast,
+                source: Source::Tongyi,
+                tier: Tier::Recommended,
+                languages: SENSE_LANGS,
+                model_file: "a.gguf",
+                size: 254_000_000,
+                verified,
+            })
+        };
+
+        let verified = base(true);
+        let unverified = base(false);
+        let installed = all_installed();
+
+        // Both are eligible; only the score differs.
+        assert!(
+            best_model_for_role(&[verified.clone()], &installed, Role::Asr, &req()).is_some(),
+            "an unverified-only catalogue must still yield a model"
+        );
+        let pair = [unverified.clone(), verified.clone()];
+        let picked = best_model_for_role(&pair, &installed, Role::Asr, &req())
+            .expect("a candidate exists");
+        assert!(picked.verified, "the verified model must win the tie-break");
+
+        // And the bonus is bounded: a verified model three sizes over budget must
+        // still lose to a small unverified one under 显存小.
+        let big_verified = spec(FakeModel {
+            id: "asr_big",
+            family: "sense_asr",
+            roles: &[Role::Asr],
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::None,
+                diarization: DiarizationGrade::None,
+                produces_text: true,
+            },
+            speed: Speed::Accurate,
+            source: Source::Tongyi,
+            tier: Tier::Recommended,
+            languages: SENSE_LANGS,
+            model_file: "big.gguf",
+            size: 1_800_000_000,
+            verified: true,
+        });
+        let small_unverified = unverified.clone();
+        let budget_req = Requirements {
+            memory: MemoryBudget::Small,
+            ..req()
+        };
+        let pair = [big_verified, small_unverified];
+        let picked = best_model_for_role(&pair, &installed, Role::Asr, &budget_req)
+            .expect("a candidate exists");
+        assert!(
+            !picked.verified,
+            "显存预算 must outrank verification, got {}",
+            picked.id
         );
     }
 
     /// The solver must behave sensibly against the REAL committed catalogue,
     /// not just the hand-built fakes. This is the integration guard that the
-    /// defaults still resolve to SenseVoice and that the passthrough-only and
+    /// defaults still resolve to SenseVoice and that the
     /// diarization paths select the models the ledger claims.
     #[test]
     fn solver_against_real_committed_catalogue() {
@@ -2307,11 +2315,8 @@ mod tests {
             "default plan should use sensevoice_small_q8, got {:?}",
             plans[0].model_ids
         );
-        assert!(!plans[0].passthrough, "default plan must not be passthrough");
-
-        // Passthrough-only + diarization: must be the MOSS model.
-        // Speaker separation: the solver picks the one-shot MOSS plan, and the
-        // composed ASR + real-diar-model plan is still offered alongside it.
+        // Speaker separation always composes ASR + a real diar model + the
+        // pure-Rust attribution step, against the real catalogue too.
         let spoken = solve(
             &real,
             &installed,
@@ -2320,28 +2325,13 @@ mod tests {
                 ..req()
             },
         );
-        assert!(
-            spoken[0]
-                .model_ids
-                .iter()
-                .any(|id| id.starts_with("moss_transcribe_diarize")),
-            "the one-shot plan should win for speaker separation, got {:?}",
-            spoken[0].model_ids
-        );
-        assert!(spoken[0].passthrough);
-
-        // The composed alternative (real diar model + turn attribution) must
-        // remain available as the fallback when MOSS is not installed.
-        let composed = spoken
-            .iter()
-            .find(|plan| !plan.passthrough)
-            .expect("the composed template is viable against the real catalogue");
+        let composed = &spoken[0];
         assert!(
             composed
                 .steps
                 .iter()
                 .any(|step| step.kind == StepKind::Diarize),
-            "composed plan needs a Diarize step, got {:?}",
+            "the plan needs a Diarize step, got {:?}",
             composed.steps
         );
     }
@@ -2448,15 +2438,17 @@ mod tests {
             "中英混合 must not use a single-language-token model, got {mixed:?}"
         );
 
-        // 2. 说话人分离: the passthrough model must appear.
+        // 2. 说话人分离: a real diar model must appear. It is no longer answered
+        // by a one-shot model, because every model now runs per VAD chunk and
+        // speaker turns come from the diar task.
         let spoken = picked(&Requirements {
             language: "zh".to_string(),
             diarization: true,
             ..Requirements::default()
         });
         assert!(
-            spoken.iter().any(|id| id.starts_with("moss")),
-            "speaker separation should pick MOSS, got {spoken:?}"
+            spoken.iter().any(|id| id.contains("diar")),
+            "speaker separation needs a diar model, got {spoken:?}"
         );
 
         // 3. 词级时间戳: the word capable model replaces the plain ASR.

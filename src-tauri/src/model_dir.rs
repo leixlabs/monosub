@@ -69,7 +69,7 @@ pub struct BackendSettings {
 
 /// The four plan answers plus the plan they produced, for the CLI to reuse.
 ///
-/// `model_ids` / `passthrough` are a **cache, not the authority**: the CLI
+/// `model_ids` is a **cache, not the authority**: the CLI
 /// re-runs `plan::solve` over `language_profile` / `memory_budget` /
 /// `require_word_timestamps` / `diarization` and trusts the solver, warning when
 /// the two disagree (the user may have deleted a model since). The cache is
@@ -95,8 +95,6 @@ pub struct RecognitionPlan {
     pub language: String,
     /// Cached solver output, in plan order.
     pub model_ids: Vec<String>,
-    /// Cached: the plan is a single one-shot model (text + times + speakers).
-    pub passthrough: bool,
 }
 
 /// The Settings → 翻译 panel's intent, persisted so the CLI can report the same
@@ -326,7 +324,6 @@ mod tests {
                 "qwen3_asr_0_6b_q8_0".to_string(),
                 "qwen3_forced_aligner_0_6b_q8_0".to_string(),
             ],
-            passthrough: false,
         }
     }
 
@@ -375,7 +372,6 @@ mod tests {
             "\"diarization\"",
             "\"language\"",
             "\"modelIds\"",
-            "\"passthrough\"",
             "\"translation\"",
             "\"enabled\"",
             "\"targetLanguage\"",

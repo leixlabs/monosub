@@ -135,6 +135,14 @@ function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemov
             <GlassBadge variant={model.installed ? 'success' : 'warning'} size="sm">
               {model.installed ? t('models.installed') : t('models.notInstalled')}
             </GlassBadge>
+            {/* "Loads" is not "works": a model can declare a family and still
+                fail on the CLI. Unverified entries stay downloadable and
+                selectable, so the label informs instead of blocking. */}
+            {!model.verified && (
+              <GlassBadge variant="default" size="sm" title={t('models.unverifiedHint')}>
+                {t('models.unverified')}
+              </GlassBadge>
+            )}
           </div>
           <p className="text-xs text-text-secondary dark:text-gray-400 mt-1">
             {t('models.size')}: {formatModelSize(displaySize)}

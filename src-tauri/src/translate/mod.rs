@@ -843,6 +843,7 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
+            verified: true,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
