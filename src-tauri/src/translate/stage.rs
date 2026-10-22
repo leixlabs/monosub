@@ -217,6 +217,15 @@ pub struct StageOutcome {
     pub written: Vec<PathBuf>,
     /// True when the run degraded (some cues kept their original text).
     pub degraded: bool,
+    /// Set when the stage decided there was nothing to do and wrote nothing.
+    ///
+    /// This is **not** a failure: `SameLanguage` means a translated file would be
+    /// a misleading duplicate, and `NoSegments` means the input was silent. Only
+    /// a `None` here with `written` empty means the translation was attempted and
+    /// produced nothing. Callers that report an outcome to a user (the CLI) need
+    /// that distinction; the GUI does not care, which is why it was not here
+    /// before.
+    pub skipped: Option<crate::translate::SkipReason>,
 }
 
 /// `(source, target)` pairs on which a run would translate — the condition the
@@ -238,7 +247,7 @@ pub async fn translate_and_write(
     transplan: &TranslationPlan,
     segments: &[subtitle::Segment],
     source: Option<&str>,
-    app: Option<&tauri::AppHandle>,
+    paths: &crate::paths::AppPaths,
     on_progress: impl Fn(usize, usize) + Send + Sync,
 ) -> StageOutcome {
     let (translated, outcome) = translate::translate_segments(
@@ -247,7 +256,7 @@ pub async fn translate_and_write(
         &transplan.target,
         &transplan.model,
         &transplan.model_path,
-        app,
+        paths,
         on_progress,
     )
     .await;
@@ -261,7 +270,10 @@ pub async fn translate_and_write(
             target = %transplan.target,
             "translation skipped"
         );
-        return StageOutcome::default();
+        return StageOutcome {
+            skipped: Some(reason),
+            ..StageOutcome::default()
+        };
     }
 
     if outcome.degraded() {
@@ -275,6 +287,7 @@ pub async fn translate_and_write(
             "translation produced nothing; no translated file written"
         );
         return StageOutcome {
+            skipped: None,
             written: Vec::new(),
             degraded: outcome.degraded(),
         };
@@ -291,6 +304,7 @@ pub async fn translate_and_write(
     }
 
     StageOutcome {
+        skipped: None,
         written,
         degraded: outcome.degraded(),
     }

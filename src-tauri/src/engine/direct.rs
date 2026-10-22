@@ -14,6 +14,7 @@
 
 use std::path::Path;
 
+use crate::paths::AppPaths;
 use crate::engine::catalog;
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::diar::{labels_for_turns, parse_turns, DiarTurn, SAMPLE_RATE};
@@ -93,14 +94,14 @@ impl DirectOutputs {
 /// Scratch files go into the task temp directory (removed on every exit path),
 /// never next to the user's media file.
 pub async fn transcribe_direct(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     task_id: &str,
     wav_path: &Path,
     model_id: &str,
     backend: Backend,
     on_progress: &crate::engine::ProgressFn<'_>,
 ) -> Result<Vec<RawChunk>, EngineError> {
-    let model_file = catalog::model_path(app, model_id)?.ok_or_else(|| {
+    let model_file = catalog::model_path(paths, model_id)?.ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
     })?;
 
@@ -120,7 +121,7 @@ pub async fn transcribe_direct(
         args: direct_args(&out, max_tokens),
     };
 
-    spawn(Some(app), invocation, |_| {}).await?;
+    spawn(Some(paths), invocation, |_| {}).await?;
 
     let raw = std::fs::read_to_string(&out.turns).map_err(|e| {
         EngineError::Protocol(format!(

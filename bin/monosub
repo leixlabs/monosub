@@ -1,5 +1,9 @@
 #!/bin/bash
-# MonoSub CLI - Development mode launcher
+# MonoSub CLI - local development launcher.
+#
+# This is a thin wrapper for a checkout: it locates a built `monosub-cli` and
+# execs it with the caller's arguments. Release builds do not use this script -
+# the app bundle ships the binary itself as <MonoSub.app>/Contents/MacOS/monosub-cli.
 set -e
 
 # Resolve symlinks to find real script location
@@ -9,15 +13,30 @@ while [ -h "$SOURCE" ]; do
     SOURCE="$(readlink "$SOURCE")"
     [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE"
 done
-PROJECT_DIR="$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )"
+# bin/ -> project root
+PROJECT_DIR="$( cd -P "$( dirname "$SOURCE" )/.." >/dev/null 2>&1 && pwd )"
 
-CORE_ENGINE_DIR="$PROJECT_DIR/core-engine"
-MAIN_PY="$CORE_ENGINE_DIR/main.py"
+# First hit wins. An explicit MONOSUB_CLI_PATH is authoritative: if it does not
+# point at an executable we report that instead of silently using another build.
+CLI_BIN=""
+if [ -n "${MONOSUB_CLI_PATH:-}" ]; then
+    CLI_BIN="$MONOSUB_CLI_PATH"
+elif [ -x "$PROJECT_DIR/src-tauri/target/release/monosub-cli" ]; then
+    CLI_BIN="$PROJECT_DIR/src-tauri/target/release/monosub-cli"
+elif [ -x "$PROJECT_DIR/src-tauri/target/debug/monosub-cli" ]; then
+    CLI_BIN="$PROJECT_DIR/src-tauri/target/debug/monosub-cli"
+elif command -v monosub-cli >/dev/null 2>&1; then
+    CLI_BIN="$(command -v monosub-cli)"
+fi
 
-if [ ! -f "$MAIN_PY" ]; then
-    echo "ERROR: main.py not found: $MAIN_PY" >&2
+if [ -z "$CLI_BIN" ] || [ ! -f "$CLI_BIN" ] || [ ! -x "$CLI_BIN" ]; then
+    echo "ERROR: monosub-cli not found." >&2
+    if [ -n "${MONOSUB_CLI_PATH:-}" ]; then
+        echo "   MONOSUB_CLI_PATH=$MONOSUB_CLI_PATH is not an executable file." >&2
+    fi
+    echo "   Build it:  cd $PROJECT_DIR/src-tauri && cargo build --release --bin monosub-cli" >&2
+    echo "   Or point at one:  export MONOSUB_CLI_PATH=/path/to/monosub-cli" >&2
     exit 1
 fi
 
-cd "$CORE_ENGINE_DIR"
-exec uv run python "$MAIN_PY" "$@"
+exec "$CLI_BIN" "$@"

@@ -89,9 +89,9 @@ const STEP_NAMES: [&str; 5] = [
 ];
 
 /// Steps a run that does not translate emits — the pre-translation contract.
-const STEPS_WITHOUT_TRANSLATION: u32 = 4;
+pub const STEPS_WITHOUT_TRANSLATION: u32 = 4;
 /// Steps a run that translates emits (translation-design §7).
-const STEPS_WITH_TRANSLATION: u32 = 5;
+pub const STEPS_WITH_TRANSLATION: u32 = 5;
 
 /// ffmpeg filter chain of the previous engine, reproduced verbatim.
 ///
@@ -125,29 +125,29 @@ lazy_static::lazy_static! {
 }
 
 /// Everything one queued file needs, so the spawned task owns no borrows.
-struct TaskParams {
-    task_id: String,
-    input: PathBuf,
-    output: PathBuf,
-    formats: Vec<Format>,
-    language: String,
-    model_id: String,
+pub struct TaskParams {
+    pub task_id: String,
+    pub input: PathBuf,
+    pub output: PathBuf,
+    pub formats: Vec<Format>,
+    pub language: String,
+    pub model_id: String,
     /// VAD model id from the plan, when the plan named one (design §8.2.3).
     /// `None` runs the bundled Silero VAD.
-    vad_model_id: Option<String>,
-    backend: Backend,
+    pub vad_model_id: Option<String>,
+    pub backend: Backend,
     /// What the user asked for, independent of what the plan can reach.
     ///
     /// Kept separate from `plan.capabilities`: the solver reports an unmet
     /// requirement as a gap but still returns a usable plan, and the engine must
     /// only attempt alignment when it was actually *asked* for it.
-    want_word_timestamps: bool,
+    pub want_word_timestamps: bool,
     /// The plan this run must execute (design §7.2 / M8-4).
-    plan: ModelPlan,
+    pub plan: ModelPlan,
     /// Resolved before anything is spawned, so `transcribe_file` never has to
     /// re-decide whether this run translates (translation-design §6).
-    translation: Option<TranslationPlan>,
-    completed: Arc<std::sync::atomic::AtomicBool>,
+    pub translation: Option<TranslationPlan>,
+    pub completed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// The translation stage, decided at request time.
@@ -170,10 +170,10 @@ use crate::translate::stage::{
 ///
 /// `status` is what `transcribe_error` carries (short, rendered by the UI);
 /// `detail` is the full chain, logged with `tracing::error`.
-struct TaskFailure {
-    context: &'static str,
-    status: String,
-    detail: String,
+pub struct TaskFailure {
+    pub context: &'static str,
+    pub status: String,
+    pub detail: String,
 }
 
 impl TaskFailure {
@@ -252,7 +252,15 @@ pub async fn start_transcription(
         backend,
     };
 
-    let catalogue = match engine::catalog::catalog(Some(&app)) {
+    let paths = match crate::paths::AppPaths::from_app(&app) {
+        Ok(paths) => paths,
+        Err(error) => {
+            tracing::error!(task_id = %task_id, error = %error, "failed to resolve app paths");
+            emit_error(&app, &task_id, "engineFailed");
+            return Ok(task_id);
+        }
+    };
+    let catalogue = match engine::catalog::catalog(&paths) {
         Ok(catalogue) => catalogue,
         Err(error) => {
             tracing::error!(task_id = %task_id, error = %error, "failed to load the model catalogue");
@@ -260,7 +268,7 @@ pub async fn start_transcription(
             return Ok(task_id);
         }
     };
-    let installed = |id: &str| engine::catalog::is_installed(&app, id);
+    let installed = |id: &str| engine::catalog::is_installed(&paths, id);
     let mut plans = plan::solve(&catalogue, &installed, &requirements);
 
     // Manual overrides pin a step to an explicit model. They are applied only
@@ -344,7 +352,7 @@ pub async fn start_transcription(
         target_language.as_deref(),
         translation_model.as_deref(),
         &installed,
-        &|id: &str| engine::catalog::model_path(&app, id).ok().flatten(),
+        &|id: &str| engine::catalog::model_path(&paths, id).ok().flatten(),
     ) {
         Ok(translation) => translation,
         Err(status) => {
@@ -463,7 +471,20 @@ fn resolve_translation(
 
 /// Task body: run one file end to end, then report a single outcome.
 async fn run_transcription(app: AppHandle, params: TaskParams) {
-    if let Err(failure) = transcribe_file(&app, &params).await {
+    // Resolved once per task: every stage below resolves binaries, the
+    // catalogue and the models root from it.
+    let paths = match crate::paths::AppPaths::from_app(&app) {
+        Ok(paths) => paths,
+        Err(error) => {
+            emit_error(&app, &params.task_id, "engineFailed");
+            tracing::error!(task_id = %params.task_id, error = %error, "failed to resolve app paths");
+            return;
+        }
+    };
+
+    let mut sink = EventSink { app: &app };
+
+    if let Err(failure) = transcribe_file(&paths, &params, &mut sink).await {
         tracing::error!(
             task_id = %params.task_id,
             detail = %failure.detail,
@@ -484,16 +505,31 @@ async fn run_transcription(app: AppHandle, params: TaskParams) {
     }
 }
 
-async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), TaskFailure> {
+/// Run one file end to end: audio → recognition → post-process → write →
+/// (optional) translation.
+///
+/// Deliberately takes a [`ProgressSink`] rather than an `AppHandle`: this is the
+/// whole transcription pipeline minus the transport, which is what lets the CLI
+/// reuse it verbatim (`docs/tech-spec/cli-design.md` §3.3). The GUI passes
+/// [`EventSink`]; a CLI passes a printer.
+pub async fn transcribe_file(
+    paths: &crate::paths::AppPaths,
+    params: &TaskParams,
+    sink: &mut dyn ProgressSink,
+) -> Result<(), TaskFailure> {
     let mut steps = Steps::new(params.translation.is_some());
-    emit_queued(app, &params.task_id);
+    // Tracks whether the translation stage actually produced files, so the CLI
+    // can report "subtitles written but translation failed" separately from a
+    // clean success (docs/tech-spec/cli-design.md §5.3).
+    let mut translation_written = true;
+    sink.queued(&params.task_id);
 
     // Step 1: 16 kHz mono s16le WAV, cached next to the media file. Audio
     // inputs are converted too — audio.cpp only accepts WAV (spec §3).
-    steps.begin(app, &params.task_id, 1);
+    steps.begin(sink, &params.task_id, 1);
     let audio = {
         let _permit = AUDIO_SEMAPHORE.acquire().await;
-        extract_wav(app, &params.input)
+        extract_wav(paths, &params.input)
             .await
             .map_err(engine_failure)?
     };
@@ -506,8 +542,8 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
     let mut words: Vec<engine::words::Word> = Vec::new();
     let chunks = {
         let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
-        steps.begin(app, &params.task_id, 2);
-        steps.begin(app, &params.task_id, 3);
+        steps.begin(sink, &params.task_id, 2);
+        steps.begin(sink, &params.task_id, 3);
 
         let opts = TranscribeOpts {
             language: params.language.clone(),
@@ -516,13 +552,19 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
             vad_model_id: params.vad_model_id.clone(),
             word_timestamps: params.want_word_timestamps,
         };
+        // The engine's `ProgressFn` is `Fn` (shared), while the sink is `&mut`,
+        // so the mutable borrow lives behind a mutex. Reports are sequential, so
+        // the lock is uncontended.
+        let progress_sink = std::sync::Mutex::new(&mut *sink);
         let on_progress = |done: usize, total: usize, message: &str| {
             let percent = if total == 0 {
                 0.0
             } else {
                 done as f64 * 100.0 / total as f64
             };
-            steps.progress(app, &params.task_id, percent, message);
+            if let Ok(mut sink) = progress_sink.lock() {
+                steps.progress(*sink, &params.task_id, percent, message);
+            }
         };
 
         // M8-4: dispatch on the plan. A passthrough plan makes ONE unsplit call
@@ -530,7 +572,7 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
         // pipeline, optionally followed by diarization + turn attribution.
         if params.plan.passthrough {
             engine::direct::transcribe_direct(
-                app,
+                paths,
                 &params.task_id,
                 audio.path(),
                 &params.model_id,
@@ -541,7 +583,7 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
             .map_err(engine_failure)?
         } else {
             let transcription =
-                engine::transcribe_words(app, &params.task_id, audio.path(), &opts, &on_progress)
+                engine::transcribe_words(paths, &params.task_id, audio.path(), &opts, &on_progress)
                     .await
                     .map_err(engine_failure)?;
             let chunks = transcription.chunks;
@@ -569,7 +611,7 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
                             params.task_id
                         ));
                         match engine::diar::detect_turns(
-                            app,
+                            paths,
                             audio.path(),
                             &diar_id,
                             params.backend,
@@ -609,7 +651,7 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
     };
 
     // Step 4: post-process and write every requested format.
-    steps.begin(app, &params.task_id, 4);
+    steps.begin(sink, &params.task_id, 4);
     if let Some(parent) = params.output.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -661,29 +703,41 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
     // the same time.
     if let Some(translation) = params.translation.as_ref() {
         let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
-        steps.begin(app, &params.task_id, 5);
+        steps.begin(sink, &params.task_id, 5);
         // The detected source is resolved from the RAW chunks (`T4-1` reads the
         // ASR's `<|zh|>` tag before cleaning), so `auto` is answered by the ASR
         // rather than by a guess (translation-design §5).
         let detected = detected_language(&chunks, &params.language);
-        translate_and_write(app, params, translation, &segments, detected.as_deref(), &steps)
-            .await;
+        let translated = translate_and_write(
+            paths,
+            params,
+            translation,
+            &segments,
+            detected.as_deref(),
+            &steps,
+            sink,
+        )
+        .await;
+        // Exit 5 means "attempted and produced nothing". A *skip* is a success:
+        // a silent input, or a source that is already the target language, both
+        // legitimately write no translated file. Collapsing the two made
+        // `--translate` on a silent clip report a failure.
+        translation_written = translated.skipped.is_some() || !translated.written.is_empty();
     }
 
-    // Exactly one completion event, after every format landed.
+    // Exactly one completion, after every format landed.
     params
         .completed
         .store(true, std::sync::atomic::Ordering::SeqCst);
-    let _ = app.emit(
-        "transcribe_complete",
-        TranscribeProgress {
-            task_id: params.task_id.clone(),
-            progress: 100.0,
-            status: format!("Completed: {}", params.output.display()),
-            step: None,
-            total_time: Some(steps.total_seconds()),
-        },
-    );
+    sink.finished(&params.task_id, steps.total_seconds());
+
+    if !translation_written {
+        return Err(TaskFailure::new(
+            "translation produced no files",
+            "TRANSLATE_FAILED",
+            "the subtitles were written, but nothing was translated",
+        ));
+    }
     Ok(())
 }
 
@@ -693,21 +747,27 @@ async fn transcribe_file(app: &AppHandle, params: &TaskParams) -> Result<(), Tas
 /// the task completes normally (design §2). The work itself is the shared
 /// `translate::stage` function, which the URL import subtitle-hit path calls with
 /// exactly the same arguments (U1-13, url-import-design §5.6).
-async fn translate_and_write(
-    app: &AppHandle,
+pub async fn translate_and_write(
+    paths: &crate::paths::AppPaths,
     params: &TaskParams,
     translation: &TranslationPlan,
     segments: &[subtitle::Segment],
     detected: Option<&str>,
     steps: &Steps,
-) {
-    let on_progress = |done: usize, total: usize| {
+    sink: &mut dyn ProgressSink,
+) -> crate::translate::stage::StageOutcome {
+    // `Mutex` because the callback handed to the engine must be `Sync`; there is
+    // only ever one writer (the translation stage reports sequentially).
+    let sink = std::sync::Mutex::new(sink);
+    let on_progress = move |done: usize, total: usize| {
         let percent = if total == 0 {
             0.0
         } else {
             done as f64 * 100.0 / total as f64
         };
-        steps.progress(app, &params.task_id, percent, "Translating");
+        if let Ok(mut sink) = sink.lock() {
+            steps.progress(*sink, &params.task_id, percent, "Translating");
+        }
     };
 
     let outcome = crate::translate::stage::translate_and_write(
@@ -716,7 +776,7 @@ async fn translate_and_write(
         translation,
         segments,
         detected,
-        Some(app),
+        paths,
         on_progress,
     )
     .await;
@@ -727,6 +787,8 @@ async fn translate_and_write(
         degraded = outcome.degraded,
         "translation stage finished"
     );
+
+    outcome
 }
 
 /// The language a run actually recognised.
@@ -787,40 +849,112 @@ impl Steps {
         }
     }
 
-    /// Enter `step` (1..=5) and emit its transition event.
-    fn begin(&mut self, app: &AppHandle, task_id: &str, step: u32) {
+    /// Enter `step` (1..=5) and publish its transition.
+    ///
+    /// Takes a sink rather than an `AppHandle`: the transcription orchestration
+    /// has to run outside a Tauri process for the CLI, so "who receives the
+    /// progress" is the caller's business (`emit_progress` below is the GUI's).
+    fn begin(&mut self, sink: &mut dyn ProgressSink, task_id: &str, step: u32) {
         self.current = step;
         self.step_start = Instant::now();
-        self.emit(app, task_id, 0.0, step_name(step));
+        self.emit(sink, task_id, 0.0, step_name(step));
     }
 
     /// In-step update; `status` carries the engine's progress message.
-    fn progress(&self, app: &AppHandle, task_id: &str, progress: f64, status: &str) {
-        self.emit(app, task_id, progress, status);
+    fn progress(&self, sink: &mut dyn ProgressSink, task_id: &str, progress: f64, status: &str) {
+        self.emit(sink, task_id, progress, status);
     }
 
-    fn emit(&self, app: &AppHandle, task_id: &str, progress: f64, status: &str) {
-        let _ = app.emit(
+    fn emit(&self, sink: &mut dyn ProgressSink, task_id: &str, progress: f64, status: &str) {
+        sink.step(&StepSnapshot {
+            task_id: task_id.to_string(),
+            progress,
+            status: status.to_string(),
+            current_step: self.current,
+            total_steps: self.total,
+            // Never taken from `status`: the i18n keys depend on it.
+            step_name: step_name(self.current),
+            step_elapsed: self.step_start.elapsed().as_secs_f64(),
+            total_elapsed: self.start.elapsed().as_secs_f64(),
+        });
+    }
+
+    fn total_seconds(&self) -> f64 {
+        self.start.elapsed().as_secs_f64()
+    }
+}
+
+/// One progress tick, independent of any event format.
+///
+/// The GUI turns this into a `transcribe_progress` event; a CLI prints a line or
+/// emits JSON. Keeping the snapshot format-free is what lets both frontends share
+/// [`transcribe_file`].
+pub struct StepSnapshot {
+    pub task_id: String,
+    pub progress: f64,
+    pub status: String,
+    pub current_step: u32,
+    pub total_steps: u32,
+    pub step_name: &'static str,
+    pub step_elapsed: f64,
+    pub total_elapsed: f64,
+}
+
+/// Where transcription progress goes.
+///
+/// A trait rather than a closure so the GUI can also receive the "queued" and
+/// "finished" transitions, which are not per-step.
+/// `Send + Sync` because the translation stage's progress callback is handed to
+/// an async engine that requires it.
+pub trait ProgressSink: Send + Sync {
+    /// A step started or is progressing.
+    fn step(&mut self, snapshot: &StepSnapshot);
+    /// The run entered the queue (before audio extraction).
+    fn queued(&mut self, task_id: &str);
+    /// Every requested file was written; `total_seconds` is wall time.
+    fn finished(&mut self, task_id: &str, total_seconds: f64);
+}
+
+/// The GUI's sink: turns snapshots into the frozen `transcribe_progress` event.
+struct EventSink<'a> {
+    app: &'a AppHandle,
+}
+
+impl ProgressSink for EventSink<'_> {
+    fn step(&mut self, snapshot: &StepSnapshot) {
+        let _ = self.app.emit(
             "transcribe_progress",
             TranscribeProgress {
-                task_id: task_id.to_string(),
-                progress,
-                status: status.to_string(),
+                task_id: snapshot.task_id.clone(),
+                progress: snapshot.progress,
+                status: snapshot.status.clone(),
                 step: Some(StepInfo {
-                    current_step: self.current,
-                    total_steps: self.total,
-                    // Never taken from `status`: the i18n keys depend on it.
-                    step_name: step_name(self.current).to_string(),
-                    step_elapsed: self.step_start.elapsed().as_secs_f64(),
-                    total_elapsed: self.start.elapsed().as_secs_f64(),
+                    current_step: snapshot.current_step,
+                    total_steps: snapshot.total_steps,
+                    step_name: snapshot.step_name.to_string(),
+                    step_elapsed: snapshot.step_elapsed,
+                    total_elapsed: snapshot.total_elapsed,
                 }),
                 total_time: None,
             },
         );
     }
 
-    fn total_seconds(&self) -> f64 {
-        self.start.elapsed().as_secs_f64()
+    fn queued(&mut self, task_id: &str) {
+        emit_queued(self.app, task_id);
+    }
+
+    fn finished(&mut self, task_id: &str, total_seconds: f64) {
+        let _ = self.app.emit(
+            "transcribe_complete",
+            TranscribeProgress {
+                task_id: task_id.to_string(),
+                progress: 100.0,
+                status: "completed".to_string(),
+                step: None,
+                total_time: Some(total_seconds),
+            },
+        );
     }
 }
 
@@ -952,7 +1086,10 @@ fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
     cache_mtime >= source_mtime
 }
 
-async fn extract_wav(app: &AppHandle, input: &Path) -> Result<ExtractedAudio, EngineError> {
+async fn extract_wav(
+    paths: &crate::paths::AppPaths,
+    input: &Path,
+) -> Result<ExtractedAudio, EngineError> {
     let (cache, temporary) = match get_audio_cache_path(input) {
         Some(path) => (path, false),
         None => (
@@ -973,7 +1110,7 @@ async fn extract_wav(app: &AppHandle, input: &Path) -> Result<ExtractedAudio, En
         });
     }
 
-    let ffmpeg = crate::commands::video::get_ffmpeg_path(Some(app));
+    let ffmpeg = crate::commands::video::get_ffmpeg_path(paths);
     match run_ffmpeg(&ffmpeg, input, &cache, Some(AUDIO_FILTER_CHAIN)).await {
         Ok(()) => {
             tracing::info!(
@@ -2231,6 +2368,56 @@ mod tests {
                 assert!(node.is_string(), "{key} must be a string in {}", path.display());
             }
         }
+    }
+
+    /// A sink sees exactly the transitions the GUI relies on, in order.
+    ///
+    /// This is the contract the CLI will reuse: if `transcribe_file` ever starts
+    /// emitting a step the sink cannot describe, or the 4-vs-5 denominator drifts,
+    /// this fails without needing a Tauri app or a real model.
+    #[test]
+    fn a_sink_receives_queued_then_each_step_then_finished() {
+        use std::sync::{Arc, Mutex};
+
+        struct Recorder {
+            events: Arc<Mutex<Vec<String>>>,
+        }
+        impl ProgressSink for Recorder {
+            fn step(&mut self, snapshot: &StepSnapshot) {
+                self.events.lock().unwrap().push(format!(
+                    "step {}/{} {}",
+                    snapshot.current_step, snapshot.total_steps, snapshot.step_name
+                ));
+            }
+            fn queued(&mut self, _task_id: &str) {
+                self.events.lock().unwrap().push("queued".to_string());
+            }
+            fn finished(&mut self, _task_id: &str, _seconds: f64) {
+                self.events.lock().unwrap().push("finished".to_string());
+            }
+        }
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut sink = Recorder { events: events.clone() };
+        let mut steps = Steps::new(false);
+
+        sink.queued("t");
+        steps.begin(&mut sink, "t", 1);
+        steps.begin(&mut sink, "t", 2);
+        steps.begin(&mut sink, "t", 3);
+        steps.progress(&mut sink, "t", 42.0, "Transcribing");
+        steps.begin(&mut sink, "t", 4);
+        sink.finished("t", 1.0);
+
+        let logged = events.lock().unwrap().clone();
+        assert_eq!(logged[0], "queued");
+        // 4 without translation: a translating run carries 5 (see `Steps::new`).
+        assert_eq!(logged[1], "step 1/4 Extracting audio");
+        assert_eq!(logged[2], "step 2/4 Loading model");
+        assert_eq!(logged[3], "step 3/4 Transcribing");
+        assert_eq!(logged[4], "step 3/4 Transcribing", "the in-step tick");
+        assert_eq!(logged[5], "step 4/4 Writing subtitle");
+        assert_eq!(logged[6], "finished");
     }
 
     #[test]

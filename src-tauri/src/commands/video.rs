@@ -53,7 +53,11 @@ fn get_binary_candidates(binary_name: &str, target_suffix: &str) -> Vec<String> 
     candidates
 }
 
-fn resolve_binary_path(binary_name: &str, env_var: &str, app: Option<&AppHandle>) -> String {
+fn resolve_binary_path(
+    binary_name: &str,
+    env_var: &str,
+    paths: Option<&crate::paths::AppPaths>,
+) -> String {
     // 0. 显式环境变量覆盖
     if let Ok(override_path) = std::env::var(env_var) {
         if !override_path.trim().is_empty() {
@@ -65,43 +69,17 @@ fn resolve_binary_path(binary_name: &str, env_var: &str, app: Option<&AppHandle>
     let target_suffix = get_target_suffix();
     let candidates = get_binary_candidates(binary_name, &target_suffix);
 
-    // 1. 尝试开发环境资源目录
-    if let Ok(current_dir) = std::env::current_dir() {
-        let dev_bin_dir = current_dir.join("src-tauri").join("resources").join("bin");
-
+    // 1. The resolved resources root's `bin/`. `AppPaths` already probed the dev
+    //    checkout, the executable's own directory and the app bundle, so this is
+    //    the single place that knows where a bundled binary lives — repeating
+    //    those probes here is how the two would drift.
+    if let Some(paths) = paths {
+        let bin_dir = paths.resources.join("bin");
         for candidate in &candidates {
-            let dev_binary = dev_bin_dir.join(candidate);
-            if dev_binary.exists() {
-                tracing::debug!(binary = binary_name, path = ?dev_binary, "Found dev binary");
-                return dev_binary.to_string_lossy().to_string();
-            }
-        }
-    }
-
-    // 2. 尝试打包目录（与可执行文件同目录）
-    if let Some(_app) = app {
-        if let Ok(exe_path) = std::env::current_exe() {
-            if let Some(exe_dir) = exe_path.parent() {
-                for candidate in &candidates {
-                    let bundled_binary = exe_dir.join(candidate);
-                    if bundled_binary.exists() {
-                        tracing::debug!(binary = binary_name, path = ?bundled_binary, "Found bundled binary");
-                        return bundled_binary.to_string_lossy().to_string();
-                    }
-                }
-            }
-
-            // 2.1 尝试 app bundle 的 Resources/resources/bin
-            if let Some(contents_dir) = exe_path.parent().and_then(|p| p.parent()) {
-                let resources_bin_dir =
-                    contents_dir.join("Resources").join("resources").join("bin");
-                for candidate in &candidates {
-                    let bundled_resource_binary = resources_bin_dir.join(candidate);
-                    if bundled_resource_binary.exists() {
-                        tracing::debug!(binary = binary_name, path = ?bundled_resource_binary, "Found bundled resource binary");
-                        return bundled_resource_binary.to_string_lossy().to_string();
-                    }
-                }
+            let bundled = bin_dir.join(candidate);
+            if bundled.exists() {
+                tracing::debug!(binary = binary_name, path = ?bundled, "Found bundled binary");
+                return bundled.to_string_lossy().to_string();
             }
         }
     }
@@ -134,13 +112,13 @@ fn resolve_binary_path(binary_name: &str, env_var: &str, app: Option<&AppHandle>
 }
 
 /// Get ffmpeg binary path (bundled or system)
-pub fn get_ffmpeg_path(app: Option<&AppHandle>) -> String {
-    resolve_binary_path("ffmpeg", "MONOSUB_FFMPEG_PATH", app)
+pub fn get_ffmpeg_path(paths: &crate::paths::AppPaths) -> String {
+    resolve_binary_path("ffmpeg", "MONOSUB_FFMPEG_PATH", Some(paths))
 }
 
 /// Get ffprobe binary path (bundled or system)
-pub fn get_ffprobe_path(app: Option<&AppHandle>) -> String {
-    resolve_binary_path("ffprobe", "MONOSUB_FFPROBE_PATH", app)
+pub fn get_ffprobe_path(paths: &crate::paths::AppPaths) -> String {
+    resolve_binary_path("ffprobe", "MONOSUB_FFPROBE_PATH", Some(paths))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -218,7 +196,7 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMet
     let size = metadata.len();
 
     // Get media duration using ffprobe
-    let ffprobe_cmd = get_ffprobe_path(Some(&app));
+    let ffprobe_cmd = get_ffprobe_path(&crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?);
     tracing::debug!(path = %path, ffprobe_cmd = %ffprobe_cmd, "Using ffprobe command");
 
     let output = Command::new(&ffprobe_cmd)
@@ -366,7 +344,7 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
     );
 
     // Generate thumbnail at 3 seconds
-    let ffmpeg_cmd = get_ffmpeg_path(Some(&app));
+    let ffmpeg_cmd = get_ffmpeg_path(&crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?);
     tracing::debug!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, "Using ffmpeg command");
 
     // Try with hardware acceleration first (needed for AV1 etc.), fall back to software decoding
@@ -603,6 +581,32 @@ fn collect_media_files(
             result.push(path.to_string_lossy().to_string());
         }
     }
+}
+
+/// Whether any of `paths` already exists on disk.
+///
+/// This answers the `skipExistingSubtitle` question, and it is a Rust command on
+/// purpose: the Tauri fs plugin's `exists` is gated by the plugin's path scope,
+/// which only covers the app's own directories plus whatever the user picked in a
+/// *dialog*. A file added by drag-and-drop, by a URL import's cache directory, or
+/// simply a subtitle next to a video in `~/Movies` is therefore outside the scope
+/// and the plugin rejects the query — measured:
+///
+/// ```text
+/// warn Failed to check if output file exists forbidden path: /Users/…/x.srt,
+///      maybe it is not allowed on the scope for `allow-exists` permission
+/// ```
+///
+/// and the failure was only logged, so the file was transcribed anyway. The
+/// backend already reads and writes these exact paths with `std::fs`, so asking
+/// the OS directly is both correct and cheaper than widening the plugin scope to
+/// "everywhere".
+///
+/// Returning the first hit (rather than a bool) keeps the log line useful: it
+/// names the file that caused the skip.
+#[tauri::command]
+pub async fn find_existing_path(paths: Vec<String>) -> Result<Option<String>, String> {
+    Ok(paths.into_iter().find(|path| Path::new(path).is_file()))
 }
 
 /// Locate `path` in the system file manager: a file is revealed, a directory is

@@ -8,10 +8,17 @@
 //!   app writes, from Settings ▸ System.
 //! * [`log_frontend_error`] writes a frontend failure into that same file, so a
 //!   user report and its cause end up in one place instead of two.
+//! * [`config_file_path`] / [`reveal_config_file`] are the same shape for
+//!   `settings.json`. They exist because the config file and the models
+//!   directory are two unrelated locations (`crate::paths`) that users
+//!   routinely conflate; showing the first one is what makes the difference
+//!   visible.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use super::opener::open_directory;
+use tauri::AppHandle;
+
+use super::opener::{open_directory, reveal_in_file_manager};
 
 /// Longest message/context this command will write.
 ///
@@ -52,6 +59,73 @@ pub async fn open_logs_dir() -> Result<(), String> {
     open_directory(&dir).await.inspect_err(|error| {
         tracing::error!(dir = %dir.display(), error = %error, "Failed to open log directory");
     })
+}
+
+/// `<app_config_dir>/settings.json`, via the one definition of that path.
+///
+/// `AppPaths::settings_path` rather than `crate::model_dir::settings_path`: it is
+/// the definition the CLI reads, so the row names the file both frontends mean.
+/// On an ordinary install the two are the same path; they separate only when
+/// `MONOSUB_CONFIG_DIR` is set (`paths.rs`).
+fn config_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let paths = crate::paths::AppPaths::from_app(app).map_err(|error| error.to_string())?;
+    Ok(paths.settings_path())
+}
+
+/// The directory to open when `settings.json` itself is absent.
+///
+/// A bare file name has no directory to open, so that case is an error rather
+/// than a silent "open the current working directory".
+fn parent_dir(path: &Path) -> Result<PathBuf, String> {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .ok_or_else(|| format!("{} has no parent directory", path.display()))
+}
+
+/// Absolute path of the config file (`settings.json`).
+///
+/// The file may not exist yet — a fresh install writes nothing until the first
+/// setting changes — and that is not an error: the path is what the row shows,
+/// and it is also where the user would look to see which models directory the
+/// settings point at. Reporting "missing" would hide the very fact the row
+/// exists to make visible.
+#[tauri::command]
+pub async fn config_file_path(app: AppHandle) -> Result<String, String> {
+    let path = config_file(&app)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Show `settings.json` in the system file manager.
+///
+/// A reveal of a file that does not exist fails with the tool's own
+/// "The file … does not exist.", which names the problem but shows nothing. So
+/// when the file is absent its directory is opened instead (created if needed):
+/// "where would my settings be?" is answered just as well by the folder, and
+/// that is the answer the user needs before the first write.
+///
+/// Returns the path that was actually opened — the file, or its directory.
+#[tauri::command]
+pub async fn reveal_config_file(app: AppHandle) -> Result<String, String> {
+    let path = config_file(&app)?;
+
+    if path.is_file() {
+        tracing::info!(path = %path.display(), "Revealing the config file");
+        reveal_in_file_manager(&path).await.inspect_err(|error| {
+            tracing::error!(path = %path.display(), error = %error, "Failed to reveal the config file");
+        })?;
+        return Ok(path.to_string_lossy().into_owned());
+    }
+
+    let dir = ensure_dir(parent_dir(&path)?)?;
+    tracing::info!(
+        dir = %dir.display(),
+        "Opening the config directory (settings.json is absent)"
+    );
+    open_directory(&dir).await.inspect_err(|error| {
+        tracing::error!(dir = %dir.display(), error = %error, "Failed to open the config directory");
+    })?;
+    Ok(dir.to_string_lossy().into_owned())
 }
 
 /// Truncate on a character boundary — `&s[..n]` would panic on a CJK message.
@@ -157,6 +231,21 @@ mod tests {
             Ok(dir) => assert!(dir.is_absolute(), "{dir:?}"),
             Err(error) => eprintln!("skip: no home directory to resolve the log dir from ({error})"),
         }
+    }
+
+    #[test]
+    fn the_config_row_falls_back_to_the_parent_directory_of_the_absent_file() {
+        assert_eq!(
+            parent_dir(Path::new("/tmp/somewhere/settings.json")).unwrap(),
+            PathBuf::from("/tmp/somewhere")
+        );
+    }
+
+    #[test]
+    fn a_bare_config_file_name_has_no_directory_to_fall_back_to() {
+        // `Path::parent` yields an empty path here; opening that would open
+        // whatever the process happens to be sitting in.
+        assert!(parent_dir(Path::new("settings.json")).is_err());
     }
 
     #[cfg(not(target_os = "windows"))]

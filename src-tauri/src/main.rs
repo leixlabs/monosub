@@ -1,17 +1,8 @@
-mod commands;
-mod engine;
-mod logging;
-mod model_dir;
-mod site;
-mod subtitle;
-mod translate;
-mod tray;
-
-use commands::*;
-use site::{
-    cancel_url_import, default_url_import_dir, parse_url_input, read_clipboard_video,
-    start_url_import,
-};
+// The modules live in `lib.rs` so a second binary (`src/bin/monosub-cli.rs`) can
+// share them: a `[[bin]]` is its own crate root and cannot `use crate::engine`.
+// `monosub::` is the crate name from Cargo.toml.
+use monosub::commands::*;
+use monosub::{logging, tray};
 use tauri::Manager;
 
 fn main() {
@@ -63,19 +54,23 @@ fn main() {
             start_transcription,
             cancel_transcription,
             open_in_finder,
+            find_existing_path,
             resolve_paths,
             open_external_url,
             check_github_release_update,
-            parse_url_input,
-            start_url_import,
-            cancel_url_import,
-            default_url_import_dir,
-            read_clipboard_video,
+            monosub::site::parse_url_input,
+            monosub::site::start_url_import,
+            monosub::site::cancel_url_import,
+            monosub::site::default_url_import_dir,
+            monosub::site::read_clipboard_video,
             list_models,
             resolve_model_plan,
+            save_translation_settings,
             log_directory,
             open_logs_dir,
             log_frontend_error,
+            config_file_path,
+            reveal_config_file,
             download_model,
             cancel_model_download,
             remove_model,

@@ -1,6 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
-import { exists } from '@tauri-apps/plugin-fs';
 import i18n from '@/i18n';
 import { reportFrontendError } from '@/lib/logging';
 import {
@@ -95,6 +94,48 @@ const getOutputPath = (inputPath: string, fileName: string, outputDir?: string) 
   return `${state.customStoragePath}/${outputName}`;
 };
 
+/**
+ * Every path the run's format list would write, primary first.
+ *
+ * Mirrors Rust's `subtitle::output_path_for` (first format keeps the path
+ * verbatim, later ones swap only the extension) because the skip decision has to
+ * mean the same thing on both sides. Checking all of them, not just the primary,
+ * is what makes "skip existing" honest when the user asked for `srt,vtt` and only
+ * the `.vtt` is already there: the run would otherwise rewrite half the set.
+ */
+const outputPathsToCheck = (outputPath: string, formats: string): string[] => {
+  const primary = outputPath;
+  const paths = [primary];
+  const stem = outputPath.replace(/\.[^/.]+$/, '');
+  for (const raw of formats.split(',')) {
+    const token = raw.trim().toLowerCase();
+    if (!token) continue;
+    const candidate = `${stem}.${token}`;
+    if (!paths.includes(candidate)) paths.push(candidate);
+  }
+  return paths;
+};
+
+/**
+ * The already-written subtitle among this run's outputs, if any.
+ *
+ * Asks Rust rather than the fs plugin: the plugin's `exists` is scope-gated and
+ * silently rejected every path outside the app's own directories (see
+ * `commands::video::find_existing_path`), which is exactly the "subtitles sit
+ * next to the video" case this setting exists for. A backend failure is treated
+ * as "nothing found" so a broken check can never block a transcription.
+ */
+const findExistingSubtitleOutput = async (outputPath: string): Promise<string | null> => {
+  const paths = outputPathsToCheck(outputPath, useStore.getState().settings.outputFormat);
+  try {
+    const found = await invoke<string | null>('find_existing_path', { paths });
+    return found ?? null;
+  } catch (error) {
+    console.warn('[transcription] could not check for an existing subtitle', error);
+    return null;
+  }
+};
+
 export const startTranscriptionTask = async (taskId: string) => {
   const state = useStore.getState();
   const file = state.files.find((f) => f.id === taskId);
@@ -106,25 +147,24 @@ export const startTranscriptionTask = async (taskId: string) => {
   const outputPath = getOutputPath(file.path, file.name, file.outputDir);
 
   if (state.settings.skipExistingSubtitle) {
-    try {
-      const fileExists = await exists(outputPath);
-      if (fileExists) {
-        state.updateFile(file.id, {
-          status: 'skipped',
-          progress: 100,
-          error: undefined,
-          stepProgress: undefined,
-          totalTime: undefined
-        });
-        state.incrementProcessedCount();
-        console.log(`[transcription] Skipping task ${taskId}, subtitle already exists: ${outputPath}`);
+    const existing = await findExistingSubtitleOutput(outputPath);
+    if (existing) {
+      state.updateFile(file.id, {
+        status: 'skipped',
+        progress: 100,
+        // Keep the reason on the row: "已跳过" alone does not say *why*, and the
+        // subtitle it found may sit in a different directory than the source.
+        skippedOutputPath: existing,
+        error: undefined,
+        stepProgress: undefined,
+        totalTime: undefined
+      });
+      state.incrementProcessedCount();
+      console.log(`[transcription] Skipping task ${taskId}, subtitle already exists: ${existing}`);
 
-        // Trigger queue processor so batch loop continues for skipped files
-        setTimeout(() => processQueueBatch(), 100);
-        return true;
-      }
-    } catch (err) {
-      console.warn('Failed to check if output file exists', err);
+      // Trigger queue processor so batch loop continues for skipped files
+      setTimeout(() => processQueueBatch(), 100);
+      return true;
     }
   }
 

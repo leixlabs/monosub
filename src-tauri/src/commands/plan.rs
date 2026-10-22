@@ -130,6 +130,20 @@ pub fn language_profile_from_wire(value: Option<&str>) -> LanguageProfile {
     LanguageProfile::from_wire(value)
 }
 
+/// The canonical wire spelling, the inverse of [`language_profile_from_wire`].
+///
+/// Lives here rather than on the enum because `engine/plan.rs` is not this
+/// task's to edit; `MemoryBudget::label` is the same idea. Canonical on purpose:
+/// the accepted aliases (`zh-en`, `multi`) must be normalised before they are
+/// written to `settings.json`, or the CLI would see a spelling the UI never uses.
+fn language_profile_name(profile: LanguageProfile) -> &'static str {
+    match profile {
+        LanguageProfile::Mandarin => "mandarin",
+        LanguageProfile::Mixed => "mixed",
+        LanguageProfile::Multilingual => "multilingual",
+    }
+}
+
 /// Same rule as `transcribe::resolve_backend`: only an explicit `cpu` forces
 /// CPU, everything else is Metal on macOS and CPU elsewhere.
 pub fn backend_from_device(device: Option<&str>) -> Backend {
@@ -256,8 +270,9 @@ pub async fn resolve_model_plan(
     let request = requirements.unwrap_or_default();
     let req = request.to_requirements();
 
-    let specs = catalog::catalog(Some(&app)).map_err(|e| e.to_string())?;
-    let installed = |id: &str| catalog::is_installed(&app, id);
+    let paths = crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let specs = catalog::catalog(&paths).map_err(|e| e.to_string())?;
+    let installed = |id: &str| catalog::is_installed(&paths, id);
 
     let mut candidates = plan::solve(&specs, &installed, &req);
 
@@ -309,11 +324,64 @@ pub async fn resolve_model_plan(
 
     let gaps = plan_dto.gaps.clone();
 
+    // Persist what the user just chose, so the CLI (a separate process with no
+    // WebView and therefore no `localStorage`) runs the same model. This command
+    // is called on every requirement change, so "what the user picked" reaches
+    // disk immediately — no new event or timer.
+    //
+    // A write failure must NOT fail the command: the user is browsing the
+    // Settings page and the preview is the answer they asked for. The CLI will
+    // fall back to the default four answers if the file is stale.
+    let persisted = recognition_plan_from_requirements(&req, &plan_dto);
+    if let Err(error) = crate::model_dir::save_recognition_plan(&app, persisted) {
+        tracing::warn!(error = %error, "failed to persist the chosen recognition plan");
+    }
+
     Ok(PlanResponse {
         plan: plan_dto,
         candidates: candidates.into_iter().map(ModelPlanDto::from).collect(),
         gaps,
     })
+}
+
+/// Build the persisted record from the requirements and the plan that won.
+///
+/// The five requirement fields are copied from [`Requirements`] (canonical
+/// spellings) rather than from the wire request, so an alias like `zh-en` or a
+/// missing field cannot be stored verbatim. `model_ids` / `passthrough` are the
+/// solver's output — a cache the CLI re-verifies, not the authority.
+fn recognition_plan_from_requirements(
+    req: &Requirements,
+    plan: &ModelPlanDto,
+) -> crate::model_dir::RecognitionPlan {
+    crate::model_dir::RecognitionPlan {
+        language_profile: language_profile_name(req.language_profile).to_string(),
+        memory_budget: req.memory.label().to_string(),
+        require_word_timestamps: req.word_timestamps,
+        diarization: req.diarization,
+        language: req.language.clone(),
+        model_ids: plan.model_ids.clone(),
+        passthrough: plan.passthrough,
+    }
+}
+
+/// Persist the Settings → 翻译 intent for the CLI to report.
+///
+/// Read-modify-write (`model_dir::save_translation_settings`), so this cannot
+/// erase `modelsDir` or `recognitionPlan`. The CLI's own default stays "off
+/// unless `--translate`"; `enabled` is the GUI's intent only.
+#[tauri::command]
+pub async fn save_translation_settings(
+    app: AppHandle,
+    settings: crate::model_dir::TranslationSettings,
+) -> Result<(), String> {
+    tracing::debug!(
+        enabled = settings.enabled,
+        target_language = %settings.target_language,
+        model_id = settings.model_id.as_deref().unwrap_or("<catalogue default>"),
+        "persisting translation settings"
+    );
+    crate::model_dir::save_translation_settings(&app, settings)
 }
 
 #[cfg(test)]
@@ -522,5 +590,96 @@ mod tests {
         assert_eq!(dto.capabilities.diarization, "turns_with_text");
         assert_eq!(dto.gaps[0].requirement, "word_timestamps");
         assert!(dto.passthrough);
+    }
+
+    /// The plan written to `settings.json` must carry the four answers in their
+    /// **canonical** spelling plus the solved model list, because that file is
+    /// the only thing the CLI can read (it has no WebView and no
+    /// `localStorage`).
+    #[test]
+    fn the_persisted_plan_records_the_answers_and_the_solved_models() {
+        let request = PlanRequirementsRequest {
+            require_word_timestamps: Some(true),
+            enable_diarization: Some(false),
+            language: Some("en".to_string()),
+            language_profile: Some("mixed".to_string()),
+            memory_budget: Some("small".to_string()),
+            device: None,
+            model_overrides: None,
+        };
+        let plan = ModelPlanDto {
+            id: "word".to_string(),
+            title_key: "modelPlan.planWord",
+            model_ids: vec!["qwen3_asr_0_6b_q8_0".to_string()],
+            steps: Vec::new(),
+            passthrough: false,
+            cost: PlanCostDto {
+                steps: 1,
+                speed: "balanced",
+                memory: "medium",
+            },
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::Word,
+                diarization: DiarizationGrade::None,
+                produces_text: true,
+            }
+            .into(),
+            gaps: Vec::new(),
+        };
+
+        let persisted = recognition_plan_from_requirements(&request.to_requirements(), &plan);
+
+        assert_eq!(persisted.language_profile, "mixed");
+        assert_eq!(persisted.memory_budget, "small");
+        assert!(persisted.require_word_timestamps);
+        assert!(!persisted.diarization);
+        assert_eq!(persisted.language, "en");
+        assert_eq!(persisted.model_ids, vec!["qwen3_asr_0_6b_q8_0"]);
+        assert!(!persisted.passthrough);
+    }
+
+    /// A request that uses a documented alias (`zh-en`) or omits a field must
+    /// be normalised before it reaches the file, or the CLI would have to
+    /// re-implement the alias table to read what the GUI wrote.
+    #[test]
+    fn the_persisted_plan_normalises_aliases_and_defaults() {
+        let request: PlanRequirementsRequest = serde_json::from_value(serde_json::json!({
+            "language_profile": "zh-en",
+            "memory_budget": "nonsense",
+        }))
+        .unwrap();
+        let plan = ModelPlanDto {
+            id: "default".to_string(),
+            title_key: "modelPlan.planDefault",
+            model_ids: Vec::new(),
+            steps: Vec::new(),
+            passthrough: false,
+            cost: PlanCostDto {
+                steps: 0,
+                speed: "balanced",
+                memory: "medium",
+            },
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::None,
+                diarization: DiarizationGrade::None,
+                produces_text: true,
+            }
+            .into(),
+            gaps: Vec::new(),
+        };
+
+        let persisted = recognition_plan_from_requirements(&request.to_requirements(), &plan);
+
+        assert_eq!(
+            persisted.language_profile, "mixed",
+            "zh-en is not written verbatim"
+        );
+        assert_eq!(
+            persisted.memory_budget, "medium",
+            "an unknown budget falls back"
+        );
+        assert_eq!(persisted.language, "zh", "the documented default language");
+        assert!(!persisted.require_word_timestamps);
+        assert!(!persisted.diarization);
     }
 }

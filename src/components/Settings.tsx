@@ -14,6 +14,10 @@ import {
   Download,
   Trash2,
   FolderOpen,
+  FileCog,
+  Terminal,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
@@ -29,6 +33,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
 import { getLogDirectory, openLogsDirectory, reportFrontendError } from '@/lib/logging';
+import { CLI_INSTALL_COMMAND, getConfigFilePath, revealConfigFile, writeClipboard } from '@/lib/config';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { GlassSwitch } from '@/components/ui/glass-switch';
@@ -62,6 +67,9 @@ import {
 type SettingsCategory = 'files' | 'models' | 'translate' | 'urlImport' | 'system';
 
 const RELEASES_URL = 'https://github.com/leixlabs/monosub/releases';
+
+/** How long the CLI card's copy button keeps its "copied" label. */
+const COPIED_RESET_MS = 2000;
 
 const isSettingsCategory = (value: string | null): value is SettingsCategory => {
   return value === 'files'
@@ -211,6 +219,14 @@ export function Settings() {
   // a failure to open it is shown in place rather than only in the log.
   const [logDirectory, setLogDirectory] = useState('');
   const [logDirectoryError, setLogDirectoryError] = useState('');
+  // Config file row. A separate path from the models directory on purpose:
+  // they are unrelated locations, and showing this one is the point of the row.
+  const [configFilePath, setConfigFilePath] = useState('');
+  const [configFileError, setConfigFileError] = useState('');
+  /** The CLI card's copy button: its label reverts after `COPIED_RESET_MS`. */
+  const [cliCopied, setCliCopied] = useState(false);
+  const [cliCopyError, setCliCopyError] = useState('');
+  const cliCopyTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     // StrictMode mounts effects twice in development; re-arm the guard.
@@ -218,6 +234,14 @@ export function Settings() {
     return () => {
       isMountedRef.current = false;
     };
+  }, []);
+
+  // A pending "copied" reset must not fire into an unmounted component.
+  useEffect(() => () => {
+    if (cliCopyTimerRef.current !== null) {
+      window.clearTimeout(cliCopyTimerRef.current);
+      cliCopyTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -252,6 +276,26 @@ export function Settings() {
       .catch((error) => {
         console.error('[log_directory] Failed:', error);
         if (!disposed && isMountedRef.current) setLogDirectoryError(String(error));
+      });
+
+    // Same treatment for the config file. The command reports the path even
+    // when the file does not exist yet, so a failure here is a real one.
+    setConfigFileError('');
+    // A copy from a previous visit is not news on this one, and its pending
+    // reset timer would otherwise flip the label while the panel is closed.
+    if (cliCopyTimerRef.current !== null) {
+      window.clearTimeout(cliCopyTimerRef.current);
+      cliCopyTimerRef.current = null;
+    }
+    setCliCopied(false);
+    setCliCopyError('');
+    void getConfigFilePath()
+      .then((path) => {
+        if (!disposed && isMountedRef.current) setConfigFilePath(path);
+      })
+      .catch((error) => {
+        console.error('[config_file_path] Failed:', error);
+        if (!disposed && isMountedRef.current) setConfigFileError(String(error));
       });
 
     const setupListeners = async () => {
@@ -417,6 +461,41 @@ export function Settings() {
       console.error('[open_logs_dir] Failed:', error);
       reportFrontendError(error, { context: 'open_logs_dir' });
       setLogDirectoryError(String(error));
+    }
+  };
+
+  const handleRevealConfigFile = async () => {
+    setConfigFileError('');
+    try {
+      await revealConfigFile();
+    } catch (error) {
+      console.error('[reveal_config_file] Failed:', error);
+      reportFrontendError(error, { context: 'reveal_config_file' });
+      setConfigFileError(String(error));
+    }
+  };
+
+  /** Copy the `ln -s` command. The chip says "copied" for two seconds. */
+  const handleCopyCliCommand = async () => {
+    setCliCopyError('');
+    try {
+      await writeClipboard(CLI_INSTALL_COMMAND);
+      setCliCopied(true);
+      if (cliCopyTimerRef.current !== null) window.clearTimeout(cliCopyTimerRef.current);
+      cliCopyTimerRef.current = window.setTimeout(() => {
+        cliCopyTimerRef.current = null;
+        setCliCopied(false);
+      }, COPIED_RESET_MS);
+    } catch (error) {
+      // A failed copy must not leave the previous "copied" label standing.
+      if (cliCopyTimerRef.current !== null) {
+        window.clearTimeout(cliCopyTimerRef.current);
+        cliCopyTimerRef.current = null;
+      }
+      setCliCopied(false);
+      console.error('[cli copy] Failed:', error);
+      reportFrontendError(error, { context: 'Settings copy CLI command' });
+      setCliCopyError(t('settings.system.cliCopyFailed'));
     }
   };
 
@@ -854,6 +933,107 @@ export function Settings() {
 
                     {logDirectoryError && (
                       <p className="text-xs text-danger break-all">{logDirectoryError}</p>
+                    )}
+                  </div>
+
+                  {/*
+                    Config file. Deliberately its own row rather than a detail of
+                    the models card: `settings.json` and the models directory are
+                    two unrelated locations, and the confusion this row prevents
+                    is exactly "I changed the models folder, so that is where my
+                    settings are". The path is shown even when the file does not
+                    exist yet — a fresh install has not written it, and the path
+                    is still the right answer to "where would it be?".
+                  */}
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <FileCog className="w-4 h-4 text-text-primary dark:text-gray-300" />
+                          <span className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                            {t('settings.system.configFile')}
+                          </span>
+                        </div>
+                        {/* Rendered even when the file has not been written yet;
+                            `config_file_path` returns the path either way, so an
+                            empty value means the IPC call failed and is reported
+                            below the row. */}
+                        <p
+                          className="text-xs text-text-secondary dark:text-gray-400 mt-1 break-all"
+                          title={configFilePath}
+                          data-testid="settings-config-file-path"
+                        >
+                          {configFilePath}
+                        </p>
+                        <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-1">
+                          {t('settings.system.configFileHint')}
+                        </p>
+                      </div>
+
+                      <GlassButton
+                        variant="outline"
+                        size="sm"
+                        data-testid="settings-reveal-config"
+                        onClick={() => void handleRevealConfigFile()}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                        {t('settings.system.configFileOpen')}
+                      </GlassButton>
+                    </div>
+
+                    {configFileError && (
+                      <p className="text-xs text-danger break-all">{configFileError}</p>
+                    )}
+                  </div>
+
+                  {/*
+                    Command-line tool. Marked "coming soon" because the binary is
+                    not built yet (cli-design §8 R4/R5) — showing an `ln -s` for a
+                    file that does not exist would send the user to a broken
+                    `monosub-cli: command not found`.
+
+                    The command is a fixed string, and installing it is the user's
+                    copy-paste: the app may not modify PATH (not permitted, and not
+                    sandbox-permitted), so nothing is installed automatically.
+                  */}
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Terminal className="w-4 h-4 text-text-primary dark:text-gray-300" />
+                      <span className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                        {t('settings.system.cliTitle')}
+                      </span>
+                      <GlassBadge variant="warning" size="sm" data-testid="settings-cli-coming-soon">
+                        {t('settings.system.cliComingSoon')}
+                      </GlassBadge>
+                    </div>
+
+                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                      {t('settings.system.cliHint')}
+                    </p>
+                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                      {t('settings.system.cliInstallHint')}
+                    </p>
+
+                    <div className="flex items-center gap-2">
+                      <code
+                        className="min-w-0 flex-1 select-text break-all rounded-xl border border-divider bg-black/[0.04] px-3 py-2 font-mono text-xs text-text-primary dark:border-white/10 dark:bg-black/40 dark:text-gray-200"
+                        data-testid="settings-cli-install-command"
+                      >
+                        {CLI_INSTALL_COMMAND}
+                      </code>
+                      <GlassButton
+                        variant="outline"
+                        size="sm"
+                        data-testid="settings-cli-copy"
+                        onClick={() => void handleCopyCliCommand()}
+                      >
+                        {cliCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                        {cliCopied ? t('settings.system.cliCopied') : t('settings.system.cliCopy')}
+                      </GlassButton>
+                    </div>
+
+                    {cliCopyError && (
+                      <p className="text-xs text-danger break-all">{cliCopyError}</p>
                     )}
                   </div>
 

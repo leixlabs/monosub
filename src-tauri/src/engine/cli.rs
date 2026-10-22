@@ -14,6 +14,8 @@ use std::process::Stdio;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::paths::AppPaths;
+
 /// Where a `--backend` value came from; P1-9 retries `metal` failures on `cpu`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
@@ -95,8 +97,8 @@ const VAD_MODEL_FILE: &str = "silero_vad_16k.safetensors";
 const STDERR_TAIL_LINES: usize = 50;
 
 /// Resolve the bundled `audiocpp_cli-<target-triple>` binary.
-pub fn resolve_cli_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, EngineError> {
-    resolve_bundled_binary(CLI_BINARY, CLI_PATH_ENV, app)
+pub fn resolve_cli_path(paths: &AppPaths) -> Result<PathBuf, EngineError> {
+    resolve_bundled_binary(CLI_BINARY, CLI_PATH_ENV, paths)
 }
 
 /// Resolve the bundled `llama-server-<target-triple>` binary used for local
@@ -107,20 +109,19 @@ pub fn resolve_cli_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, Engin
 /// two engines ship side by side in the same directory, so two implementations
 /// could only drift. A search that finds nothing yields the bare name, which the
 /// translation module then reports as `TranslateError::BinaryMissing`.
-pub fn resolve_llamacpp_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, EngineError> {
-    resolve_bundled_binary(LLAMACPP_BINARY, LLAMACPP_PATH_ENV, app)
+pub fn resolve_llamacpp_path(paths: &AppPaths) -> Result<PathBuf, EngineError> {
+    resolve_bundled_binary(LLAMACPP_BINARY, LLAMACPP_PATH_ENV, paths)
 }
 
 /// Resolve the bundled silero VAD directory
 /// (`resources/models/silero_vad`, containing `silero_vad_16k.safetensors`).
-pub fn resolve_vad_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, EngineError> {
-    let dir = resolve_resource_path(&Path::new("models").join("silero_vad"), app)?;
-    validate_vad_dir(dir)
+pub fn resolve_vad_path(paths: &AppPaths) -> Result<PathBuf, EngineError> {
+    validate_vad_dir(paths.resources.join("models").join("silero_vad"))
 }
 
 /// Resolve the bundled `models.json` path.
-pub fn resolve_catalog_path(app: Option<&tauri::AppHandle>) -> Result<PathBuf, EngineError> {
-    resolve_resource_path(Path::new("models.json"), app)
+pub fn resolve_catalog_path(paths: &AppPaths) -> Result<PathBuf, EngineError> {
+    Ok(paths.resources.join("models.json"))
 }
 
 /// The CLI silently falls back to its own relative `assets/…` VAD path, so a
@@ -142,11 +143,21 @@ fn validate_vad_dir(dir: PathBuf) -> Result<PathBuf, EngineError> {
 /// returned in [`CliOutput::stderr_tail`]. Non-zero exit maps to
 /// [`EngineError::Failed`].
 pub async fn spawn(
-    app: Option<&tauri::AppHandle>,
+    paths: Option<&AppPaths>,
     invocation: CliInvocation,
     mut on_line: impl FnMut(&str) + Send,
 ) -> Result<CliOutput, EngineError> {
-    let program = resolve_cli_path(app)?;
+    // `None` means "resolve from the ambient environment" — a test that only
+    // exercises argv building does not need a full path set.
+    let owned;
+    let paths = match paths {
+        Some(paths) => paths,
+        None => {
+            owned = AppPaths::from_env().map_err(|e| EngineError::Io(e.to_string()))?;
+            &owned
+        }
+    };
+    let program = resolve_cli_path(paths)?;
     let argv = build_argv(&invocation)?;
 
     tracing::debug!(
@@ -307,21 +318,25 @@ fn describe_status(status: &std::process::ExitStatus) -> String {
     }
 }
 
-/// Resolution order mirrors `commands::video::resolve_binary_path`:
-/// env override → dev checkout → executable dir → app bundle Resources →
-/// PATH fallback.
+/// Resolution order: env override → dev checkout → `resources/bin` → PATH.
 ///
 /// `pub(crate)` because `translate::server` resolves the llama.cpp server
 /// through the same chain (translation-design §9) rather than copying the rules.
+///
+/// The third parameter used to be `Option<&AppHandle>`, which was only ever used
+/// as a boolean gate for "might be a packaged app, so probe the executable's
+/// neighbourhood". [`AppPaths::resources`] has already done those probes, so it
+/// replaces the gate with the answer: pass the resolved resources root and this
+/// function looks inside it.
 pub(crate) fn resolve_bundled_binary(
     binary_name: &str,
     env_var: &str,
-    app: Option<&tauri::AppHandle>,
+    paths: &AppPaths,
 ) -> Result<PathBuf, EngineError> {
     resolve_binary(
         binary_name,
         env_override(env_var),
-        app,
+        Some(&paths.resources),
         std::env::current_dir().ok().as_deref(),
     )
 }
@@ -331,7 +346,7 @@ pub(crate) fn resolve_bundled_binary(
 fn resolve_binary(
     binary_name: &str,
     env_path: Option<PathBuf>,
-    app: Option<&tauri::AppHandle>,
+    resources: Option<&Path>,
     cwd: Option<&Path>,
 ) -> Result<PathBuf, EngineError> {
     if let Some(path) = env_path {
@@ -355,28 +370,16 @@ fn resolve_binary(
         return Ok(found);
     }
 
-    // 2. packaged layout: next to the executable, then Contents/Resources/resources/bin
-    if app.is_some() {
-        let exe_path = std::env::current_exe().ok();
-        if let Some(found) = exe_path
-            .as_deref()
-            .and_then(Path::parent)
-            .and_then(|exe_dir| find_executable(exe_dir, &candidates))
-        {
-            tracing::debug!(binary = binary_name, path = ?found, "Found bundled binary");
-            return Ok(found);
-        }
-
-        if let Some(found) = exe_path
-            .as_deref()
-            .and_then(bundle_resources_dir)
-            .map(|dir| dir.join("bin"))
-            .as_deref()
-            .and_then(|dir| find_executable(dir, &candidates))
-        {
-            tracing::debug!(binary = binary_name, path = ?found, "Found bundled resource binary");
-            return Ok(found);
-        }
+    // 2. the resolved resources root: its `bin/` covers both the packaged
+    //    `Contents/Resources/resources/bin` and the copy `tauri dev` leaves next
+    //    to the executable, because `AppPaths` probed both.
+    if let Some(found) = resources
+        .map(|dir| dir.join("bin"))
+        .as_deref()
+        .and_then(|dir| find_executable(dir, &candidates))
+    {
+        tracing::debug!(binary = binary_name, path = ?found, "Found bundled binary");
+        return Ok(found);
     }
 
     tracing::warn!(
@@ -392,68 +395,12 @@ fn dev_resources_dir(root: Option<&Path>) -> Option<PathBuf> {
     dir.is_dir().then_some(dir)
 }
 
-/// `Contents/Resources/resources` for a running executable.
-fn bundle_resources_dir(exe_path: &Path) -> Option<PathBuf> {
-    let contents_dir = exe_path.parent()?.parent()?;
-    Some(contents_dir.join("Resources").join("resources"))
-}
-
 /// First candidate that exists under `dir` and is executable.
 fn find_executable(dir: &Path, candidates: &[String]) -> Option<PathBuf> {
     candidates
         .iter()
         .map(|candidate| dir.join(candidate))
         .find(|path| is_executable_file(path))
-}
-
-/// A bundled resource: dev checkout first, then the executable's own directory
-/// (where `tauri dev` copies `resources/`), then the macOS app bundle.
-fn resolve_resource_path(
-    relative: &Path,
-    app: Option<&tauri::AppHandle>,
-) -> Result<PathBuf, EngineError> {
-    let cwd = std::env::current_dir().ok();
-    if let Some(path) = dev_resources_dir(cwd.as_deref())
-        .map(|dir| dir.join(relative))
-        .filter(|path| path.exists())
-    {
-        tracing::debug!(path = ?path, "Found dev resource");
-        return Ok(path);
-    }
-
-    if app.is_some() {
-        let exe_path = std::env::current_exe().ok();
-
-        // `tauri dev` (and a packaged non-bundle layout) copies `resources/`
-        // next to the executable, which is *not* the same as
-        // `bundle_resources_dir` (`target/Resources/resources`). Without this
-        // candidate a dev run whose cwd is `src-tauri/` finds no catalogue at
-        // all — `resolve_binary` already checks `exe_dir`, so mirror it here.
-        if let Some(path) = exe_path
-            .as_deref()
-            .and_then(Path::parent)
-            .map(|exe_dir| exe_dir.join("resources").join(relative))
-            .filter(|path| path.exists())
-        {
-            tracing::debug!(path = ?path, "Found resource next to the executable");
-            return Ok(path);
-        }
-
-        if let Some(path) = exe_path
-            .as_deref()
-            .and_then(bundle_resources_dir)
-            .map(|dir| dir.join(relative))
-            .filter(|path| path.exists())
-        {
-            tracing::debug!(path = ?path, "Found bundled resource");
-            return Ok(path);
-        }
-    }
-
-    Err(EngineError::Missing(format!(
-        "bundled resource {} not found",
-        relative.display()
-    )))
 }
 
 fn env_override(env_var: &str) -> Option<PathBuf> {
@@ -914,7 +861,7 @@ mod spawn_tests {
 
         assert_eq!(LLAMACPP_PATH_ENV, "MONOSUB_LLAMACPP_PATH");
         assert_eq!(
-            resolve_llamacpp_path(None).expect("env override always resolves"),
+            resolve_llamacpp_path(&crate::paths::AppPaths::from_env().expect("paths")).expect("env override always resolves"),
             override_path
         );
     }
@@ -932,7 +879,7 @@ mod spawn_tests {
         // Either the dev checkout has the fetched server (a real path comes
         // back) or it does not (the bare name does). What matters is that
         // resolution never fails: the caller reports the missing binary.
-        let resolved = resolve_llamacpp_path(None)
+        let resolved = resolve_llamacpp_path(&crate::paths::AppPaths::from_env().expect("paths"))
             .expect("resolution never fails; the bare name is the fallback");
         assert!(
             resolved.as_os_str() == LLAMACPP_BINARY || resolved.is_absolute(),

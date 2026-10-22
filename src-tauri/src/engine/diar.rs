@@ -19,6 +19,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::paths::AppPaths;
 use crate::engine::catalog;
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::{EngineError, RawChunk};
@@ -176,16 +177,16 @@ pub fn attribute_turns(segments: &[RawChunk], turns: &[DiarTurn]) -> Vec<RawChun
 /// The family is resolved from the catalogue rather than hardcoded, so a new
 /// diar model is a `models.json` change (design §5, §7.3).
 pub async fn detect_turns(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     wav_path: &Path,
     model_id: &str,
     backend: Backend,
     out_path: &Path,
 ) -> Result<Vec<DiarTurn>, EngineError> {
-    let model_file = catalog::model_path(app, model_id)?.ok_or_else(|| {
+    let model_file = catalog::model_path(paths, model_id)?.ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
     })?;
-    let specs = catalog::catalog(Some(app))?;
+    let specs = catalog::catalog(paths)?;
     let spec = specs.iter().find(|spec| spec.id == model_id).ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
     })?;
@@ -208,7 +209,7 @@ pub async fn detect_turns(
         ],
     };
 
-    spawn(Some(app), invocation, |_| {}).await?;
+    spawn(Some(paths), invocation, |_| {}).await?;
 
     let raw = std::fs::read_to_string(out_path).map_err(|e| {
         EngineError::Protocol(format!(

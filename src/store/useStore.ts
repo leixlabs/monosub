@@ -106,6 +106,14 @@ export interface VideoFile {
   stepProgress?: StepProgress
   totalTime?: number  // total processing time in seconds (set on completion)
   error?: string
+  /**
+   * The subtitle file that made `skipExistingSubtitle` skip this file.
+   *
+   * The row says "已跳过" and otherwise leaves the user guessing which file it
+   * found — the answer can be in another directory (custom storage mode) and in
+   * another format than the primary one, so it is worth naming.
+   */
+  skippedOutputPath?: string
   subtitlePath?: string
   /**
    * Per-file speaker separation. Diarization is a property of the recording,

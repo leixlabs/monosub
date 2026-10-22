@@ -39,6 +39,17 @@ sign_app() {
             else
                 log_warning "未找到内嵌二进制目录: $RESOURCE_BIN_DIR"
             fi
+            # CLI 正常作为 resources/bin/monosub-cli-<triple> 被打包（build-macos-app.sh
+            # 生成），上面的 "*" 循环已经覆盖它，这里不再重签（重复签会违反上面的约定）。
+            # 这段只兼顾另一种布局：用 tauri 的 bundle > externalBin 时，sidecar 落在
+            # Contents/MacOS/，不在那个循环里。漏签的表现是公证能过、用户首次运行被
+            # Gatekeeper 杀掉（killed: 9）。当前构建里它不存在，静默跳过。
+            CLI_BIN="$APP_PATH/Contents/MacOS/monosub-cli"
+            if [ -f "$CLI_BIN" ]; then
+                log_info "  签名 monosub-cli"
+                codesign --force --options runtime --timestamp \
+                    --sign "$APPLE_SIGNING_IDENTITY" "$CLI_BIN"
+            fi
             codesign --force --deep --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
             log_success "代码签名完成: $APP_PATH"
         else

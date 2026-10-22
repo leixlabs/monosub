@@ -224,8 +224,8 @@ fn output_template(work_dir: &Path) -> String {
 /// Reuses `engine::cli::resolve_bundled_binary`, which owns the whole chain
 /// (env override → dev checkout → executable dir → app bundle → PATH). Copying
 /// those rules here is how the two engines would drift.
-pub fn resolve_path(app: Option<&tauri::AppHandle>) -> PathBuf {
-    match crate::engine::cli::resolve_bundled_binary(BINARY, PATH_ENV, app) {
+pub fn resolve_path(paths: &crate::paths::AppPaths) -> PathBuf {
+    match crate::engine::cli::resolve_bundled_binary(BINARY, PATH_ENV, paths) {
         Ok(path) => path,
         // Resolution only fails if it cannot even build a candidate; the bare
         // name is the same fallback the resolver itself uses.
@@ -267,7 +267,16 @@ pub async fn run(
     invocation: &Invocation,
     mut on_line: impl FnMut(&str) + Send,
 ) -> Result<RunOutput, ImportError> {
-    let program = resolve_path(app);
+    // `app` is only needed to resolve paths; the environment resolution used by
+    // the CLI produces the same roots, so it is the fallback either way.
+    let paths = match app {
+        Some(app) => crate::paths::AppPaths::from_app(app)
+            .or_else(|_| crate::paths::AppPaths::from_env())
+            .expect("app paths are resolvable"),
+        None => crate::paths::AppPaths::from_env().expect("app paths are resolvable"),
+    };
+    let program = resolve_path(&paths);
+
     let argv = build_argv(invocation);
 
     tracing::debug!(

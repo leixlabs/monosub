@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::commands::opener::open_directory;
+use crate::paths::AppPaths;
 use crate::engine::catalog::{self, ModelFile, ModelSpec};
 
 /// Sentinel error string used by the transcription layer to signal a missing
@@ -234,7 +235,8 @@ impl std::fmt::Display for DownloadError {
 /// Catalogue plus install state for every model in `models.json`.
 #[tauri::command]
 pub async fn list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String> {
-    let statuses = catalog::list(Some(&app)).map_err(|e| e.to_string())?;
+    let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let statuses = catalog::list(&paths).map_err(|e| e.to_string())?;
     Ok(statuses.into_iter().map(ModelStatus::from_catalog).collect())
 }
 /// Start downloading `id` in the background and return immediately.
@@ -244,7 +246,8 @@ pub async fn list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String> {
 /// is already in flight is an idempotent no-op.
 #[tauri::command]
 pub async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
-    let spec = find_spec(&app, &id)?;
+    let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let spec = find_spec(&paths, &id)?;
 
     let mut downloads = DOWNLOADS.lock().await;
     // A task that finished before it could deregister itself is not in flight.
@@ -296,13 +299,14 @@ pub async fn cancel_model_download(id: String) -> Result<(), String> {
 pub async fn remove_model(app: AppHandle, id: String) -> Result<(), String> {
     cancel_in_flight(&id).await;
 
-    let dir = catalog::model_dir(&app, &id).map_err(|e| e.to_string())?;
+    let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let dir = catalog::model_dir(&paths, &id).map_err(|e| e.to_string())?;
     if !dir.exists() {
         tracing::info!(model = %id, path = %dir.display(), "remove_model: not installed");
         return Ok(());
     }
 
-    let root = models_root(&app)?;
+    let root = models_root(&paths)?;
     remove_model_dir(&root, &dir)?;
     tracing::info!(model = %id, path = %dir.display(), "Removed model files");
     Ok(())
@@ -315,7 +319,8 @@ pub async fn remove_model(app: AppHandle, id: String) -> Result<(), String> {
 /// do through `open_in_finder`) only selects it in the parent window.
 #[tauri::command]
 pub async fn open_models_dir(app: AppHandle) -> Result<(), String> {
-    let root = models_root(&app)?;
+    let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let root = models_root(&paths)?;
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("failed to create {}: {}", root.display(), e))?;
 
@@ -342,7 +347,8 @@ pub struct ModelsDirInfo {
 /// Report the effective models directory (design: no re-downloading models).
 #[tauri::command]
 pub async fn get_models_dir(app: AppHandle) -> Result<ModelsDirInfo, String> {
-    let path = models_root(&app)?;
+    let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let path = models_root(&paths)?;
     let default_path = crate::model_dir::default_root(&app)?;
     let from_env = std::env::var_os(crate::model_dir::MODELS_DIR_ENV)
         .map(|v| !v.to_string_lossy().trim().is_empty())
@@ -407,8 +413,8 @@ async fn cancel_in_flight(id: &str) {
     }
 }
 
-fn find_spec(app: &AppHandle, id: &str) -> Result<ModelSpec, String> {
-    let spec = catalog::catalog(Some(app))
+fn find_spec(paths: &AppPaths, id: &str) -> Result<ModelSpec, String> {
+    let spec = catalog::catalog(paths)
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|spec| spec.id == id)
@@ -428,16 +434,21 @@ fn find_spec(app: &AppHandle, id: &str) -> Result<ModelSpec, String> {
     Ok(spec)
 }
 
-fn models_root(app: &AppHandle) -> Result<PathBuf, String> {
-    // Delegated so `engine::catalog` (install checks, `--model` paths) and this
-    // downloader always resolve the same directory.
-    crate::model_dir::configured_root(app)
+fn models_root(paths: &AppPaths) -> Result<PathBuf, String> {
+    // Now literally the same value `engine::catalog` reads: the downloader and
+    // the install check cannot disagree because there is one resolved field.
+    Ok(paths.models_root.clone())
 }
 
 /// Download every file of `spec` in manifest order, emitting throttled progress.
 async fn run_download(app: AppHandle, spec: ModelSpec, cancel: Arc<AtomicBool>) {
     let id = spec.id.clone();
-    let result = download_model_files(&app, &spec, &cancel).await;
+    let built = AppPaths::from_app(&app);
+
+    let result = match &built {
+        Ok(paths) => download_model_files(paths, &app, &spec, &cancel).await,
+        Err(error) => Err(DownloadError::Io(error.to_string())),
+    };
 
     DOWNLOADS.lock().await.remove(&id);
 
@@ -463,6 +474,7 @@ async fn run_download(app: AppHandle, spec: ModelSpec, cancel: Arc<AtomicBool>) 
 }
 
 async fn download_model_files(
+    paths: &AppPaths,
     app: &AppHandle,
     spec: &ModelSpec,
     cancel: &AtomicBool,
@@ -475,7 +487,7 @@ async fn download_model_files(
     }
 
     let dest_dir =
-        catalog::model_dir(app, &spec.id).map_err(|e| DownloadError::Io(e.to_string()))?;
+        catalog::model_dir(paths, &spec.id).map_err(|e| DownloadError::Io(e.to_string()))?;
     tokio::fs::create_dir_all(&dest_dir).await.map_err(io_error)?;
 
     let total: u64 = spec.files.iter().map(|file| file.size).sum();

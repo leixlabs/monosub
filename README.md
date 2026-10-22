@@ -71,6 +71,23 @@ That's it. No account. No subscription. No internet needed after the model downl
 
 ---
 
+## 💻 Command Line
+
+MonoSub ships a command line entry point, `monosub-cli`, for the cases a window does not serve: batch scripts, CI, and agents — running a folder of files from a shell is the whole point of it. It runs the same pipeline as the app, and writes the same formats next to (or instead of) the files you point it at.
+
+The CLI does not pick its own model — it reuses the plan you already chose in the App (persisted in the settings file), so both run the same model. It only takes the per-run choices: output directory, format, language, and whether to translate (translation is off unless you ask for it with `--translate --target <lang>`).
+
+```bash
+monosub-cli video.mp4
+monosub-cli video.mp4 --output-dir ~/subs --format srt,vtt
+monosub-cli video.mp4 --translate --target en
+monosub-cli *.mp4 --json
+```
+
+`--json` sends JSON Lines to stdout for scripts; progress goes to stderr. Files are processed in order, and one failure does not stop the rest. With `--translate --target en` the translated subtitle is written alongside the original as `video.en.srt`, leaving `video.srt` untouched.
+
+---
+
 ## 💎 Pro License
 
 **MonoSub is completely free** — unlimited transcription for personal use.

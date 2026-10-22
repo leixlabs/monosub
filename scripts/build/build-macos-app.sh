@@ -24,6 +24,17 @@ PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 BUILD_DIR="$PROJECT_ROOT/src-tauri/target"
 OUTPUT_DIR="$PROJECT_ROOT/dist"
 
+# CLI 产物名里的 triple 必须与 `cargo tauri build --target` 一致，也必须与 App 运行时的
+# 查找名一致（engine/cli.rs::target_triple() 是编译期的，跟的是 build target，不是 host）。
+# 所以这里用与 prepare-ffmpeg.sh / fetch-*.sh 同一套 uname -m 映射，而不是 rustc 的 host：
+# 在 arm64 机器上交叉构建 x86_64 时两者会不同，用 host 会产出一个运行时找不到的名字。
+TARGET_TRIPLE=""
+case "$(uname -m)" in
+    arm64)  TARGET_TRIPLE="aarch64-apple-darwin" ;;
+    x86_64) TARGET_TRIPLE="x86_64-apple-darwin" ;;
+    *) log_error "不支持的架构: $(uname -m)"; exit 1 ;;
+esac
+
 log_info "1. 前置清理..."
 cd "$PROJECT_ROOT"
 # 只清除 DMG缓存
@@ -54,19 +65,40 @@ $PKG_MANAGER install
 $PKG_MANAGER run build
 log_success "前端 (Vite) 构建就绪"
 
-log_info "5. 打包 Tauri 原生客户端..."
-if [ "$(uname -m)" = "arm64" ]; then
-    cargo tauri build --target aarch64-apple-darwin
+log_info "5. 编译命令行工具 (monosub-cli)..."
+# CLI 的源码与 [[bin]] 由独立任务落地（docs/tech-spec/cli-design.md §3.2/§7.1）。
+# 产物落到 resources/bin/monosub-cli-<triple>，与 audiocpp_cli / llama-server / yt-dlp
+# 同一个目录，因此：`resources/**/*` 的 glob 会把它带进 App，sign-app.sh 现有的
+# RESOURCE_BIN_DIR 循环会逐个重签，engine/cli.rs::bundle_resources_dir() 也已经能解析
+# 这个位置——不需要 externalBin，也不需要新代码。
+CLI_SOURCE="$PROJECT_ROOT/src-tauri/src/bin/monosub-cli.rs"
+CLI_TARGET_DIR="$PROJECT_ROOT/src-tauri/resources/bin"
+CLI_TARGET="$CLI_TARGET_DIR/monosub-cli-$TARGET_TRIPLE"
+if [ -f "$CLI_SOURCE" ]; then
+    cargo build --release --bin monosub-cli \
+        --manifest-path "$PROJECT_ROOT/src-tauri/Cargo.toml" \
+        --target "$TARGET_TRIPLE"
+    mkdir -p "$CLI_TARGET_DIR"
+    install -m 755 "$BUILD_DIR/$TARGET_TRIPLE/release/monosub-cli" "$CLI_TARGET"
+    log_success "CLI 已就位: $CLI_TARGET"
 else
-    cargo tauri build --target x86_64-apple-darwin
+    # 不硬失败：CLI 还没落地时，打包管线不能挡住别人。降级为「本次构建不含 CLI」，
+    # 并删掉上一轮可能留下的旧产物，避免打进一个过期的二进制。
+    # ${CLI_SOURCE} 必须带花括号：macOS 自带的 bash 3.2 会把紧跟 $var 之后的第一个
+    # 多字节字符的首字节吃掉（“，”变乱码），花括号断开边界就不受影响。
+    log_warning "未找到 ${CLI_SOURCE}，跳过 CLI 编译：本次构建不含 monosub-cli"
+    rm -f "$CLI_TARGET"
 fi
+
+log_info "6. 打包 Tauri 原生客户端..."
+cargo tauri build --target "$TARGET_TRIPLE"
 log_success "Rust / Tauri 二进制编译成功"
 
-log_info "6. macOS 安全校验与应用签名..."
+log_info "7. macOS 安全校验与应用签名..."
 # 调用签名流
 bash "$SCRIPT_DIR/../release/sign-app.sh" "$OUTPUT_DIR/$DMG_NAME"
 
-log_info "7. 提取产物 DMG ..."
+log_info "8. 提取产物 DMG ..."
 mkdir -p "$OUTPUT_DIR"
 BUILT_DMG=$(find "$BUILD_DIR"/*/release/bundle/dmg -name "*.dmg" -type f | head -1)
 

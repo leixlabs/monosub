@@ -104,7 +104,7 @@ pub async fn translate_segments(
     target: &str,
     model: &ModelSpec,
     model_path: &Path,
-    app: Option<&tauri::AppHandle>,
+    paths: &crate::paths::AppPaths,
     on_progress: impl Fn(usize, usize) + Send + Sync,
 ) -> (Vec<Segment>, TranslationOutcome) {
     if segments.is_empty() {
@@ -126,7 +126,7 @@ pub async fn translate_segments(
         );
     }
 
-    let binary = match crate::engine::cli::resolve_llamacpp_path(app) {
+    let binary = match crate::engine::cli::resolve_llamacpp_path(paths) {
         Ok(binary) => binary,
         Err(error) => {
             return (
@@ -855,14 +855,14 @@ mod tests {
             "zh",
             &spec,
             missing,
-            None,
+            &crate::paths::AppPaths::from_env().expect("paths"),
             |_, _| {},
         )
         .await;
         assert_eq!(out, input);
         assert_eq!(outcome.skipped, Some(SkipReason::SameLanguage));
 
-        let (out, outcome) = translate_segments(&[], Some("zh"), "en", &spec, missing, None, |_, _| {}).await;
+        let (out, outcome) = translate_segments(&[], Some("zh"), "en", &spec, missing, &crate::paths::AppPaths::from_env().expect("paths"), |_, _| {}).await;
         assert!(out.is_empty());
         assert_eq!(outcome.skipped, Some(SkipReason::NoSegments));
 
@@ -873,7 +873,7 @@ mod tests {
             "en",
             &spec,
             missing,
-            None,
+            &crate::paths::AppPaths::from_env().expect("paths"),
             |_, _| {},
         )
         .await;

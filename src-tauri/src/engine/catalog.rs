@@ -9,6 +9,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::engine::EngineError;
+use crate::paths::AppPaths;
 use serde::Deserialize;
 
 /// One downloadable file of a model.
@@ -557,57 +558,56 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
 
 /// Load the catalogue bundled at `src-tauri/resources/models.json`
 /// (dev: repo path; prod: `Resources/resources/models.json`).
-pub fn catalog(app: Option<&tauri::AppHandle>) -> Result<Vec<ModelSpec>, EngineError> {
-    let path = crate::engine::cli::resolve_catalog_path(app)?;
+pub fn catalog(paths: &AppPaths) -> Result<Vec<ModelSpec>, EngineError> {
+    let path = crate::engine::cli::resolve_catalog_path(paths)?;
     load_catalog(&path)
 }
 
 /// Absolute model file path for `id`, or `None` when unknown.
 pub fn model_path(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     id: &str,
 ) -> Result<Option<PathBuf>, EngineError> {
-    let Some(spec) = lookup(app, id)? else {
+    let Some(spec) = lookup(paths, id)? else {
         return Ok(None);
     };
     Ok(Some(
-        models_root(app)?.join(&spec.target_directory).join(&spec.model_file),
+        paths.models_root.join(&spec.target_directory).join(&spec.model_file),
     ))
 }
 
 /// `<app_data_dir>/models/<target_directory>`.
-pub fn model_dir(app: &tauri::AppHandle, id: &str) -> Result<PathBuf, EngineError> {
-    let spec = find(app, id)?;
-    Ok(models_root(app)?.join(&spec.target_directory))
+pub fn model_dir(paths: &AppPaths, id: &str) -> Result<PathBuf, EngineError> {
+    let spec = find(paths, id)?;
+    Ok(paths.models_root.join(&spec.target_directory))
 }
 
 /// True when every manifest file exists and its size matches (never hashes).
-pub fn is_installed(app: &tauri::AppHandle, id: &str) -> bool {
-    let Ok(Some(spec)) = lookup(app, id) else {
+pub fn is_installed(paths: &AppPaths, id: &str) -> bool {
+    let Ok(Some(spec)) = lookup(paths, id) else {
         return false;
     };
-    let Ok(root) = models_root(app) else {
-        return false;
-    };
-    let dir = root.join(&spec.target_directory);
+    let dir = paths.models_root.join(&spec.target_directory);
     spec.files
         .iter()
         .all(|file| file_size(&dir.join(&file.path)) == Some(file.size))
 }
 
 /// List every model with its install state; used by `list_models`.
-pub fn list(status: Option<&tauri::AppHandle>) -> Result<Vec<ModelStatus>, EngineError> {
-    let specs = catalog(status)?;
-    let root = status.and_then(|app| models_root(app).ok());
+pub fn list(paths: &AppPaths) -> Result<Vec<ModelStatus>, EngineError> {
+    let specs = catalog(paths)?;
 
     Ok(specs
         .into_iter()
         .map(|spec| {
-            let dir = root.as_ref().map(|root| root.join(&spec.target_directory));
-            let mut installed = root.is_some();
+            // The root always exists as a value now (it is a field of `AppPaths`,
+            // not an optional resolved at call time), so `installed` starts true
+            // and is falsified by any missing or wrong-sized file below.
+            let dir = paths.models_root.join(&spec.target_directory);
+            let mut installed = true;
             let mut size_on_disk = 0u64;
             for file in &spec.files {
-                match dir.as_ref().and_then(|dir| file_size(&dir.join(&file.path))) {
+                match file_size(&dir.join(&file.path)) {
                     Some(size) => {
                         size_on_disk += size;
                         installed &= size == file.size;
@@ -720,21 +720,17 @@ fn normalize_language_tag(app_lang: &str) -> String {
     }
 }
 
-/// `<app_data_dir>/models`.
-/// `<app_data_dir>/models`, or the user's configured directory.
-fn models_root(app: &tauri::AppHandle) -> Result<PathBuf, EngineError> {
-    // Single source of truth: `model_dir` owns the precedence (env → persisted
-    // setting → default), so the catalogue and the downloader can never
-    // disagree about where models live.
-    crate::model_dir::configured_root(app).map_err(EngineError::Io)
+// The models root now comes from `AppPaths`, which resolves the same
+// precedence `model_dir::configured_root` used to (env → persisted setting →
+// default). Keeping it in one field is what stops the catalogue and the
+// downloader from disagreeing about where models live.
+
+fn lookup(paths: &AppPaths, id: &str) -> Result<Option<ModelSpec>, EngineError> {
+    Ok(catalog(paths)?.into_iter().find(|spec| spec.id == id))
 }
 
-fn lookup(app: &tauri::AppHandle, id: &str) -> Result<Option<ModelSpec>, EngineError> {
-    Ok(catalog(Some(app))?.into_iter().find(|spec| spec.id == id))
-}
-
-fn find(app: &tauri::AppHandle, id: &str) -> Result<ModelSpec, EngineError> {
-    lookup(app, id)?.ok_or_else(|| EngineError::Protocol(format!("unknown model id: {}", id)))
+fn find(paths: &AppPaths, id: &str) -> Result<ModelSpec, EngineError> {
+    lookup(paths, id)?.ok_or_else(|| EngineError::Protocol(format!("unknown model id: {}", id)))
 }
 
 /// Size of `path`, or `None` when it is missing or not a regular file.

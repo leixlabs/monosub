@@ -247,10 +247,23 @@ export function FileItem({ file }: FileItemProps) {
             {file.stepProgress ? (
               <>
                 {/* Step indicator */}
-                <div className="flex items-center gap-2">
+                <div
+                  className="flex items-center gap-2"
+                  // A bare "3/5" reads as a percentage, a retry count or a file
+                  // counter. The visible text names what it counts, and the
+                  // tooltip adds the step heading it belongs to.
+                  title={t('fileItem.stepOfTotalHint', {
+                    current: file.stepProgress.currentStep,
+                    total: file.stepProgress.totalSteps,
+                    step: t(`steps.${file.stepProgress.stepName.toLowerCase().replace(/\s+/g, '_')}`, file.stepProgress.stepName),
+                  })}
+                >
                   <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
-                  <span className="text-xs font-medium text-text-secondary dark:text-gray-400">
-                    {file.stepProgress.currentStep}/{file.stepProgress.totalSteps}
+                  <span className="text-xs font-medium text-text-secondary dark:text-gray-400 whitespace-nowrap">
+                    {t('fileItem.stepOfTotal', {
+                      current: file.stepProgress.currentStep,
+                      total: file.stepProgress.totalSteps,
+                    })}
                   </span>
                 </div>
                 {/* Step name */}
@@ -287,11 +300,22 @@ export function FileItem({ file }: FileItemProps) {
         );
       case 'skipped':
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <GlassBadge variant="default" size="sm">
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               {t('fileItem.skipped')}
             </GlassBadge>
+            {/* Which file caused the skip. Without it "已跳过" reads as
+                "nothing to do here", when the real answer may be "your subtitle
+                is already in the custom output folder, in .vtt". */}
+            {file.skippedOutputPath && (
+              <span
+                className="text-xs text-text-tertiary dark:text-gray-500 truncate"
+                title={file.skippedOutputPath}
+              >
+                {file.skippedOutputPath.split(/[\\/]/).pop()}
+              </span>
+            )}
           </div>
         );
       case 'error':

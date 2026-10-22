@@ -29,6 +29,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::paths::AppPaths;
 use crate::engine::catalog;
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::words::{self, Word};
@@ -73,11 +74,11 @@ pub struct AlignedTranscript {
 ///
 /// Requires the word capability *and* the aligner directory to exist: the
 /// capability alone is a claim, and `--words-out` fails hard without the file.
-pub fn can_align(app: &tauri::AppHandle, spec: &catalog::ModelSpec) -> bool {
+pub fn can_align(paths: &AppPaths, spec: &catalog::ModelSpec) -> bool {
     if spec.capabilities().timestamps < catalog::TimestampGrade::Word {
         return false;
     }
-    aligner_path(app, spec).is_some()
+    aligner_path(paths, spec).is_some()
 }
 
 /// Resolve the aligner GGUF named by the model's `requires` declaration.
@@ -85,15 +86,15 @@ pub fn can_align(app: &tauri::AppHandle, spec: &catalog::ModelSpec) -> bool {
 /// Returns `None` when the catalogue declares no aligner, the id is unknown, or
 /// the file is absent — all three mean "cannot produce word timing", and the
 /// caller falls back to estimated timing rather than failing the run.
-pub fn aligner_path(app: &tauri::AppHandle, spec: &catalog::ModelSpec) -> Option<PathBuf> {
-    let specs = catalog::catalog(Some(app)).ok()?;
+pub fn aligner_path(paths: &AppPaths, spec: &catalog::ModelSpec) -> Option<PathBuf> {
+    let specs = catalog::catalog(paths).ok()?;
 
     for required_id in &spec.requires {
         let required = specs.iter().find(|candidate| &candidate.id == required_id)?;
         if !required.has_role(catalog::Role::Align) {
             continue;
         }
-        let path = catalog::model_path(app, required_id).ok().flatten()?;
+        let path = catalog::model_path(paths, required_id).ok().flatten()?;
         if path.is_file() {
             return Some(path);
         }
@@ -126,7 +127,7 @@ pub struct AlignedRequest<'a> {
 /// nothing (silence, or a language it cannot align). That is not an error: the
 /// caller estimates timing instead, so a Hebrew clip still gets a subtitle.
 pub async fn transcribe_aligned(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     task_id: &str,
     wav_path: &Path,
     spec: &catalog::ModelSpec,
@@ -134,20 +135,20 @@ pub async fn transcribe_aligned(
     backend: Backend,
     on_progress: &ProgressFn<'_>,
 ) -> Result<AlignedTranscript, EngineError> {
-    let model_file = catalog::model_path(app, &spec.id)?.ok_or_else(|| {
+    let model_file = catalog::model_path(paths, &spec.id)?.ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", spec.id))
     })?;
-    let aligner = aligner_path(app, spec).ok_or_else(|| {
+    let aligner = aligner_path(paths, spec).ok_or_else(|| {
         EngineError::ModelNotInstalled(format!(
             "word timestamps for '{}' need its forced aligner, which is not installed",
             spec.id
         ))
     })?;
-    let vad_dir = crate::engine::cli::resolve_vad_path(Some(app))?;
+    let vad_dir = crate::engine::cli::resolve_vad_path(paths)?;
     let work_dir = super::TempWorkDir::create(task_id)?;
 
     run_aligned(
-        Some(app),
+        paths,
         AlignedRequest {
             family: FAMILY,
             model_file,
@@ -166,7 +167,7 @@ pub async fn transcribe_aligned(
 /// Execute an [`AlignedRequest`]. Pure of catalogue lookups, so it is usable
 /// both from the app (`Some(app)`) and from tests (`None`).
 pub async fn run_aligned(
-    app: Option<&tauri::AppHandle>,
+    paths: &AppPaths,
     request: AlignedRequest<'_>,
     on_progress: &ProgressFn<'_>,
 ) -> Result<AlignedTranscript, EngineError> {
@@ -187,7 +188,7 @@ pub async fn run_aligned(
     };
 
     on_progress(0, 0, "Transcribing");
-    spawn(app, invocation, |_| {}).await?;
+    spawn(Some(paths), invocation, |_| {}).await?;
 
     let text = std::fs::read_to_string(&out.text).unwrap_or_default();
     // A missing `words.json` is not a failure: the CLI only writes it when the
@@ -532,7 +533,7 @@ mod tests {
             / (16_000.0 * 2.0);
 
         let result = run_aligned(
-            None,
+            &crate::paths::AppPaths::from_env().expect("app paths"),
             AlignedRequest {
                 family: FAMILY,
                 model_file: asr,

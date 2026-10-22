@@ -74,6 +74,10 @@ child over HTTP on `127.0.0.1` instead. `yt-dlp` is spawned per URL-import stage
 downloader, not an engine — it is listed here only so nobody assumes there are exactly two
 bundled binaries.
 
+A second entry point runs over the same pipeline: `monosub-cli` links the same crate
+(`src-tauri/src/lib.rs`) instead of the Tauri shell, so it re-implements nothing — see
+命令行入口（`monosub-cli`） below.
+
 ### Package Managers
 
 | Component | Package Manager | File |
@@ -120,7 +124,9 @@ monosub/
 │
 ├── src-tauri/                   # Rust: app logic + inference orchestration
 │   ├── src/
-│   │   ├── main.rs              # Entry point, command registration
+│   │   ├── lib.rs               # The crate: 9 pub mods, shared by both binaries
+│   │   ├── main.rs              # Tauri shell: plugins, command registration, tray
+│   │   ├── bin/monosub-cli.rs   # The CLI (see 命令行入口（`monosub-cli`）)
 │   │   ├── engine/              # audio.cpp integration
 │   │   │   ├── mod.rs           # VAD → slice → requests.json → sequence ASR
 │   │   │   ├── cli.rs           # Binary resolution, spawn, stderr ring buffer
@@ -889,6 +895,107 @@ line-parsing subprocess.
 
 ---
 
+## 命令行入口（`monosub-cli`）
+
+> **Status: implemented.** Design: `docs/tech-spec/cli-design.md`; §11.7 records the measured
+> real transcription. The binary is `src-tauri/src/bin/monosub-cli.rs`.
+
+`monosub-cli` is the second frontend over the same pipeline. It shares the whole crate with
+the GUI rather than re-deriving it: `src-tauri/src/lib.rs` declares the 9 `pub mod`s,
+`src/main.rs` is the thin Tauri shell over that library, and `Cargo.toml` carries
+`[[bin]] monosub` / `[[bin]] monosub-cli` / `[lib] monosub`. It calls the same
+`commands::transcribe::transcribe_file` the GUI calls, with a `ProgressSink` that writes to
+stderr instead of emitting `transcribe_progress`. **It re-implements nothing**, so "the GUI's
+output is good but the CLI's differs" cannot become a bug nobody can chase.
+
+That guarantee is what keeps `engine/` / `subtitle/` / `translate/` free of `tauri`: they
+take `&AppPaths` (`from_app` for the GUI, `from_env` for the CLI and tests), which is also why
+they run under `cargo test`.
+
+```bash
+monosub-cli video.mp4
+monosub-cli video.mp4 --output-dir ~/subs --format srt,vtt
+monosub-cli video.mp4 --translate --target en
+monosub-cli *.mp4 --json
+```
+
+Rules the CLI is built around:
+
+- **No model flag.** The four questions are answered in the GUI: `resolve_model_plan` writes
+  the solved `recognitionPlan` into `<app_config_dir>/settings.json`, and the CLI reads that
+  instead of asking again. `--model` is deliberately not offered — pinning a model is the
+  GUI's "advanced" action, and a second place to choose one is a second source of truth. The
+  CLI still re-runs `plan::solve` over those cached answers and **trusts the solver**, warning
+  on stderr when the two disagree (the user may have deleted a model since).
+- **What it controls** is `-o/--output-dir` / `-f/--format` / `-l/--language` /
+  `--translate` / `--target` / `--json` / `-q/--quiet` / `-h/--help`. Those are the
+  per-invocation choices; the model comes from the settings the GUI wrote. Multiple inputs are
+  processed **in order**: one failing file does not stop the rest, and the process exits with
+  the **first** failure's code once all are done.
+- **Translation is off by default**, even when `settings.json` carries
+  `translation.enabled: true` — the GUI's switch is deliberately not consulted, because it is
+  an extra 1.8B model load a batch script should opt into per run. The gate is
+  `translate::stage::resolve`, the same function the GUI and URL import call. Two wiring
+  quirks to know about: the CLI passes `model_id: None`, so it always takes the catalogue
+  default and never reads `settings.json`'s `translation.modelId`; and `--target` has no
+  default in code, so `--translate` **without** `--target` resolves to
+  `SkipReason::NoTarget` and only prints "continuing without translation". **Pass
+  `--translate --target <lang>`** to get a translated file.
+- **Two streams, two audiences.** Human progress goes to **stderr**; `--json` (JSON Lines,
+  `queued` / `progress` / `done`) goes to **stdout**, so `… --json | jq` works and a script
+  never has to grep the wording a screenshot shows. The JSON field set is **experimental**
+  (may change in a minor version); the stable contract is the **exit code** plus the **output
+  file paths** the run reports.
+- **No inter-process lock.** Running the CLI and the app at once makes both share one GPU,
+  which on Metal slows both down. That is documented, not locked (the app's semaphore is
+  process-local).
+
+The step denominator follows the run: **4** steps normally, **5** when it translates — both
+measured, and the same `STEPS_WITHOUT_TRANSLATION` / `STEPS_WITH_TRANSLATION` constants the
+GUI renders.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | every input succeeded — an all-silent file is success and writes an empty subtitle, with or without `--translate` |
+| 1 | usage error: bad argument, input file does not exist |
+| 2 | model missing (`MODEL_NOT_INSTALLED`, with or without an `:<id>` suffix); stderr names it and points at the App to install |
+| 3 | transcription failed — engine or ffmpeg non-zero exit |
+| 4 | the output could not be written: the CLI's own `create_dir_all`, or a `TaskFailure` whose context is `writing the subtitle failed` |
+| 5 | the subtitles are valid but the translation was **attempted and produced nothing**; stderr adds "the subtitles are valid; only the translated copy failed." |
+
+Exit 5 is strictly "attempted and produced nothing". A **skip** is not a failure and stays exit
+0: `SkipReason::NoSegments` (an all-silent input) and `SkipReason::SameLanguage` (a detected
+source equal to the target) both legitimately write no translated file. `StageOutcome` carries
+`skipped: Option<SkipReason>` so the call site can tell the two apart — before that field
+existed, a silent WAV with `--translate` reported exit 5 (measured), which was wrong.
+
+`-f/--format` defaults to `srt` and `-l/--language` to the persisted plan's language, else
+`auto`. Note `--help` claims both default to "the app setting": that is only true of the
+language. Output *format* is a browser-side preference and is not in `settings.json`, so the
+CLI falls back to `srt` rather than guessing.
+
+§11.7 holds the measured evidence for the recognition path (one real transcription, plus the
+exit-1 and exit-2 paths). Translation was measured separately: a 2.2 s Chinese clip
+(`say -v Tingting`) with `--translate --target en` wrote `speech.srt` + `speech.en.srt`
+("大家好，我是一个测试。" → "Hello everyone, I'm a tester.") and exited 0, with the step
+denominator at 5.
+
+**The config directory and the models directory are two unrelated concepts.** Neither
+implies nor is derived from the other, and the CLI must not invent a second rule for
+either:
+
+| Concept | What it is | Default | Override |
+|---|---|---|---|
+| config dir | where `settings.json` lives, and nothing else | `<app_config_dir>`: macOS `~/Library/Application Support/dev.leix.monosub`, Windows `%APPDATA%/dev.leix.monosub`, Linux `~/.config/dev.leix.monosub` | `MONOSUB_CONFIG_DIR` |
+| models dir | where model weights live | `<app_data_dir>/models` | `MONOSUB_MODELS_DIR`, or the `modelsDir` string stored *inside* that `settings.json` |
+
+The installed app already looks like this: `settings.json` sits under the config dir while
+its `modelsDir` points somewhere else entirely (here, into the repo). So "the models are
+next to the config file" is wrong, and hard-coding `~/.monosub` would be a second settings
+location; `MONOSUB_CONFIG_DIR=~/.monosub` is the supported way to get that literal path.
+
+---
+
 ## Key Files Reference
 
 | Path | Purpose |
@@ -944,6 +1051,9 @@ line-parsing subprocess.
 | `src/components/ClipboardPrompt.tsx` | The one-click import pill |
 | `docs/tech-spec/url-import-design.md` | URL import design (flow, language rules, IPC, packaging) |
 | `docs/tech-spec/url-import-tasks.md` | URL import task list (U0–U5) |
+| `docs/tech-spec/cli-design.md` | `monosub-cli` design (implemented, §11.7): library split, `AppPaths`, settings hand-off, exit codes |
+| `src-tauri/src/lib.rs` | The shared crate: 9 `pub mod`s, so `main.rs` and `bin/monosub-cli.rs` both `use monosub::…` |
+| `src-tauri/src/bin/monosub-cli.rs` | The CLI: hand-rolled argument parsing, `--json` JSON Lines, multi-file loop over `transcribe_file` |
 
 ---
 
@@ -1230,6 +1340,8 @@ useEffect(() => {
 | `MONOSUB_LLAMACPP_PATH` | Override the llama.cpp `llama-server` path |
 | `MONOSUB_YTDLP_PATH` | Override the bundled `yt-dlp` path (debugging / hot-fix only) |
 | `MONOSUB_MODELS_DIR` | Override the models directory (wins over the in-app setting) |
+| `MONOSUB_CONFIG_DIR` | Override the config directory holding `settings.json` (the CLI's only way to a non-default config path) |
+| `MONOSUB_RESOURCES_DIR` | Override the `resources` root — `models.json`, `bin/`, `models/silero_vad` (the CLI would otherwise derive it from the executable's location) |
 | `APPLE_SIGNING_IDENTITY` | Code signing identity (optional) |
 | `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Notarization credentials (optional) |
 

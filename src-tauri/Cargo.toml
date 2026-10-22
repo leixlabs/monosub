@@ -4,6 +4,24 @@ version = "2.0.0"
 description = "Local voice to article desktop app"
 authors = ["VoiceToText"]
 edition = "2021"
+# `tauri dev` runs `cargo run` without `--bin`, and with two binaries Cargo
+# refuses to guess. The GUI is the one a bare `cargo run` must start; the CLI is
+# always requested explicitly (`cargo run --bin monosub-cli`).
+default-run = "monosub"
+
+# The GUI binary stays the default; the CLI is a second binary over the same
+# library (src/lib.rs), which is why the modules had to leave main.rs.
+[[bin]]
+name = "monosub"
+path = "src/main.rs"
+
+[[bin]]
+name = "monosub-cli"
+path = "src/bin/monosub-cli.rs"
+
+[lib]
+name = "monosub"
+path = "src/lib.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -38,3 +56,10 @@ tauri-plugin-clipboard-manager = "2.5.0"
 
 [profile.dev]
 incremental = true
+
+[features]
+# `tauri-app` gates `AppPaths::from_app`, the one place the core needs a Tauri
+# handle. The GUI enables it; a CLI binary compiles without it so the shared
+# modules stay Tauri-free.
+default = ["tauri-app"]
+tauri-app = []

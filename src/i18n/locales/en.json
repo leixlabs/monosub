@@ -35,6 +35,8 @@
     "open": "Open",
     "delete": "Delete",
     "starting": "Starting...",
+    "stepOfTotal": "Step {{current}} of {{total}}",
+    "stepOfTotalHint": "Step {{current}} of {{total}}: {{step}}",
     "skipped": "Skipped",
     "multiSpeaker": "Speakers",
     "multiSpeakerHint": "Detect and label speakers for this file (slower)",
@@ -71,7 +73,7 @@
     "processing": {
       "title": "Processing",
       "skipExisting": "Skip Existing Subtitles",
-      "skipExistingDesc": "Skip processing if output file already exists"
+      "skipExistingDesc": "If a subtitle file for this video is already in the output folder, skip it"
     },
     "notifications": {
       "title": "Notifications",
@@ -114,7 +116,17 @@
       "title": "System",
       "logDir": "Log Directory",
       "logDirHint": "Logs are kept for the last 7 days. Attach the newest file when reporting a problem.",
-      "openLogs": "Open"
+      "openLogs": "Open",
+      "configFile": "Config File",
+      "configFileHint": "Config and models are separate: this file holds settings only; models live where “Storage location” points.",
+      "configFileOpen": "Show",
+      "cliTitle": "Command-line tool",
+      "cliComingSoon": "Coming soon",
+      "cliHint": "MonoSub will offer a command-line entry point that shares the same pipeline and the same models as the app. It is not available yet.",
+      "cliInstallHint": "Once installed, use it directly in a terminal:",
+      "cliCopy": "Copy",
+      "cliCopied": "Copied",
+      "cliCopyFailed": "Could not copy the command"
     },
     "urlImport": {
       "title": "URL Import"

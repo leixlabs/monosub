@@ -345,9 +345,14 @@ pub async fn cancel_url_import(task_id: String) -> Result<(), String> {
 
 // --- Job ------------------------------------------------------------------
 
-/// One job's immutable inputs. `pub(crate)` because `site::pipeline` and
-/// `site::deps` take it by reference across their seams.
-pub(crate) struct JobParams {
+/// One job's immutable inputs.
+///
+/// `pub` (not `pub(crate)`) because [`deps::Deps`] and [`pipeline::run`] are
+/// public traits/functions whose signatures mention it: once the crate became a
+/// library, a public seam over a crate-private type is an unreachable API
+/// (`private_interfaces` lint). The fields stay as they are — this type is only
+/// constructible inside the module.
+pub struct JobParams {
     pub request: UrlImportRequest,
     pub formats: Vec<Format>,
     pub work_dir: PathBuf,
@@ -421,8 +426,10 @@ async fn unregister(task_id: &str) {
 /// translation plan (which needs the catalogue, hence the `AppHandle`).
 async fn execute(app: &AppHandle, params: &JobParams) -> Result<Outcome, ImportError> {
     let request = &params.request;
-    let catalogue = crate::engine::catalog::catalog(Some(app)).ok();
-    let translation = resolve_translation(app, request, catalogue.as_deref())
+    let paths = crate::paths::AppPaths::from_app(app)
+        .map_err(|error| ImportError::Other(format!("urlImport.pathsFailed:{error}")))?;
+    let catalogue = crate::engine::catalog::catalog(&paths).ok();
+    let translation = resolve_translation(&paths, request, catalogue.as_deref())
         .map_err(ImportError::Other)?;
 
     let deps = RealDeps::new(app, &request.task_id);
@@ -432,7 +439,7 @@ async fn execute(app: &AppHandle, params: &JobParams) -> Result<Outcome, ImportE
 /// Resolve the translation stage for this request, mapping the sentinel into an
 /// `ImportError` the frontend already knows how to route.
 fn resolve_translation(
-    app: &AppHandle,
+    paths: &crate::paths::AppPaths,
     request: &UrlImportRequest,
     catalogue: Option<&[ModelSpec]>,
 ) -> Result<Option<TranslationPlan>, String> {
@@ -452,8 +459,8 @@ fn resolve_translation(
         enabled,
         target,
         request.translation_model.as_deref(),
-        &|id| crate::engine::catalog::is_installed(app, id),
-        &|id: &str| crate::engine::catalog::model_path(app, id).ok().flatten(),
+        &|id| crate::engine::catalog::is_installed(paths, id),
+        &|id: &str| crate::engine::catalog::model_path(paths, id).ok().flatten(),
     )
 }
 
@@ -760,7 +767,13 @@ pub(crate) fn cookies_of(request: &UrlImportRequest) -> Option<String> {
 }
 
 fn ffmpeg_path(app: &AppHandle) -> PathBuf {
-    PathBuf::from(crate::commands::video::get_ffmpeg_path(Some(app)))
+    // Falls back to the environment resolution when the Tauri paths are
+    // unavailable: the bundled ffmpeg lives in the same `resources/bin` either
+    // way, so a failure here must not cost the import its merger.
+    let paths = crate::paths::AppPaths::from_app(app)
+        .or_else(|_| crate::paths::AppPaths::from_env())
+        .expect("app paths are resolvable");
+    PathBuf::from(crate::commands::video::get_ffmpeg_path(&paths))
 }
 
 pub(crate) fn ffmpeg_of(app: &AppHandle) -> PathBuf {

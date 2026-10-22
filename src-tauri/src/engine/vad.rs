@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::paths::AppPaths;
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::EngineError;
 
@@ -94,7 +95,7 @@ struct RawVadChunk {
 /// An all-silent input yields `Ok(vec![])` with exit code 0 (PoC §4.3) —
 /// callers must treat that as "write an empty subtitle", not an error.
 pub async fn detect(
-    app: Option<&tauri::AppHandle>,
+    paths: &AppPaths,
     wav_path: &Path,
     work_dir: &Path,
     vad: &VadModel,
@@ -107,7 +108,7 @@ pub async fn detect(
         EngineError::Io(format!("create {}: {}", work_dir.display(), e))
     })?;
 
-    spawn(app, invocation, |_| {}).await?;
+    spawn(Some(paths), invocation, |_| {}).await?;
 
     let raw = std::fs::read_to_string(&out_path).map_err(|e| {
         EngineError::Protocol(format!(
@@ -259,7 +260,7 @@ mod tests {
     fn bundled_vad() -> VadModel {
         VadModel {
             family: DEFAULT_FAMILY.to_string(),
-            model: crate::engine::cli::resolve_vad_path(None).expect("bundled silero vad dir"),
+            model: crate::engine::cli::resolve_vad_path(&crate::paths::AppPaths::from_env().expect("paths")).expect("bundled silero vad dir"),
         }
     }
 
@@ -568,7 +569,7 @@ mod tests {
     /// plus parsing.
     #[tokio::test]
     async fn detect_runs_the_bundled_cli_end_to_end() {
-        if crate::engine::cli::resolve_vad_path(None).is_err() {
+        if crate::engine::cli::resolve_vad_path(&crate::paths::AppPaths::from_env().expect("paths")).is_err() {
             eprintln!(
                 "skip: dev resources not reachable from cwd {} (run from the repo root to enable)",
                 std::env::current_dir()
@@ -582,7 +583,7 @@ mod tests {
         let wav = dir.join("vowel.wav");
         write_wav(&wav, &vowel_like(8 * SAMPLE_RATE as usize));
 
-        let chunks = detect(None, &wav, &dir, &bundled_vad())
+        let chunks = detect(&crate::paths::AppPaths::from_env().expect("paths"), &wav, &dir, &bundled_vad())
             .await
             .expect("detect on the bundled binary");
         assert!(!chunks.is_empty(), "synthetic voiced signal must be detected");
@@ -591,7 +592,7 @@ mod tests {
         // The same input has to stay `Ok(vec![])` when silent.
         let silent = dir.join("silence.wav");
         write_wav(&silent, &vec![0i16; 8 * SAMPLE_RATE as usize]);
-        let empty = detect(None, &silent, &dir, &bundled_vad())
+        let empty = detect(&crate::paths::AppPaths::from_env().expect("paths"), &silent, &dir, &bundled_vad())
             .await
             .expect("silence is not an error");
         assert_eq!(empty, Vec::new());
@@ -603,7 +604,7 @@ mod tests {
     /// (never a panic), and does so before touching the audio file.
     #[tokio::test]
     async fn detect_reports_missing_resources_when_the_dev_checkout_is_unreachable() {
-        if crate::engine::cli::resolve_vad_path(None).is_ok() {
+        if crate::engine::cli::resolve_vad_path(&crate::paths::AppPaths::from_env().expect("paths")).is_ok() {
             eprintln!("skip: dev resources are reachable from cwd, covered by the e2e test");
             return;
         }
@@ -614,7 +615,7 @@ mod tests {
         // Resolving the bundled dir is what fails here; `detect` must surface
         // that as a `Missing` error rather than panicking on an unresolvable
         // path. `resolve_vad_path` is the function under test.
-        match crate::engine::cli::resolve_vad_path(None) {
+        match crate::engine::cli::resolve_vad_path(&crate::paths::AppPaths::from_env().expect("paths")) {
             Err(EngineError::Missing(msg)) => {
                 assert!(
                     msg.contains("silero_vad"),

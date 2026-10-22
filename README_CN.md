@@ -65,6 +65,23 @@
 
 ---
 
+## 💻 命令行
+
+MonoSub 提供命令行入口 `monosub-cli`，用在窗口帮不上忙的场合：批量脚本、CI、Agent——从终端跑一整个文件夹才是它存在的理由。它跑的是与 App 相同的管线，写出的也是相同的格式。
+
+命令行不单独配置模型——它读取 App 里已经选好的方案（存在配置文件里），所以两者用的是同一个模型。它只接受每次运行的选择：输出目录、格式、语言，以及是否翻译（不指定 `--translate --target <语言>` 就**不**翻译）。
+
+```bash
+monosub-cli video.mp4
+monosub-cli video.mp4 --output-dir ~/subs --format srt,vtt
+monosub-cli video.mp4 --translate --target en
+monosub-cli *.mp4 --json
+```
+
+`--json` 把 JSON Lines 打到 stdout 供脚本使用，进度打到 stderr。文件顺序处理，单个失败不中断后续。加 `--translate --target en` 时，译文会另存为 `video.en.srt`，原 `video.srt` 不动。
+
+---
+
 ## 💎 Pro 授权
 
 **MonoSub 完全免费** — 个人使用无限制转录。

@@ -15,6 +15,7 @@ pub mod vad;
 pub mod wav;
 pub mod words;
 
+use crate::paths::AppPaths;
 use std::path::PathBuf;
 
 pub use cli::{Backend, CliInvocation, CliOutput, EngineError};
@@ -97,16 +98,16 @@ impl Default for TranscribeOpts {
 /// segmentation is not the user-visible goal, and a broken download should not
 /// make transcription impossible. The fallback is logged so it is diagnosable.
 fn resolve_vad_model(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     vad_model_id: Option<&str>,
 ) -> Result<vad::VadModel, EngineError> {
     let requested = vad_model_id.map(str::trim).filter(|id| !id.is_empty());
 
     if let Some(id) = requested {
-        let specs = catalog::catalog(Some(app))?;
+        let specs = catalog::catalog(paths)?;
         match specs.iter().find(|spec| spec.id == id) {
             Some(spec) if spec.has_role(catalog::Role::Vad) => {
-                match catalog::model_path(app, id) {
+                match catalog::model_path(paths, id) {
                     Ok(Some(path)) => {
                         return Ok(vad::VadModel {
                             family: spec.family.clone(),
@@ -132,7 +133,7 @@ fn resolve_vad_model(
 
     Ok(vad::VadModel {
         family: vad::DEFAULT_FAMILY.to_string(),
-        model: crate::engine::cli::resolve_vad_path(Some(app))?,
+        model: crate::engine::cli::resolve_vad_path(paths)?,
     })
 }
 
@@ -180,7 +181,7 @@ const MAX_CHUNKS_PER_BATCH: usize = 200;
 /// missing or the model cannot align, the run continues with estimated timing
 /// rather than failing. Recognition is the goal; word timing is an improvement.
 pub async fn transcribe_words(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     task_id: &str,
     wav_path: &std::path::Path,
     opts: &TranscribeOpts,
@@ -192,16 +193,16 @@ pub async fn transcribe_words(
         .model_id
         .clone()
         .unwrap_or_else(|| catalog::default_model_id().to_string());
-    let specs = catalog::catalog(Some(app))?;
+    let specs = catalog::catalog(paths)?;
     let spec = specs.iter().find(|m| m.id == model_id).ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
     })?;
     let language = catalog::map_language(spec, &opts.language);
 
     if opts.word_timestamps {
-        if aligned::can_align(app, spec) {
+        if aligned::can_align(paths, spec) {
             match aligned::transcribe_aligned(
-                app,
+                paths,
                 task_id,
                 wav_path,
                 spec,
@@ -241,7 +242,7 @@ pub async fn transcribe_words(
         }
     }
 
-    let chunks = transcribe_estimated(app, task_id, wav_path, spec, &language, opts, on_progress)
+    let chunks = transcribe_estimated(paths, task_id, wav_path, spec, &language, opts, on_progress)
         .await?;
     Ok(Transcription::from_chunks(chunks))
 }
@@ -249,7 +250,7 @@ pub async fn transcribe_words(
 /// The VAD → slice → `requests.json` → sequence pipeline, with timing estimated
 /// per chunk by `subtitle::postprocess`.
 async fn transcribe_estimated(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     task_id: &str,
     wav_path: &std::path::Path,
     spec: &catalog::ModelSpec,
@@ -260,15 +261,15 @@ async fn transcribe_estimated(
     let work_dir = TempWorkDir::create(task_id)?;
     let dir = work_dir.path();
 
-    let model_file = catalog::model_path(app, &spec.id)?.ok_or_else(|| {
+    let model_file = catalog::model_path(paths, &spec.id)?.ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", spec.id))
     })?;
 
     // Step 2: VAD. Cheap (no model load) and decides everything downstream.
     on_progress(0, 0, "Detecting speech");
-    let vad_model = resolve_vad_model(app, opts.vad_model_id.as_deref())?;
+    let vad_model = resolve_vad_model(paths, opts.vad_model_id.as_deref())?;
     tracing::info!(task_id = %task_id, family = %vad_model.family, "VAD stage starting");
-    let chunks = vad::detect(Some(app), wav_path, dir, &vad_model).await?;
+    let chunks = vad::detect(paths, wav_path, dir, &vad_model).await?;
 
     // All-silent input: exit code 0 with zero chunks (PoC §4.3). Not an error —
     // the caller writes an empty subtitle.
@@ -294,7 +295,7 @@ async fn transcribe_estimated(
     let mut done = 0usize;
     for batch in chunks.chunks(MAX_CHUNKS_PER_BATCH) {
         let results = transcribe_batch(
-            app,
+            paths,
             dir,
             &model_file,
             // The family comes from the SELECTED model, never a constant: the
@@ -344,7 +345,7 @@ async fn transcribe_estimated(
 /// error (spec §5.3).
 #[allow(clippy::too_many_arguments)]
 async fn transcribe_batch(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     dir: &std::path::Path,
     model_file: &std::path::Path,
     family: &str,
@@ -355,7 +356,7 @@ async fn transcribe_batch(
     done_before: usize,
     on_progress: &ProgressFn<'_>,
 ) -> Result<std::collections::HashMap<usize, String>, EngineError> {
-    let vad_dir = cli::resolve_vad_path(Some(app))?;
+    let vad_dir = cli::resolve_vad_path(paths)?;
     let requests_path = write_requests(dir, batch, language)?;
 
     // `done` may only ever increase for a given file. A Metal attempt can emit
@@ -371,7 +372,7 @@ async fn transcribe_batch(
     };
 
     match run_sequence(
-        app, dir, model_file, family, &vad_dir, &requests_path, backend, batch, total, done_before,
+        paths, dir, model_file, family, &vad_dir, &requests_path, backend, batch, total, done_before,
         &report,
     )
     .await
@@ -387,7 +388,7 @@ async fn transcribe_batch(
                 on_progress(done_before, total, "Metal unavailable, retrying on CPU");
             }
             run_sequence(
-                app, dir, model_file, family, &vad_dir, &requests_path, Backend::Cpu, batch, total,
+                paths, dir, model_file, family, &vad_dir, &requests_path, Backend::Cpu, batch, total,
                 done_before, &report,
             )
             .await
@@ -412,7 +413,7 @@ fn should_report(
 /// One `--request-sequence` invocation plus its `text_out` files.
 #[allow(clippy::too_many_arguments)]
 async fn run_sequence(
-    app: &tauri::AppHandle,
+    paths: &AppPaths,
     dir: &std::path::Path,
     model_file: &std::path::Path,
     family: &str,
@@ -480,7 +481,7 @@ async fn run_sequence(
             }
         };
 
-        let output: CliOutput = cli::spawn(Some(app), invocation, &mut on_line).await?;
+        let output: CliOutput = cli::spawn(Some(paths), invocation, &mut on_line).await?;
         tracing::debug!(
             stdout_lines = output.stdout.lines().count(),
             stderr_tail = %output.stderr_tail,

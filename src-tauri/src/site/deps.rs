@@ -130,14 +130,19 @@ impl Deps for RealDeps<'_> {
     ) -> BoxFuture<'a, Vec<PathBuf>> {
         let app = self.app;
         let task_id = self.task_id.clone();
+        let paths = crate::paths::AppPaths::from_app(self.app).ok();
         Box::pin(async move {
+            let Some(paths) = paths else {
+                tracing::warn!(task_id = %task_id, "cannot resolve app paths; skipping translation");
+                return Vec::new();
+            };
             let outcome = crate::translate::stage::translate_and_write(
                 primary,
                 formats,
                 translation,
                 segments,
                 Some(source_lang),
-                Some(app),
+                &paths,
                 move |done, total| {
                     let percent = if total == 0 {
                         None
