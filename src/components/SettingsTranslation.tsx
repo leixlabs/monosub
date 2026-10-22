@@ -155,6 +155,10 @@ export function SettingsTranslation({
             options={modelOptions}
             className="w-[220px]"
             disabled={!settings.translateEnabled}
+            // 40 translation models in the catalogue: same reason as the plan's
+            // override pickers.
+            searchable
+            testId="translation-model"
           />
         </div>
 

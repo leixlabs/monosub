@@ -256,7 +256,9 @@
     "timestampWord": "词级时间",
     "timestampSegment": "模型给出的段级时间",
     "timestampEstimate": "估算时间（按分段）",
-    "timestampTurns": "轮次级时间"
+    "timestampTurns": "轮次级时间",
+    "searchPlaceholder": "筛选模型…",
+    "searchEmpty": "没有匹配的模型"
   },
   "urlImport": {
     "title": "从链接导入",

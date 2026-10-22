@@ -806,6 +806,7 @@ supported video, shows a dismissible pill with one import button.
 | `get_video_metadata` | Extract duration, resolution, size |
 | `generate_thumbnail` | Create video preview |
 | `resolve_paths` | Normalise dropped paths |
+| `find_existing_path` | `paths → Option<String>`: the first subtitle already on disk (drives `skipExistingSubtitle`; deliberately not the fs plugin — see *Skipping existing subtitles*) |
 | `open_in_finder` | Reveal a file / open a directory in the system file manager (`commands::opener`) |
 | `list_models` | Catalogue + per-model install state |
 | `download_model` | Stream a model, verify size/SHA256, then rename |
@@ -1005,6 +1006,7 @@ location; `MONOSUB_CONFIG_DIR=~/.monosub` is the supported way to get that liter
 | `src/lib/models.ts` | Model commands/events, `MODEL_NOT_INSTALLED_ERROR` |
 | `src/components/Settings.tsx` | Settings shell + its five sidebar groups: `files` / `models` / `translate` / `urlImport` / `system` |
 | `src/components/SettingsModelPlan.tsx` | The plan's four questions (语种场景 / 说话人分离 / 词级时间戳 / 显存占用) + live preview + manual overrides; publishes `data-plan-*` attributes for the pilot scenario |
+| `src/components/CustomSelect.tsx` | The app's only dropdown. `searchable` adds a filter box and is on for the **model** pickers (82 ASR / 40 translate entries), off for the short lists. Keeps the empty-value option (`Auto`) only when something else matches, so a no-hit search shows "no matching models" instead of a lone "Auto" |
 | `src/components/SettingsModelsDir.tsx` | The models storage-location card: path, change / reset, and the **only** "open models folder" button (`open_models_dir`) |
 | `src/components/SettingsTranslation.tsx` | Translation switch, target language, translation-model download |
 | `src/components/SettingsUrlImport.tsx` | The `urlImport` Settings group (output dir, Bilibili cookie browser, prefer-local) |
@@ -1230,6 +1232,42 @@ extension swap.
   error. The app writes an empty subtitle.
 - `--session-option sense_asr.vad_model_path=<dir>` must be passed explicitly, or the
   CLI falls back to its own relative `assets/…` path.
+
+### Skipping existing subtitles (`skipExistingSubtitle`)
+
+The decision is made in the **frontend** (`src/lib/transcription.ts`) before
+`start_transcription` is invoked, because the backend command has no notion of
+"the user already has this file". Three things there are load-bearing:
+
+- **The check must not use `@tauri-apps/plugin-fs`.** That plugin's `exists` is
+  gated by its path *scope*, which covers the app's own directories plus whatever
+  the user picked in a **dialog**. A file added by drag-and-drop, by a URL import's
+  cache directory, or simply a subtitle sitting next to a video in `~/Movies` is
+  outside that scope, and the rejection was swallowed by a try/catch +
+  `console.warn`, so **the setting looked on and did nothing** — measured in the
+  running app:
+
+  ```text
+  warn Failed to check if output file exists forbidden path:
+       /Users/…/x.srt, maybe it is not allowed on the scope for
+       `allow-exists` permission in your capability file
+  ```
+
+  The Rust command `find_existing_path` (`commands/video.rs`) answers the same
+  question with `std::fs`, which the backend already uses on those exact paths.
+  The plugin is therefore **no longer a dependency** (removed from `Cargo.toml`,
+  `package.json` and the capability file) — re-adding it for something else means
+  re-reading this note.
+- **Every format in the run is checked, not just the primary one.** With
+  `srt,vtt` and only a `.vtt` on disk, checking `output_path` alone would rewrite
+  half the set. `outputPathsToCheck` mirrors Rust's `subtitle::output_path_for`
+  (first format keeps the path verbatim, later ones swap only the extension).
+- **A failed check means "nothing found".** A broken existence probe must never
+  block a transcription the user asked for.
+
+The row then shows *which* file caused the skip (`skippedOutputPath`), because
+"Skipped" alone reads as "nothing to do" when the real answer is usually "your
+subtitle is already in the custom output folder, in another format".
 
 ### Audio Extraction
 

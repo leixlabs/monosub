@@ -417,6 +417,11 @@ export function SettingsModelPlan() {
                   value={modelOverrides[slot] ?? ''}
                   options={slotOptions[slot]}
                   onChange={(value) => setModelOverride(slot, value)}
+                  // The ASR slot lists the whole catalogue (82 entries); without a
+                  // filter, pinning a model means scrolling a menu that has no
+                  // order a user can predict.
+                  searchable
+                  testId={`plan-override-${slot}`}
                 />
               </div>
             ))}

@@ -27,15 +27,25 @@ const FAMILY: &str = "moss_transcribe_diarize";
 /// Token budget per second of audio used to size `--max-tokens`.
 ///
 /// MOSS decodes autoregressively and truncates at a default budget (design
-/// §13-4). Measured on v0.9.1: a 10.4-minute clip still completed at the
-/// default, so this is a *floor* that only grows for very long inputs — it is
-/// not a fix for the default. Chinese text at roughly 4 characters/second and
-/// conservatively >1 token per character gives a safe upper rate; the ceiling
-/// keeps an absurd input from asking for an unbounded KV cache.
-const TOKENS_PER_SECOND: f64 = 6.0;
+/// §13-4). Measured on v0.9.1 (see audiocpp-moss-poc.md §5): the default
+/// budget of 5120 is fine on its own, and a 10.4-minute clip still completes.
+/// Raising the rate from 6 to 8 tokens/s and flooring the estimate at the
+/// model's own 5120 default is what keeps a 5-minute+ clip from being sent a
+/// *smaller* budget than the model default would have used. Chinese speech
+/// decoded at ~6.5-7 tokens/s in measurement, so 8 leaves a margin.
+const TOKENS_PER_SECOND: f64 = 8.0;
 /// Minimum budget, so a very short clip is not starved.
-const MIN_MAX_TOKENS: u32 = 1024;
+///
+/// Deliberately equal to the model's own default (5120): flooring at 1024
+/// meant a 5-14 minute clip was given *less* than the model would have used on
+/// its own, so the truncation was self-inflicted (measured on a 300 s clip:
+/// our 1801 token budget failed, the model's 5120 default would not have).
+const MIN_MAX_TOKENS: u32 = 5120;
 /// Upper bound; beyond this the decode cache grows without buying accuracy.
+///
+/// 16k covers ~30 minutes of speech at 8 tokens/s; above this the KV-cache
+/// memory climbs ~0.33 MB/token (measured: 4 MB at 8192, 12 GB at 32768)
+/// without buying accuracy.
 const MAX_MAX_TOKENS: u32 = 16_384;
 
 /// Estimate the `--max-tokens` budget for `duration_s` seconds of audio.
@@ -208,9 +218,26 @@ mod tests {
         let long = estimate_max_tokens(600.0);
         assert!(long >= short, "budget must not shrink as audio grows");
         assert_eq!(short, MIN_MAX_TOKENS);
-        // 600s * 6 = 3600, inside the ceiling.
-        assert_eq!(long, 3600);
+        // 600s * 8 = 4800, still under the 5120 floor.
+        assert_eq!(long, MIN_MAX_TOKENS);
         assert_eq!(estimate_max_tokens(1_000_000.0), MAX_MAX_TOKENS);
+    }
+
+    /// The regression this file exists to prevent: a 5-minute clip must never be
+    /// sent a budget **smaller** than the model's own default.
+    ///
+    /// Measured on a real 300 s Chinese clip: the old formula (6 tokens/s,
+    /// floor 1024) asked for 1801 and `audiocpp_cli` exited 1 with
+    /// `MOSS-Transcribe-Diarize reached max_tokens before EOS`, while the
+    /// model's own 5120 default would have finished. A 1037 s clip needed 6928.
+    #[test]
+    fn a_measured_clip_is_never_given_less_than_the_model_default() {
+        const MODEL_DEFAULT: u32 = 5120;
+
+        // 300 s: failed at 1801 under the old constants.
+        assert!(estimate_max_tokens(300.0) >= MODEL_DEFAULT);
+        // 1037 s: needed 6928 measured.
+        assert!(estimate_max_tokens(1037.05) >= 6928);
     }
 
     #[test]

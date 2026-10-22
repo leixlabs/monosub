@@ -606,7 +606,20 @@ fn collect_media_files(
 /// names the file that caused the skip.
 #[tauri::command]
 pub async fn find_existing_path(paths: Vec<String>) -> Result<Option<String>, String> {
-    Ok(paths.into_iter().find(|path| Path::new(path).is_file()))
+    Ok(first_existing_file(&paths).map(|path| path.to_string_lossy().to_string()))
+}
+
+/// The body of [`find_existing_path`], split out so it is testable without a
+/// Tauri runtime.
+///
+/// A directory is not a hit: `output_paths_for` can name a `.srt` that happens
+/// to be an existing *directory* of that name, and "skip because there is a
+/// folder called video.srt" would leave the user with no subtitle and no error.
+fn first_existing_file<P: AsRef<Path>>(paths: &[P]) -> Option<&Path> {
+    paths
+        .iter()
+        .map(|path| path.as_ref())
+        .find(|path| path.is_file())
 }
 
 /// Locate `path` in the system file manager: a file is revealed, a directory is
@@ -635,4 +648,47 @@ pub async fn open_in_finder(path: String) -> Result<(), String> {
             tracing::error!(path = %path, error = %error, "Failed to open file manager");
         })
         .inspect(|()| tracing::debug!(path = %path, "Opened in file manager"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_existing_file;
+
+    #[test]
+    fn missing_paths_are_not_a_hit() {
+        let paths = vec!["/definitely/not/here.srt".to_string()];
+        assert!(first_existing_file(&paths).is_none());
+    }
+
+    #[test]
+    fn a_directory_is_not_an_existing_subtitle() {
+        let dir = std::env::temp_dir().join(format!("monosub-skip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let as_subtitle = dir.with_extension("srt");
+        std::fs::create_dir_all(&as_subtitle).unwrap();
+
+        assert!(first_existing_file(&[as_subtitle.to_string_lossy().to_string()]).is_none());
+
+        let _ = std::fs::remove_dir_all(&as_subtitle);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_first_hit_is_returned_so_the_row_can_name_it() {
+        let dir = std::env::temp_dir().join(format!("monosub-skip-order-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let missing = dir.join("missing.srt");
+        let present = dir.join("present.vtt");
+        std::fs::write(&present, "WEBVTT\n").unwrap();
+
+        // The primary format is checked first; a later format that exists is
+        // still a hit, which is what makes `srt,vtt` with only a `.vtt` skip.
+        let paths = vec![
+            missing.to_string_lossy().to_string(),
+            present.to_string_lossy().to_string(),
+        ];
+        assert_eq!(first_existing_file(&paths), Some(present.as_path()));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

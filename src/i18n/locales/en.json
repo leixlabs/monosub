@@ -256,7 +256,9 @@
     "timestampWord": "Word-level timing",
     "timestampSegment": "Segment timing from the model",
     "timestampEstimate": "Estimated timing (per chunk)",
-    "timestampTurns": "Turn-level timing"
+    "timestampTurns": "Turn-level timing",
+    "searchPlaceholder": "Filter models…",
+    "searchEmpty": "No matching models"
   },
   "urlImport": {
     "title": "Import from a link",
