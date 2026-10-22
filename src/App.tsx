@@ -14,8 +14,9 @@ import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
 import { processQueueBatch, isModelNotInstalledError } from './lib/transcription';
-import { openModelsSettings } from './lib/models';
+import { modelNotInstalledId } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
+import { reportFrontendError } from './lib/logging';
 import { UrlImportDialog } from './components/UrlImportDialog';
 import { ClipboardPrompt } from './components/ClipboardPrompt';
 import { ensureUrlImportListeners } from './lib/urlImport';
@@ -76,18 +77,44 @@ function App() {
     return unsubscribe;
   }, []);
 
-  // Bring window to front when user clicks a system notification
+  // Bring window to front when user clicks a system notification.
+  //
+  // `onAction` is mobile-only in this plugin version: it registers the
+  // `actionPerformed` listener, and `tauri-plugin-notification` 2.3.3's desktop
+  // `invoke_handler` only exposes `notify` / `request_permission` /
+  // `is_permission_granted` — `register_listener` exists on Android and iOS only.
+  // So on desktop this call always rejected with
+  // "notification.registerListener not allowed. Command not found", which is
+  // harmless but reached the log as an unhandled rejection on every launch (and
+  // the feature it was meant to enable never worked). Guarded instead of removed,
+  // so a future mobile target still gets it.
   useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return;
     let listener: { unregister: () => Promise<void> } | null = null;
+    let disposed = false;
     onAction(() => {
       const win = getCurrentWebviewWindow();
       void win.show();
       void win.setFocus();
       void win.unminimize();
-    }).then((fn) => {
-      listener = fn;
-    });
+    })
+      .then((fn) => {
+        // The cleanup can run while this is still pending (StrictMode, unmount).
+        if (disposed) {
+          void fn.unregister();
+          return;
+        }
+        listener = fn;
+      })
+      .catch((error) => {
+        // Only a real failure is worth reporting now; the desktop "command not
+        // found" case is expected and would otherwise log on every start.
+        if (!String(error).includes('not allowed')) {
+          reportFrontendError(error, { context: 'notification.onAction' });
+        }
+      });
     return () => {
+      disposed = true;
       void listener?.unregister();
     };
   }, []);
@@ -180,6 +207,9 @@ function App() {
     const errorUnlisten = listen<TranscribeProgressPayload>('transcribe_error', (event) => {
       const { task_id, status } = event.payload;
       console.error('[transcribe_error]', { task_id, status });
+      // The row shows the failure, the log file keeps it: a release build has no
+      // console to read it from later.
+      reportFrontendError(status, { context: `transcribe_error ${task_id}` });
       const modelMissing = isModelNotInstalledError(status);
       // `status` is either the MODEL_NOT_INSTALLED sentinel, one of the
       // `errors.*` keys the Rust layer emits for its known failure modes, or a
@@ -190,16 +220,20 @@ function App() {
           ? t('errors.modelNotInstalled')
           : t(`errors.${status}`, { defaultValue: status });
       // A model that is missing (sentinel) or not in the catalogue (engine key)
-      // both need the user to visit the download list.
+      // both leave the row asking for a download. That offer lives in the row's
+      // error dialog (`MissingModelPrompt`), so nothing here opens Settings: the
+      // user keeps their queue and decides when to act.
       const needsModelDownload = modelMissing || status === 'modelNotInstalled';
       updateFile(task_id, {
         status: 'error',
         progress: 0,
         error: errorMessage,
+        // The engine key `modelNotInstalled` is a bare key with no id attached, so
+        // it resolves to `undefined` and the prompt falls back to the model list.
+        missingModelId: needsModelDownload ? (modelNotInstalledId(status) ?? undefined) : undefined,
+        missingModel: needsModelDownload || undefined,
+        downloadProgress: undefined,
       });
-      if (needsModelDownload) {
-        openModelsSettings();
-      }
       setIsProcessing(false);
       setCurrentTaskId(null);
 

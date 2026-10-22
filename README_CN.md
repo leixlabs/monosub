@@ -44,7 +44,7 @@
 
 ## 📥 下载
 
-**最新版本：** [GitHub Releases](https://github.com/0xkamalei/monosub-public/releases/latest)
+**最新版本：** [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest)
 
 ### 系统要求
 
@@ -56,7 +56,7 @@
 
 ## 🚀 快速开始
 
-1. 从 [Releases](https://github.com/0xkamalei/monosub/releases/latest) **下载** MonoSub
+1. 从 [Releases](https://github.com/leixlabs/monosub/releases/latest) **下载** MonoSub
 2. 将视频/音频文件**拖入**应用
 3. **点击** "开始"
 4. **获得**你的转录稿
@@ -120,6 +120,6 @@ xattr -cr /Applications/MonoSub.app
 
 为那些只想把视频转成文本的人而做。
 
-[立即下载](https://github.com/0xkamalei/monosub-public/releases/latest)
+[立即下载](https://github.com/leixlabs/monosub/releases/latest)
 
 </div>

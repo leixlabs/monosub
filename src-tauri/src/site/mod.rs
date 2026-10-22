@@ -169,13 +169,14 @@ struct ImportEntry {
     /// The job's scratch directory; removed when the `Drop` guard inside the task
     /// runs, which an abort triggers.
     work_dir: PathBuf,
-    /// The per-video cache directory partial downloads land in.
+    /// The per-video temp directory an in-flight download writes its `.part` to.
     ///
-    /// Separate from `work_dir` because a partial `<id>.m4a.part` is written
-    /// under `<app_cache_dir>/url-import/<id>/`, not in the scratch directory: a
-    /// cancel has to sweep both or it leaves the `.part` behind, which is exactly
-    /// what design §5.8 promises not to do.
-    cache_dir: PathBuf,
+    /// `<app_cache_dir>/url-import/<id>/` holds intermediates only: the finished
+    /// media is moved out of it (by yt-dlp's own `--paths home:/temp:` pair) into
+    /// the import output directory, so the cache never keeps a second copy.
+    /// Separate from `work_dir` because a cancel has to sweep both or it leaves
+    /// the `.part` behind, which is exactly what design §5.8 promises not to do.
+    temp_dir: PathBuf,
 }
 
 type ImportMap = Arc<Mutex<HashMap<String, ImportEntry>>>;
@@ -187,12 +188,16 @@ lazy_static::lazy_static! {
 
 // --- Commands -------------------------------------------------------------
 
-/// `~/Downloads/MonoSub` — the default output directory for imported subtitles.
+/// `~/Downloads/MonoSub` — the default directory for imported media and the
+/// subtitles that go with them.
+///
+/// One directory for both: a URL import's media is the user's, so it is written
+/// next to its subtitle rather than into the app cache (design §5.3/§5.4).
 ///
 /// Resolved here rather than in the frontend: the home directory is a platform
 /// fact Tauri already knows, and the frontend must not hard-code `/Users/<name>`.
-/// The directory is created on demand by the write stage, not here, so merely
-/// opening the dialog does not litter the user's home directory.
+/// The directory is created on demand by the stage that writes into it, not here,
+/// so merely opening the dialog does not litter the user's home directory.
 #[tauri::command]
 pub fn default_url_import_dir(app: AppHandle) -> Result<String, String> {
     let home = app
@@ -266,10 +271,10 @@ pub async fn start_url_import(
         return Ok(());
     }
 
-    // The cache root is where yt-dlp writes media and partial files. It is
-    // recorded now (not when the download starts) so a cancel during resolve or
-    // the subtitle fetch can still sweep a leftover from an earlier attempt.
-    let cache_dir = import_root(&app)
+    // The cache root is where yt-dlp writes the in-flight `.part`. It is recorded
+    // now (not when the download starts) so a cancel during resolve or the
+    // subtitle fetch can still sweep a leftover from an earlier attempt.
+    let temp_dir = import_root(&app)
         .map(|root| root.join(video_id_hint(&request.url)))
         .unwrap_or_else(|_| work_dir.clone());
 
@@ -294,7 +299,7 @@ pub async fn start_url_import(
         ImportEntry {
             handle,
             work_dir,
-            cache_dir,
+            temp_dir,
         },
     );
 
@@ -305,8 +310,9 @@ pub async fn start_url_import(
 ///
 /// Only the import stage: once a `Queued` outcome has been emitted the job is
 /// finished and cancelling is `cancel_transcription` or removing the queue row
-/// (design §5.8). The downloaded audio is deliberately kept for reuse; only the
-/// scratch directory and any `.part` file go.
+/// (design §5.8). A finished download lives in the import output directory and is
+/// deliberately kept for reuse; only the scratch directory and any `.part` file
+/// go.
 #[tauri::command]
 pub async fn cancel_url_import(task_id: String) -> Result<(), String> {
     tracing::info!(task_id = %task_id, "cancelling URL import");
@@ -324,13 +330,14 @@ pub async fn cancel_url_import(task_id: String) -> Result<(), String> {
     let _ = tokio::task::yield_now().await;
 
     // Sweep BOTH locations. The scratch directory holds the info dict and any
-    // subtitle file; the cache directory holds the media and its `.part`. Only
-    // partial files are removed from the cache: a *finished* download is kept so
-    // the same URL can be retried without downloading again (design §5.8).
+    // fetched subtitle; the temp directory holds the in-flight `.part`. Only
+    // partial files are removed: a *finished* download is never in the cache at
+    // all (it is moved into the output directory), and the output directory is
+    // never swept, so a cancel cannot destroy media the user already has.
     remove_partial_downloads(&entry.work_dir);
     let _ = std::fs::remove_dir_all(&entry.work_dir);
-    if entry.cache_dir != entry.work_dir && entry.cache_dir.is_dir() {
-        remove_partial_downloads(&entry.cache_dir);
+    if entry.temp_dir != entry.work_dir && entry.temp_dir.is_dir() {
+        remove_partial_downloads(&entry.temp_dir);
     }
 
     Ok(())
@@ -558,19 +565,37 @@ fn read_subtitle_file(params: &JobParams, media: &SiteMedia, tag: &str) -> Optio
 
 /// Download the audio for a video, reporting progress, and return the media file.
 ///
-/// The file lands in `<app_cache_dir>/url-import/<id>/` — it is an intermediate
-/// artefact the recognition pipeline reads, never user output (design §5.3).
+/// The file lands in the import **output directory**, under the same
+/// `<title> [<id>]` stem the subtitle carries, so media and subtitle sit side by
+/// side (design §5.3). Only the in-flight `.part` goes to the cache: yt-dlp
+/// downloads into `temp` and moves the finished file into `home` itself, which is
+/// what keeps the cache from holding a second copy of the finished media.
 pub(crate) async fn download_audio(
     app: &AppHandle,
     params: &JobParams,
     media: &SiteMedia,
 ) -> Result<PathBuf, ImportError> {
     let request = &params.request;
-    let download_dir = download_dir(app, &media.id)?;
+    if request.output_dir.trim().is_empty() {
+        return Err(ImportError::Other(
+            "urlImport.outputDirFailed:no output directory".to_string(),
+        ));
+    }
+    let home_dir = PathBuf::from(&request.output_dir);
+    std::fs::create_dir_all(&home_dir).map_err(|error| {
+        ImportError::Other(format!(
+            "urlImport.outputDirFailed:{}: {error}",
+            home_dir.display()
+        ))
+    })?;
+    let temp_dir = temp_media_dir(app, &media.id)?;
+    let file_stem = naming::file_stem(&media.title, &media.id);
 
     let invocation = ytdlp::Invocation {
         stage: ytdlp::Stage::DownloadAudio {
-            work_dir: download_dir.clone(),
+            home_dir,
+            temp_dir,
+            file_stem: file_stem.clone(),
         },
         url: request.url.clone(),
         cookies_browser: cookies(request),
@@ -606,16 +631,18 @@ pub(crate) async fn download_audio(
         return Err(error::classify(&output.stderr));
     }
 
-    downloaded_media_file(&download_dir, &media.id)
+    let home_dir = PathBuf::from(&request.output_dir);
+    media_file_for_stem(&home_dir, &file_stem)
         .ok_or_else(|| ImportError::Other("urlImport.downloadFailed:no audio file".to_string()))
 }
 
 // --- Download cache -------------------------------------------------------
 
-/// `<app_cache_dir>/url-import` — intermediate media, never user output.
+/// `<app_cache_dir>/url-import` — intermediates only, never user output.
 ///
-/// Subtitles are written to `output_dir`; this directory only ever holds audio
-/// that the recognition pipeline reads (design §5.3).
+/// The media and the subtitles both go to the import output directory; this
+/// directory only ever holds an in-flight `.part`, a resolve artefact or a
+/// fetched subtitle (design §5.3).
 fn import_root(app: &AppHandle) -> Result<PathBuf, ImportError> {
     app.path()
         .app_cache_dir()
@@ -635,7 +662,8 @@ fn import_work_dir(app: &AppHandle, task_id: &str) -> PathBuf {
     }
 }
 
-fn download_dir(app: &AppHandle, id: &str) -> Result<PathBuf, ImportError> {
+/// The per-video temp directory the download stage writes its `.part` into.
+fn temp_media_dir(app: &AppHandle, id: &str) -> Result<PathBuf, ImportError> {
     let dir = import_root(app)?.join(id);
     std::fs::create_dir_all(&dir).map_err(|error| {
         ImportError::Other(format!("urlImport.cacheDirFailed:{}: {error}", dir.display()))
@@ -651,19 +679,35 @@ fn is_sidecar_extension(extension: &str) -> bool {
     )
 }
 
-/// The already-downloaded media for `id`, if any (design §5.3 reuse rule).
-pub(crate) fn cached_media_file(app: &AppHandle, id: &str) -> Option<PathBuf> {
-    let dir = import_root(app).ok()?.join(id);
-    media_file_in(&dir)
+/// The already-downloaded media for this video, if any (design §5.3 reuse rule).
+///
+/// The lookup is in the **output directory** and is scoped to this video's stem:
+/// scanning that directory for "any media file" would happily return an unrelated
+/// video the user downloaded earlier.
+pub(crate) fn cached_media_file(params: &JobParams, media: &SiteMedia) -> Option<PathBuf> {
+    let dir = PathBuf::from(&params.request.output_dir);
+    let stem = naming::file_stem(&media.title, &media.id);
+    media_file_for_stem(&dir, &stem)
 }
 
-/// The media file in `dir`, ignoring sidecars, `.part` files and subtitles.
-fn media_file_in(dir: &Path) -> Option<PathBuf> {
+/// The finished media file `<stem>.<ext>` in `dir`.
+///
+/// Matching is by the `<stem>.` prefix rather than by `Path::file_stem`: a title
+/// may itself contain dots (`v1.2 final [BV1]`), which `file_stem` would shorten.
+/// Sidecars (`.part`, `.ytdl`, subtitles, `.json`) and empty files are ignored, so
+/// an interrupted attempt is never mistaken for a finished download.
+fn media_file_for_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
+    let prefix = format!("{stem}.");
     let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(&prefix))
+        })
         .filter(|path| {
             let extension = path
                 .extension()
@@ -675,12 +719,6 @@ fn media_file_in(dir: &Path) -> Option<PathBuf> {
         .collect();
     found.sort();
     found.into_iter().next()
-}
-
-/// What the download stage produced: `<download_dir>/<id>/<id>.<ext>`.
-fn downloaded_media_file(download_dir: &Path, id: &str) -> Option<PathBuf> {
-    let nested = download_dir.join(id);
-    media_file_in(&nested).or_else(|| media_file_in(download_dir))
 }
 
 fn remove_partial_downloads(dir: &Path) {
@@ -911,43 +949,107 @@ mod tests {
         std::fs::write(path, body).unwrap();
     }
 
-    /// Regression for the reuse rule: `.part`, `.ytdl`, `.info.json`, `.json` and
-    /// `.srt` leftovers must never be mistaken for a finished download.
-    #[test]
-    fn cache_lookup_ignores_sidecars_and_partials() {
-        let dir = scratch_dir("cache");
-        touch(&dir.join("BV1.m4a.part"), "partial");
-        touch(&dir.join("BV1.webm.ytdl"), "{}");
-        touch(&dir.join("BV1.info.json"), "{}");
-        touch(&dir.join("BV1.json"), "{}");
-        touch(&dir.join("BV1.zh-CN.srt"), "1\n00:00:00,000 --> 00:00:01,000\nhi\n");
-        touch(&dir.join("BV1.xml"), "<xml/>");
-        touch(&dir.join("BV1.m4a"), "");
-        assert_eq!(media_file_in(&dir), None, "only a non-empty media file counts");
+    /// A job whose output directory is `dir` — the only field these tests vary.
+    fn job_params(dir: &Path) -> JobParams {
+        JobParams {
+            request: UrlImportRequest {
+                task_id: "t1".to_string(),
+                url: "https://www.bilibili.com/video/BV1GJ411x7h7".to_string(),
+                language: "zh".to_string(),
+                formats: "srt".to_string(),
+                output_dir: dir.to_string_lossy().into_owned(),
+                skip_existing: false,
+                cookies_browser: None,
+                translate_enabled: None,
+                target_language: None,
+                translation_model: None,
+                prefer_local_recognition: None,
+            },
+            formats: subtitle::parse_formats("srt").unwrap(),
+            work_dir: dir.to_path_buf(),
+        }
+    }
 
-        touch(&dir.join("BV1.m4a"), "audio bytes");
-        assert_eq!(media_file_in(&dir), Some(dir.join("BV1.m4a")));
+    fn site_media(title: &str, id: &str) -> SiteMedia {
+        SiteMedia {
+            id: id.to_string(),
+            title: title.to_string(),
+            duration: Some(1.0),
+            subs: Default::default(),
+        }
+    }
+
+    /// Regression for the reuse rule: `.part`, `.ytdl`, `.info.json`, `.json`,
+    /// `.srt` leftovers must never be mistaken for a finished download, and the
+    /// lookup only answers for THIS video's stem (the output directory holds
+    /// every import the user ever made).
+    #[test]
+    fn media_lookup_ignores_sidecars_and_other_videos() {
+        let dir = scratch_dir("media-lookup");
+        let stem = naming::file_stem("Title", "BV1");
+        touch(&dir.join("Title [BV1].m4a.part"), "partial");
+        touch(&dir.join("Title [BV1].webm.ytdl"), "{}");
+        touch(&dir.join("Title [BV1].info.json"), "{}");
+        touch(&dir.join("Title [BV1].json"), "{}");
+        touch(&dir.join("Title [BV1].zh-CN.srt"), "1\n00:00:00,000 --> 00:00:01,000\nhi\n");
+        touch(&dir.join("Title [BV1].xml"), "<xml/>");
+        touch(&dir.join("Title [BV1].m4a"), "");
+        // A different video in the same folder must not be returned.
+        touch(&dir.join("Other [BV2].m4a"), "audio");
+        assert_eq!(
+            media_file_for_stem(&dir, &stem),
+            None,
+            "only a non-empty media file with this stem counts"
+        );
+
+        touch(&dir.join("Title [BV1].m4a"), "audio bytes");
+        assert_eq!(
+            media_file_for_stem(&dir, &stem),
+            Some(dir.join("Title [BV1].m4a"))
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A title may contain dots, so matching must go by the `<stem>.` prefix:
+    /// `Path::file_stem` would shorten `v1.2 final [BV1].m4a` to `v1.2 final [BV1]`
+    /// only by luck and to `v1` for a name like `v1.2.m4a`.
     #[test]
-    fn downloaded_media_is_found_in_its_id_subdirectory() {
-        let dir = scratch_dir("downloaded");
-        let nested = dir.join("BV1");
-        touch(&nested.join("BV1.m4a"), "audio");
-        assert_eq!(downloaded_media_file(&dir, "BV1"), Some(nested.join("BV1.m4a")));
-
-        // A flat download (the `-o` template did not nest) is found too.
-        let flat = scratch_dir("downloaded-flat");
-        touch(&flat.join("BV1.m4a"), "audio");
-        assert_eq!(downloaded_media_file(&flat, "BV1"), Some(flat.join("BV1.m4a")));
+    fn media_lookup_matches_a_stem_containing_dots() {
+        let dir = scratch_dir("media-dots");
+        let stem = naming::file_stem("v1.2 final", "BV1");
+        assert_eq!(stem, "v1.2 final [BV1]");
+        touch(&dir.join("v1.2 final [BV1].m4a"), "audio");
+        assert_eq!(
+            media_file_for_stem(&dir, &stem),
+            Some(dir.join("v1.2 final [BV1].m4a"))
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
-        let _ = std::fs::remove_dir_all(&flat);
     }
 
-    /// A cancel removes the `.part` file but keeps the finished audio.
+    /// The reuse lookup reads the output directory (where a finished download
+    /// lives), not the cache: that is what makes a second import of the same URL
+    /// cost no network at all.
+    #[test]
+    fn the_reuse_lookup_reads_the_output_directory() {
+        let dir = scratch_dir("reuse-out");
+        let params = job_params(&dir);
+        let media = site_media("Title", "BV1GJ411x7h7");
+        assert_eq!(cached_media_file(&params, &media), None);
+
+        let expected = dir.join("Title [BV1GJ411x7h7].m4a");
+        touch(&expected, "audio");
+        assert_eq!(cached_media_file(&params, &media), Some(expected));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cancel removes the `.part` file but never a finished media file.
+    ///
+    /// In production a finished download is not in the cache at all (yt-dlp moves
+    /// it into the output directory), so this is a safety property: whatever a
+    /// sweep touches, it cannot destroy the user's media.
     #[test]
     fn removing_partials_leaves_finished_files_alone() {
         let dir = scratch_dir("partials");
@@ -957,7 +1059,7 @@ mod tests {
         touch(&dir.join("info.json"), "{}");
         remove_partial_downloads(&dir);
 
-        assert!(dir.join("BV1/BV1.m4a").is_file(), "finished audio must survive");
+        assert!(dir.join("BV1/BV1.m4a").is_file(), "finished media must survive");
         assert!(!dir.join("BV1/BV1.m4a.part").exists(), ".part must be cleaned");
         assert!(!dir.join("BV1/BV1.webm.ytdl").exists(), ".ytdl must be cleaned");
 
@@ -965,7 +1067,7 @@ mod tests {
     }
 
     /// Regression for a gap the design promises but the first cut missed: a
-    /// partial download lives under the per-video CACHE directory, not in the
+    /// partial download lives under the per-video TEMP directory, not in the
     /// scratch directory, so a cancel has to sweep both.
     #[test]
     fn cancelling_sweeps_partials_in_the_cache_directory_too() {
@@ -1071,8 +1173,7 @@ mod tests {
                 ImportEntry {
                     handle,
                     work_dir: PathBuf::from(format!("/tmp/{}", id)),
-                    cache_dir: PathBuf::from(format!("/tmp/cache/{}", id)),
-                },
+                    temp_dir: PathBuf::from(format!("/tmp/cache/{}", id)),                },
             );
         }
         drop(tasks);

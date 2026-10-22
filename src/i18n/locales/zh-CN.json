@@ -37,7 +37,9 @@
     "starting": "启动中...",
     "skipped": "已跳过",
     "multiSpeaker": "多人",
-    "multiSpeakerHint": "为此文件识别并标注说话人（较慢）"
+    "multiSpeakerHint": "为此文件识别并标注说话人（较慢）",
+    "showErrorDetails": "查看「{{name}}」的完整错误",
+    "errorUnknown": "该文件处理失败，但没有记录下错误信息。"
   },
   "steps": {
     "extracting_audio": "提取音频",
@@ -109,7 +111,10 @@
       "noModels": "当前版本没有可用的翻译模型。"
     },
     "system": {
-      "title": "系统"
+      "title": "系统",
+      "logDir": "日志目录",
+      "logDirHint": "日志保留最近 7 天。反馈问题时可附上最新的日志文件。",
+      "openLogs": "打开"
     },
     "urlImport": {
       "title": "链接导入"
@@ -135,8 +140,35 @@
     "audioExtractFailed": "无法从该文件提取音频。",
     "engineFailed": "语音识别失败，详情请查看日志。",
     "engineMissing": "语音引擎缺失或无法执行。请重新安装 MonoSub。",
-    "modelNotInstalled": "语音识别模型尚未安装。请打开「设置 → 模型」下载。",
-    "translationModelNotInstalled": "翻译模型尚未安装。请打开「设置 → 翻译」下载。"
+    "modelNotInstalled": "语音识别模型尚未安装。点击这个文件的错误标签可查看详情并下载。",
+    "translationModelNotInstalled": "翻译模型尚未安装。点击这个文件的错误标签可查看详情并下载。",
+    "missingModel": {
+      "lookingUp": "正在查找缺失的模型…",
+      "unknown": "无法确定具体缺少哪个模型。请打开「设置 → 模型」查看已安装的模型。",
+      "roleRecognition": "识别",
+      "roleTranslation": "翻译",
+      "needsDownload": "需要先下载这个模型才能继续转写。",
+      "downloading": "正在下载… {{percent}}%",
+      "installed": "已完成下载，现在可以开始转写了。",
+      "download": "下载模型",
+      "cancelDownload": "取消下载",
+      "start": "开始转写",
+      "later": "稍后再说",
+      "openSettings": "去模型设置",
+      "failed": "下载失败：{{message}}"
+    },
+    "detailsTitle": "错误详情",
+    "detailsHint": "可以把错误信息复制到反馈里，或打开日志目录查看前因后果。",
+    "fileLabel": "文件",
+    "pathLabel": "路径",
+    "messageLabel": "错误信息",
+    "copyPath": "复制路径",
+    "copyError": "复制错误",
+    "copied": "已复制",
+    "copyFailed": "复制失败，请手动选中文本后复制。",
+    "openLogs": "打开日志目录",
+    "logsFailed": "无法打开日志目录。",
+    "close": "关闭"
   },
   "models": {
     "cancel": "取消",
@@ -220,7 +252,7 @@
     "hint": "一行一个，或用空格分隔。目前仅支持 B 站视频。",
     "subtitleLanguage": "字幕语言",
     "followingSettings": "{{value}}（跟随设置）",
-    "outputDir": "保存到",
+    "outputDir": "下载到",
     "outputDirDefault": "跟随设置",
     "autoStart": "下载完成后自动开始转录",
     "autoStartHint": "视频没有平台字幕时，下载音频后立即开始识别",
@@ -273,8 +305,8 @@
     },
     "settings": {
       "title": "链接导入",
-      "outputDir": "导入字幕保存位置",
-      "outputDirHint": "导入的字幕会存到这里，而不是源文件旁边（源文件在缓存目录里）。留空则使用 ~/Downloads/MonoSub。",
+      "outputDir": "下载/保存目录",
+      "outputDirHint": "下载的视频音频与字幕会放在同一个目录，文件名按视频标题命名。留空则使用 ~/Downloads/MonoSub。",
       "chooseFolder": "选择目录",
       "cookiesBrowser": "B 站 cookie 来源",
       "cookiesBrowserHint": "只有在视频字幕需要登录时才需要配置。",

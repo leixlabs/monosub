@@ -12,7 +12,7 @@ import { loadDefaultUrlImportDir } from '@/lib/urlImport';
  * Settings → URL import (url-import-design §5.4, §4.5, §7-2).
  *
  * Three independent choices:
- * * where imported subtitles are written (never next to the cache file);
+ * * where an import's media and subtitles are written (one directory for both);
  * * which browser's Bilibili cookies yt-dlp may read, default "not configured";
  * * whether to always recognise locally instead of taking the platform subtitle.
  */
@@ -59,7 +59,7 @@ export function SettingsUrlImport() {
 
   return (
     <section className="space-y-4">
-      {/* Output directory */}
+      {/* Download / save directory */}
       <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
         <div>
           <p className="text-sm font-semibold text-text-primary dark:text-gray-200">

@@ -44,7 +44,7 @@ Drag in a video or audio file. Get a transcript. That's it.
 
 ## 📥 Download
 
-**Latest Release:** [GitHub Releases](https://github.com/0xkamalei/monosub-public/releases/latest)
+**Latest Release:** [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest)
 
 ### System Requirements
 
@@ -56,7 +56,7 @@ Drag in a video or audio file. Get a transcript. That's it.
 
 ## 🚀 Quick Start
 
-1. **Download** MonoSub from [Releases](https://github.com/0xkamalei/monosub-public/releases/latest)
+1. **Download** MonoSub from [Releases](https://github.com/leixlabs/monosub/releases/latest)
 2. **Open Settings → Models** and download the speech model (~250 MB, one time)
 3. **Drag** video/audio files into the app
 4. **Click** "Start"
@@ -131,6 +131,6 @@ Yes. 7-day money-back guarantee on Pro licenses.
 
 Made for people who just want their videos in text format.
 
-[Download Now](https://github.com/0xkamalei/monosub-public/releases/latest)
+[Download Now](https://github.com/leixlabs/monosub/releases/latest)
 
 </div>

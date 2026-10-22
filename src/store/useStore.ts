@@ -137,6 +137,41 @@ export interface VideoFile {
    * the same link could be offered again a second later.
    */
   sourceUrl?: string
+  /**
+   * Catalogue id parsed out of a `MODEL_NOT_INSTALLED:<id>` failure.
+   *
+   * Set by both error entry points (`startTranscriptionTask`'s catch and the
+   * `transcribe_error` listener) so the row knows *which* model to offer for
+   * download instead of sending the user to the model list to guess. `undefined`
+   * when the sentinel carried no id, or when the failure was something else.
+   *
+   * Runtime state, not a preference: `files` is not part of `partialize` (see
+   * `PersistedAppState`), so neither this field nor `downloadProgress` below
+   * needs a `version` bump, a migrate branch, or a place in `normalizePersistedState`
+   * — nothing of the file queue survives a reload in the first place.
+   */
+  missingModelId?: string
+  /**
+   * True when the row failed *because a model is missing*.
+   *
+   * `missingModelId` alone cannot say this: the sentinel is sometimes bare
+   * (`MODEL_NOT_INSTALLED` with no id, and the engine's `modelNotInstalled` key),
+   * so "a model is missing, but which one is unknown" is a real state. `error`
+   * holds the localised message rather than the sentinel, so the row needs this
+   * flag to know that the download prompt belongs in its dialog at all.
+   *
+   * Runtime state for the same reason as `missingModelId` (see above).
+   */
+  missingModel?: boolean
+  /**
+   * Live progress of the download offered for `missingModelId`.
+   *
+   * Mirrored from the `model_download_progress` event by `MissingModelPrompt` so
+   * the queue row can show the transfer too, rather than only the dialog. Runtime
+   * state for the same reason as `missingModelId` — and a byte counter from a
+   * previous session would describe a download that is no longer running.
+   */
+  downloadProgress?: { downloaded: number; total: number }
 }
 
 export interface AppSettings {

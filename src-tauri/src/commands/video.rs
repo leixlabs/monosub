@@ -605,58 +605,30 @@ fn collect_media_files(
     }
 }
 
-/// Open file in Finder (macOS) or File Explorer (Windows/Linux)
+/// Locate `path` in the system file manager: a file is revealed, a directory is
+/// opened.
+///
+/// The command name and signature are unchanged (the frontend still calls
+/// `invoke('open_in_finder', { path })`); the platform argv and the exit-status
+/// check live in [`super::opener`], which shared them with
+/// `open_models_dir` and the log panel.
 #[tauri::command]
 pub async fn open_in_finder(path: String) -> Result<(), String> {
     tracing::info!(path = %path, "Opening file in file manager");
     let file_path = Path::new(&path);
 
+    // Kept here as well as in the shared module: on Windows the child's exit
+    // status cannot decide success, so this is the only place a missing path
+    // is still reported there.
     if !file_path.exists() {
         tracing::error!(path = %path, "File does not exist");
         return Err("File does not exist".to_string());
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        Command::new("open")
-            .arg("-R")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| {
-                tracing::error!(path = %path, error = %e, "Failed to open Finder");
-                format!("Failed to open Finder: {}", e)
-            })?;
-        tracing::debug!(path = %path, "Opened in Finder");
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("explorer")
-            .arg("/select,")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| {
-                tracing::error!(path = %path, error = %e, "Failed to open Explorer");
-                format!("Failed to open Explorer: {}", e)
-            })?;
-        tracing::debug!(path = %path, "Opened in Explorer");
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let parent_dir = file_path.parent().ok_or_else(|| {
-            tracing::error!(path = %path, "Failed to get parent directory");
-            "Failed to get parent directory".to_string()
-        })?;
-        Command::new("xdg-open")
-            .arg(parent_dir)
-            .spawn()
-            .map_err(|e| {
-                tracing::error!(path = %path, error = %e, "Failed to open file manager");
-                format!("Failed to open file manager: {}", e)
-            })?;
-        tracing::debug!(path = %path, "Opened in file manager");
-    }
-
-    Ok(())
+    super::opener::reveal_in_file_manager(file_path)
+        .await
+        .inspect_err(|error| {
+            tracing::error!(path = %path, error = %error, "Failed to open file manager");
+        })
+        .inspect(|()| tracing::debug!(path = %path, "Opened in file manager"))
 }

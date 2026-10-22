@@ -77,7 +77,19 @@ pub enum Stage {
         tag: String,
     },
     /// Download the audio for the transcription fallback.
-    DownloadAudio { work_dir: PathBuf },
+    ///
+    /// The finished file is the user's: it goes to `home_dir` (the import output
+    /// directory) under the same stem as the subtitle, so the two sit side by
+    /// side. `temp_dir` only receives the in-flight `.part`, which yt-dlp itself
+    /// moves into `home_dir` when the transfer completes — so the app cache never
+    /// keeps a second copy of the media.
+    DownloadAudio {
+        home_dir: PathBuf,
+        temp_dir: PathBuf,
+        /// The `<sanitized title> [<id>]` stem (see `site::naming`). A literal:
+        /// yt-dlp cannot reproduce the sanitised title from `%(title)s`.
+        file_stem: String,
+    },
 }
 
 /// Everything an invocation needs beyond the stage.
@@ -158,14 +170,27 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
             argv.push("-o".to_string());
             argv.push(output_template(work_dir));
         }
-        Stage::DownloadAudio { work_dir } => {
+        Stage::DownloadAudio {
+            home_dir,
+            temp_dir,
+            file_stem,
+        } => {
             // No `--no-progress` here: it would silence the template below.
             argv.push("-f".to_string());
             argv.push(AUDIO_FORMAT.to_string());
             argv.push("--progress-template".to_string());
             argv.push(PROGRESS_TEMPLATE.to_string());
+            // `--paths` splits the two locations. Both are explicit so the argv
+            // stays a constant shape: `home` is where the finished file belongs,
+            // `temp` receives the `.part` (measured: yt-dlp downloads into `temp`
+            // and moves the finished file into `home` itself).
+            argv.push("--paths".to_string());
+            argv.push(format!("home:{}", home_dir.to_string_lossy()));
+            argv.push("--paths".to_string());
+            argv.push(format!("temp:{}", temp_dir.to_string_lossy()));
+            // Relative on purpose: an absolute `-o` makes yt-dlp ignore `--paths`.
             argv.push("-o".to_string());
-            argv.push(output_template(work_dir));
+            argv.push(media_output_template(file_stem));
         }
     }
 
@@ -173,9 +198,19 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
     argv
 }
 
+/// The `-o` template for the audio stage: the exact stem the subtitle carries,
+/// plus yt-dlp's extension placeholder.
+///
+/// `%` is yt-dlp's template escape, so it is doubled. Without that a title
+/// containing `%(` would be read as a field and substituted (or fail), which is
+/// how a downloaded file would end up under a name that is not the subtitle's.
+pub fn media_output_template(file_stem: &str) -> String {
+    format!("{}.%(ext)s", file_stem.replace('%', "%%"))
+}
+
 /// yt-dlp's output template for files this app manages:
 /// `<work_dir>/%(id)s/%(id)s.%(ext)s`, which produces
-/// `<work_dir>/<id>/<id>.srt` or `<work_dir>/<id>/<id>.m4a`.
+/// `<work_dir>/<id>/<id>.srt`.
 fn output_template(work_dir: &Path) -> String {
     work_dir
         .join("%(id)s")
@@ -341,7 +376,9 @@ mod tests {
             },
             Invocation {
                 stage: Stage::DownloadAudio {
-                    work_dir: dir.clone(),
+                    home_dir: dir.clone(),
+                    temp_dir: PathBuf::from("/tmp/cache"),
+                    file_stem: "Title [BV1]".to_string(),
                 },
                 url: "u".to_string(),
                 cookies_browser: None,
@@ -373,7 +410,9 @@ mod tests {
     fn the_audio_stage_never_passes_no_progress() {
         let argv = build_argv(&Invocation {
             stage: Stage::DownloadAudio {
-                work_dir: PathBuf::from("/tmp/import"),
+                home_dir: PathBuf::from("/tmp/out"),
+                temp_dir: PathBuf::from("/tmp/cache"),
+                file_stem: "Title [BV1]".to_string(),
             },
             url: "u".to_string(),
             cookies_browser: None,
@@ -532,7 +571,9 @@ mod tests {
     fn audio_stage_requests_m4a_with_a_progress_template() {
         let argv = build_argv(&Invocation {
             stage: Stage::DownloadAudio {
-                work_dir: PathBuf::from("/tmp/import"),
+                home_dir: PathBuf::from("/tmp/out"),
+                temp_dir: PathBuf::from("/tmp/cache"),
+                file_stem: "Title [BV1]".to_string(),
             },
             url: "u".to_string(),
             cookies_browser: None,
@@ -568,13 +609,75 @@ mod tests {
         );
     }
 
+    /// The audio stage writes the finished media into the output directory under
+    /// the same stem as the subtitle, and only the `.part` into the cache.
+    ///
+    /// Two things are load-bearing and both were measured: `-P` takes literal
+    /// paths (a `%(…)s` in one is not substituted), and an **absolute** `-o` makes
+    /// yt-dlp ignore `--paths` entirely — so `-o` must stay relative.
+    #[test]
+    fn the_audio_stage_separates_the_output_dir_from_the_partial_dir() {
+        let argv = build_argv(&Invocation {
+            stage: Stage::DownloadAudio {
+                home_dir: PathBuf::from("/Users/me/Downloads/MonoSub"),
+                temp_dir: PathBuf::from("/Users/me/Library/Caches/monosub/url-import/BV1"),
+                file_stem: "Title [BV1]".to_string(),
+            },
+            url: "u".to_string(),
+            cookies_browser: None,
+            ffmpeg: None,
+        });
+
+        // Both paths are explicit, each as its own `--paths` argument.
+        let paths: Vec<&str> = argv
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| *arg == "--paths")
+            .map(|(index, _)| argv[index + 1].as_str())
+            .collect();
+        assert_eq!(
+            paths,
+            vec![
+                "home:/Users/me/Downloads/MonoSub",
+                "temp:/Users/me/Library/Caches/monosub/url-import/BV1",
+            ]
+        );
+
+        // The output template is the shared stem, relative, and single-element.
+        let template = argv
+            .iter()
+            .position(|arg| arg == "-o")
+            .map(|index| argv[index + 1].clone())
+            .expect("-o template");
+        assert_eq!(template, "Title [BV1].%(ext)s");
+        assert!(
+            !template.starts_with('/'),
+            "an absolute -o makes yt-dlp ignore --paths: {template}"
+        );
+    }
+
+    /// A `%` in the title is yt-dlp's template escape, so it must be doubled or
+    /// the downloaded file lands under a name the subtitle does not share.
+    #[test]
+    fn a_percent_in_the_title_is_escaped_for_yt_dlp() {
+        assert_eq!(media_output_template("50% off [BV1]"), "50%% off [BV1].%(ext)s");
+        assert_eq!(media_output_template("Title [BV1]"), "Title [BV1].%(ext)s");
+        // A template-looking title must not become a field reference.
+        assert_eq!(
+            media_output_template("literal %(id)s"),
+            "literal %%(id)s.%(ext)s"
+        );
+    }
+
     /// `--skip-download` and the audio stage are mutually exclusive: asking for
     /// no download while asking for a download would download nothing.
     #[test]
     fn only_the_audio_stage_omits_skip_download() {
         let audio = build_argv(&Invocation {
             stage: Stage::DownloadAudio {
-                work_dir: PathBuf::from("/tmp"),
+                home_dir: PathBuf::from("/tmp/out"),
+                temp_dir: PathBuf::from("/tmp/cache"),
+                file_stem: "Title [BV1]".to_string(),
             },
             url: "u".to_string(),
             cookies_browser: None,

@@ -13,6 +13,7 @@ import {
   Package,
   Download,
   Trash2,
+  FolderOpen,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
@@ -27,6 +28,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
+import { getLogDirectory, openLogsDirectory, reportFrontendError } from '@/lib/logging';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { GlassSwitch } from '@/components/ui/glass-switch';
@@ -59,7 +61,7 @@ import {
  */
 type SettingsCategory = 'files' | 'models' | 'translate' | 'urlImport' | 'system';
 
-const RELEASES_URL = 'https://github.com/0xkamalei/monosub/releases';
+const RELEASES_URL = 'https://github.com/leixlabs/monosub/releases';
 
 const isSettingsCategory = (value: string | null): value is SettingsCategory => {
   return value === 'files'
@@ -205,6 +207,10 @@ export function Settings() {
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<GithubReleaseUpdateResult | null>(null);
   const [updateError, setUpdateError] = useState('');
+  // Log directory row (Settings ▸ System): the path is read once per open, and
+  // a failure to open it is shown in place rather than only in the log.
+  const [logDirectory, setLogDirectory] = useState('');
+  const [logDirectoryError, setLogDirectoryError] = useState('');
 
   useEffect(() => {
     // StrictMode mounts effects twice in development; re-arm the guard.
@@ -236,6 +242,18 @@ export function Settings() {
 
     let disposed = false;
 
+    // The row is only useful with the real path, so read it when the panel opens
+    // (the directory can be created or removed between opens).
+    setLogDirectoryError('');
+    void getLogDirectory()
+      .then((dir) => {
+        if (!disposed && isMountedRef.current) setLogDirectory(dir);
+      })
+      .catch((error) => {
+        console.error('[log_directory] Failed:', error);
+        if (!disposed && isMountedRef.current) setLogDirectoryError(String(error));
+      });
+
     const setupListeners = async () => {
       const unlistenProgress = await listen<ModelDownloadProgressPayload>(MODEL_DOWNLOAD_PROGRESS_EVENT, (event) => {
         if (disposed || !isMountedRef.current) return;
@@ -263,8 +281,13 @@ export function Settings() {
       });
 
       const unlistenError = await listen<ModelDownloadErrorPayload>(MODEL_DOWNLOAD_ERROR_EVENT, (event) => {
-        if (disposed || !isMountedRef.current) return;
         const { id, message } = event.payload;
+        // Downloads are one of the flows a user reports as "it didn't work", and
+        // the banner is gone on the next open — the log file keeps the message.
+        // Reported before the render guard: whether the panel still wants to
+        // paint is a UI question, and the failure is worth recording regardless.
+        reportFrontendError(message, { context: `model_download_error ${id}` });
+        if (disposed || !isMountedRef.current) return;
         setModelActionError(message);
         setDownloadPercentById((prev) => {
           const next = { ...prev };
@@ -331,6 +354,7 @@ export function Settings() {
     } catch (error) {
       if (isMountedRef.current && ignoreDownloadErrorRef.current !== id) {
         console.error('[download_model] Failed:', error);
+        reportFrontendError(error, { context: `download_model ${id}` });
         setModelActionError(String(error));
       }
       // The request was rejected, so no events will arrive: reset here.
@@ -385,6 +409,17 @@ export function Settings() {
     }
   };
 
+  const handleOpenLogsDir = async () => {
+    setLogDirectoryError('');
+    try {
+      await openLogsDirectory();
+    } catch (error) {
+      console.error('[open_logs_dir] Failed:', error);
+      reportFrontendError(error, { context: 'open_logs_dir' });
+      setLogDirectoryError(String(error));
+    }
+  };
+
   const handleCheckUpdate = async () => {
     setIsCheckingUpdate(true);
     setUpdateError('');
@@ -393,9 +428,15 @@ export function Settings() {
       const result = await invoke<GithubReleaseUpdateResult>('check_github_release_update');
       setUpdateResult(result);
     } catch (error) {
+      // The panel renders this string under `settings.about.checkFailed`, and the
+      // "Open Download Page" button beside the check button still points at
+      // RELEASES_URL, so a 404 or a dead network costs the version comparison
+      // but never the download link. The log entry is for the release build,
+      // where the WebView console does not exist.
       const message = String(error);
       setUpdateError(message);
       console.error('[check_github_release_update] Failed:', error);
+      reportFrontendError(error, { context: 'check_github_release_update' });
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -779,6 +820,43 @@ export function Settings() {
                     </div>
                   </div>
 
+                  {/* Log directory: the one file to attach to a bug report */}
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <FolderOpen className="w-4 h-4 text-text-primary dark:text-gray-300" />
+                          <span className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                            {t('settings.system.logDir')}
+                          </span>
+                        </div>
+                        <p
+                          className="text-xs text-text-secondary dark:text-gray-400 mt-1 break-all"
+                          title={logDirectory}
+                        >
+                          {logDirectory || '—'}
+                        </p>
+                        <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-1">
+                          {t('settings.system.logDirHint')}
+                        </p>
+                      </div>
+
+                      <GlassButton
+                        variant="outline"
+                        size="sm"
+                        data-testid="settings-open-logs"
+                        onClick={() => void handleOpenLogsDir()}
+                      >
+                        <FolderOpen className="w-4 h-4" />
+                        {t('settings.system.openLogs')}
+                      </GlassButton>
+                    </div>
+
+                    {logDirectoryError && (
+                      <p className="text-xs text-danger break-all">{logDirectoryError}</p>
+                    )}
+                  </div>
+
                   {/* About + updates */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
                     <div className="flex items-center justify-between gap-4">
@@ -818,7 +896,7 @@ export function Settings() {
                     </div>
 
                     {updateError && (
-                      <p className="text-xs text-danger">
+                      <p className="text-xs text-danger break-all">
                         {t('settings.about.checkFailed')}: {updateError}
                       </p>
                     )}

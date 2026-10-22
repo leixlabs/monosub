@@ -800,12 +800,12 @@ supported video, shows a dismissible pill with one import button.
 | `get_video_metadata` | Extract duration, resolution, size |
 | `generate_thumbnail` | Create video preview |
 | `resolve_paths` | Normalise dropped paths |
-| `open_in_finder` | Reveal file in system file manager |
+| `open_in_finder` | Reveal a file / open a directory in the system file manager (`commands::opener`) |
 | `list_models` | Catalogue + per-model install state |
 | `download_model` | Stream a model, verify size/SHA256, then rename |
 | `cancel_model_download` | Abort a download and delete the `.part` |
 | `remove_model` | Delete a model directory |
-| `open_models_dir` | Reveal the models folder |
+| `open_models_dir` | Create + **open** the models folder itself (not `-R` in its parent) |
 | `activate_license` / `validate_license` / `deactivate_license` | Polar licensing |
 | `check_github_release_update` | Update check |
 | `update_tray_menu` | Localise the tray's Show / Hide / Quit labels (progress rows are preserved) |
@@ -816,6 +816,9 @@ supported video, shows a dismissible pill with one import button.
 | `cancel_url_import` | `task_id`; aborts the import stage only (not a queued file) |
 | `read_clipboard_video` | — ; returns `Option<ClipboardHit{url,id,text}>` for a clipboard Bilibili link |
 | `default_url_import_dir` | `~/Downloads/MonoSub`, resolved from Rust (Tauri knows the home dir) |
+| `log_directory` | Absolute path of the rolling log directory (Settings ▸ 系统 shows it) |
+| `open_logs_dir` | Create the log directory and open it in the system file manager |
+| `log_frontend_error` | `level`, `message`, `context?`; writes a core-flow frontend failure into the same log file |
 
 The catalogue contains both engines, but only audio.cpp entries can fill a recognition
 plan; `translate` entries are grouped separately by `role` in the UI.
@@ -933,6 +936,9 @@ line-parsing subprocess.
 | `src-tauri/src/site/clipboard.rs` | `classify`: clipboard text → one `ClipboardHit`, or nothing (pure) |
 | `src/lib/clipboardWatch.ts` | Clipboard polling hook: focus-aware cadence, per-text dismissal |
 | `src/lib/tray.ts` | Menu-bar mirror: `buildStatusRows` / `buildTitle` from `files`, coalesced pushes |
+| `src-tauri/src/commands/logs.rs` | `log_directory` / `open_logs_dir` / `log_frontend_error` |
+| `src-tauri/src/commands/opener.rs` | The **only** way to open a path: `open_directory` (`open <dir>`) vs `reveal_in_file_manager` (file ⇒ `open -R`), awaited + exit-status checked |
+| `src/lib/logging.ts` | `reportFrontendError` (5 s per-message dedupe) + the `window.onerror` / `unhandledrejection` hooks |
 | `src-tauri/src/commands/tray.rs` | Menu-bar state + `layout`: status rows, separator, localised actions |
 | `src-tauri/src/tray.rs` | Builds the icon; `show_menu_on_left_click(true)` |
 | `src/components/ClipboardPrompt.tsx` | The one-click import pill |
@@ -1042,6 +1048,36 @@ and env var to that shared resolver — it deliberately does not re-implement th
 `llama-server`'s libraries must sit **flat in `resources/bin/`**, next to the executable —
 its only `LC_RPATH` is `@loader_path`. ffmpeg's dylibs live in `bin/lib/` and are resolved
 by ffmpeg's own rpath; the two layouts must not be merged.
+
+### Opening a path in the file manager
+
+`commands/opener.rs` is the **only** implementation, and there are two entry points because
+there are two user intents:
+
+- `open_directory(dir)` — "show me what is in here" → macOS `open <dir>`.
+- `reveal_in_file_manager(path)` — "show me this thing" → a file is `open -R <file>`, but a
+  **directory is opened**, not revealed.
+
+`-R` means "select it in the parent window" (`man open`: *Reveals the file(s) in the Finder
+instead of opening them*), so applying it to a directory shows the **parent** folder —
+measured: `open -R <models>` lands on `<repo>/` with `models` selected, while `open <models>`
+makes `models/` the window's target. That difference is why the "打开模型目录" button looked
+dead. Two further defects were stacked on top: the old code used `.spawn()` (no wait, stderr
+discarded), so the failure was silent, and the frontend called `void openModelsDir()` without
+`await`/`catch`, so the `Err` was dropped.
+
+Rules that follow:
+
+- Every child is `await`ed with `.output()` and a non-zero exit becomes a readable `Err`
+  (`<cmd> <args> failed (exit N): <stderr>`). Never `spawn()`-and-forget.
+- Paths go in as their own `argv` element. No shell string, so a folder named `模型 目录`
+  needs no escaping and cannot be split.
+- A path that does not exist is classified as a **file**, so the tool itself reports
+  `The file … does not exist.` instead of this module guessing a reason.
+- `explorer.exe` exits 1 even on success, so on Windows the exit status cannot decide
+  success (`status_decides_success()`); only a launch failure is reported there.
+- Callers must surface the error. `SettingsModelsDir.tsx` shows it in the card and logs it
+  through `reportFrontendError`; a silent `void openX()` is what made this bug invisible.
 
 ### Model Storage
 
@@ -1274,6 +1310,14 @@ What still matters is honesty about provenance:
 ```bash
 ./scripts/build/fetch-ytdlp.sh
 ```
+
+**Something failed and you need the log:** Settings ▸ 系统 ▸ 日志目录 shows the path and
+opens it (`log_directory` / `open_logs_dir`). There is exactly **one** rolling file,
+`monosub.<YYYY-MM-DD>.log` — macOS `~/Library/Logs/MonoSub`, Windows
+`%APPDATA%/MonoSub/logs`, Linux `~/.local/share/MonoSub/logs` — and the newest 7 are kept.
+Both engines and the frontend write into it, so an `error` line sits with the `info` context
+that explains it. Frontend failures from the core flows (transcription, URL import, model
+download, uncaught errors) cross `log_frontend_error` and appear with `source=frontend`.
 
 **URL import fails with `URL_IMPORT_NEEDS_COOKIES`:** pick a browser in the row's own picker
 (that writes `settings.bilibiliCookiesBrowser` and retries). `HTTP Error 412` is Bilibili's

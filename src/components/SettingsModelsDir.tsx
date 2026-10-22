@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 
 import { GlassButton } from '@/components/ui/glass-button';
+import { reportFrontendError } from '@/lib/logging';
 import {
   getModelsDir,
   openModelsDir,
@@ -72,6 +73,26 @@ export function SettingsModelsDir({ onChanged }: { onChanged: () => void }) {
     }
   }, [apply, info?.path]);
 
+  /**
+   * "Open the models folder" — reported, not swallowed.
+   *
+   * This used to be `void openModelsDir()`, so a failure (Rust could not launch
+   * the file manager, or it exited non-zero — which the old `spawn()` never
+   * checked) produced no feedback at all: on macOS the button simply appeared
+   * dead. The error is shown in the card and written to the log, because in a
+   * release build the WebView console does not exist.
+   */
+  const handleOpen = useCallback(async () => {
+    setError('');
+    try {
+      await openModelsDir();
+    } catch (err) {
+      console.error('[open_models_dir] Failed:', err);
+      reportFrontendError(err, { context: 'open_models_dir' });
+      setError(String(err));
+    }
+  }, []);
+
   const displayPath = info?.path ?? '';
 
   return (
@@ -121,7 +142,7 @@ export function SettingsModelsDir({ onChanged }: { onChanged: () => void }) {
             </GlassButton>
           )}
 
-          <GlassButton variant="ghost" size="sm" onClick={() => void openModelsDir()} disabled={isBusy}>
+          <GlassButton variant="ghost" size="sm" onClick={() => void handleOpen()} disabled={isBusy}>
             <FolderOpen className="w-4 h-4" />
             {t('models.openFolder')}
           </GlassButton>

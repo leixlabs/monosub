@@ -57,8 +57,10 @@ pub trait Deps: Send + Sync {
         media: &'a crate::site::SiteMedia,
     ) -> BoxFuture<'a, Result<PathBuf, ImportError>>;
 
-    /// A previously downloaded audio file for this video, if still on disk.
-    fn cached_audio(&self, media: &crate::site::SiteMedia) -> Option<PathBuf>;
+    /// A previously downloaded media file for this video, if still on disk. The
+    /// lookup happens in the import output directory, because that is where a
+    /// finished download now lives.
+    fn cached_audio(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf>;
 
     /// Translate the written cues, returning the translated paths.
     fn translate<'a>(
@@ -114,8 +116,8 @@ impl Deps for RealDeps<'_> {
         Box::pin(async move { crate::site::download_audio(self.app, params, media).await })
     }
 
-    fn cached_audio(&self, media: &crate::site::SiteMedia) -> Option<PathBuf> {
-        crate::site::cached_media_file(self.app, &media.id)
+    fn cached_audio(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf> {
+        crate::site::cached_media_file(params, media)
     }
 
     fn translate<'a>(
@@ -159,9 +161,15 @@ pub struct FakeDeps {
     pub resolve_error: Mutex<Option<ImportError>>,
     /// Inline text per tag, as `fetch_subtitle` would return it.
     pub fetch: Mutex<std::collections::HashMap<String, Result<String, ImportError>>>,
-    /// What `download_audio` hands back; `None` means "already cached".
+    /// What `download_audio` hands back; `None` means "nothing was produced".
     pub downloaded: Mutex<Option<Result<PathBuf, ImportError>>>,
+    /// An explicit `cached_audio` answer; when unset the fake falls back to the
+    /// production rule (look in the output directory), so a reuse test exercises
+    /// the same lookup the app runs.
     pub cached: Mutex<Option<PathBuf>>,
+    /// The `output_dir` of every `download_audio` call, so a test can assert the
+    /// media was asked for in the user's directory rather than in the cache.
+    pub download_dirs: Mutex<Vec<PathBuf>>,
     /// Records the `(tag)` of every fetch so a test can assert it was never made.
     pub fetched_tags: Mutex<Vec<String>>,
     pub translated_texts: Mutex<Vec<String>>,
@@ -175,6 +183,10 @@ impl FakeDeps {
 
     pub async fn fetched_tags(&self) -> Vec<String> {
         self.fetched_tags.lock().await.clone()
+    }
+
+    pub async fn download_dirs(&self) -> Vec<PathBuf> {
+        self.download_dirs.lock().await.clone()
     }
 }
 
@@ -219,22 +231,43 @@ impl Deps for FakeDeps {
         })
     }
 
+    /// Download the audio, reporting progress, and return the media file.
+    ///
+    /// With no explicit answer set, the fake mirrors the production contract
+    /// instead of failing: the media file is created in the request's
+    /// `output_dir` under the subtitle's stem. A test can therefore assert where
+    /// the media lands without restating the rule.
     fn download_audio<'a>(
         &'a self,
-        _params: &'a JobParams,
-        _media: &'a crate::site::SiteMedia,
+        params: &'a JobParams,
+        media: &'a crate::site::SiteMedia,
     ) -> BoxFuture<'a, Result<PathBuf, ImportError>> {
         Box::pin(async move {
-            self.downloaded
-                .lock()
-                .await
-                .clone()
-                .unwrap_or_else(|| Err(ImportError::Other("fake: no audio".to_string())))
+            let output_dir = PathBuf::from(&params.request.output_dir);
+            self.download_dirs.lock().await.push(output_dir.clone());
+            if let Some(explicit) = self.downloaded.lock().await.clone() {
+                return explicit;
+            }
+            let path = output_dir.join(format!(
+                "{}.m4a",
+                crate::site::naming::file_stem(&media.title, &media.id)
+            ));
+            std::fs::create_dir_all(&output_dir).map_err(|error| {
+                ImportError::Other(format!("fake: cannot create {}: {error}", output_dir.display()))
+            })?;
+            std::fs::write(&path, b"audio")
+                .map_err(|error| ImportError::Other(format!("fake: cannot write media: {error}")))?;
+            Ok(path)
         })
     }
 
-    fn cached_audio(&self, _media: &crate::site::SiteMedia) -> Option<PathBuf> {
-        self.cached.try_lock().ok().and_then(|cached| cached.clone())
+    fn cached_audio(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf> {
+        if let Some(explicit) = self.cached.try_lock().ok().and_then(|cached| cached.clone()) {
+            return Some(explicit);
+        }
+        // No explicit answer: run the production rule, so the reuse tests cover
+        // the lookup the app actually performs.
+        crate::site::cached_media_file(params, media)
     }
 
     fn translate<'a>(
@@ -252,5 +285,183 @@ impl Deps for FakeDeps {
                 .filter(|_| !segments.is_empty())
                 .collect()
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::site::resolve::{Resolved, SiteMedia};
+    use crate::site::{JobParams, Outcome, UrlImportRequest};
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("monosub-deps-{}-{}", tag, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A job whose output (and therefore media) directory is `output_dir`.
+    fn params(output_dir: &Path) -> JobParams {
+        JobParams {
+            request: UrlImportRequest {
+                task_id: "t1".to_string(),
+                url: "https://www.bilibili.com/video/BV1GJ411x7h7".to_string(),
+                language: "zh".to_string(),
+                formats: "srt".to_string(),
+                output_dir: output_dir.to_string_lossy().into_owned(),
+                skip_existing: false,
+                cookies_browser: None,
+                translate_enabled: None,
+                target_language: None,
+                translation_model: None,
+                prefer_local_recognition: None,
+            },
+            formats: crate::subtitle::parse_formats("srt").unwrap(),
+            work_dir: output_dir.to_path_buf(),
+        }
+    }
+
+    /// No usable track, so the run has to take the download path.
+    fn media_without_subtitles() -> SiteMedia {
+        SiteMedia {
+            id: "BV1GJ411x7h7".to_string(),
+            title: "Title".to_string(),
+            duration: Some(212.4),
+            subs: Default::default(),
+        }
+    }
+
+    async fn deps_for(media: SiteMedia) -> FakeDeps {
+        let deps = FakeDeps::default();
+        *deps.resolved.lock().await = Some(Resolved {
+            media,
+            stderr: String::new(),
+        });
+        deps
+    }
+
+    /// The media the fallback downloaded is the user's, so it lands in the output
+    /// directory — not in the app cache, which is where the old design put it.
+    #[tokio::test]
+    async fn the_downloaded_media_lands_in_the_configured_directory() {
+        let dir = scratch_dir("media-out");
+        let params = params(&dir);
+        let deps = deps_for(media_without_subtitles()).await;
+
+        let outcome = crate::site::pipeline::run(&deps, &params, None).await.unwrap();
+        let Outcome::Queued { path, .. } = outcome else {
+            panic!("expected Queued, got {outcome:?}");
+        };
+
+        let expected = dir.join("Title [BV1GJ411x7h7].m4a");
+        assert_eq!(path, expected.to_string_lossy());
+        assert!(expected.is_file(), "the media must exist in the output directory");
+        // ...and the download stage was asked for exactly that directory.
+        assert_eq!(deps.download_dirs().await, vec![dir.clone()]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A platform-subtitle hit writes the subtitle into the same directory the
+    /// media would have gone to, under the same stem: one folder, one video.
+    #[tokio::test]
+    async fn a_subtitle_hit_shares_the_directory_and_stem_with_the_media() {
+        let dir = scratch_dir("same-dir");
+        let mut media = media_without_subtitles();
+        media.subs.insert(
+            "zh-Hans".to_string(),
+            crate::site::resolve::SubTrack {
+                ext: "srt".to_string(),
+                data: Some("inline".to_string()),
+            },
+        );
+        let deps = deps_for(media).await;
+        *deps.fetch.lock().await = std::collections::HashMap::from([(
+            "zh-Hans".to_string(),
+            Ok("1\n00:00:01,000 --> 00:00:02,000\n你好\n".to_string()),
+        )]);
+
+        let params = params(&dir);
+        let outcome = crate::site::pipeline::run(&deps, &params, None).await.unwrap();
+        let Outcome::Subtitle { paths, .. } = outcome else {
+            panic!("expected a subtitle outcome, got {outcome:?}");
+        };
+
+        let subtitle = PathBuf::from(&paths[0]);
+        assert_eq!(subtitle, dir.join("Title [BV1GJ411x7h7].srt"));
+        assert_eq!(
+            subtitle.with_extension("m4a"),
+            dir.join("Title [BV1GJ411x7h7].m4a"),
+            "the media name is the subtitle name with a different extension"
+        );
+        assert!(
+            deps.download_dirs().await.is_empty(),
+            "a hit must not download anything"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Re-importing a URL whose media is already in the output directory skips the
+    /// download completely, so a retry costs no network.
+    #[tokio::test]
+    async fn a_media_file_already_in_the_output_directory_is_reused() {
+        let dir = scratch_dir("reuse");
+        let existing = dir.join("Title [BV1GJ411x7h7].m4a");
+        std::fs::write(&existing, b"audio").unwrap();
+
+        let params = params(&dir);
+        let deps = deps_for(media_without_subtitles()).await;
+
+        let outcome = crate::site::pipeline::run(&deps, &params, None).await.unwrap();
+        let Outcome::Queued { path, name, .. } = outcome else {
+            panic!("expected Queued, got {outcome:?}");
+        };
+
+        assert_eq!(path, existing.to_string_lossy());
+        assert_eq!(name, "Title [BV1GJ411x7h7].m4a");
+        assert!(
+            deps.download_dirs().await.is_empty(),
+            "the download stage must not run when the media is already there"
+        );
+        assert!(
+            deps.events().await.is_empty(),
+            "a reuse must not emit a downloading_audio stage"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cancel sweeps the scratch and temp directories only. A finished media file
+    /// lives in the output directory, so no cancel can delete it — the same rule
+    /// the project relies on for a pre-existing subtitle.
+    #[test]
+    fn a_cancel_sweep_never_reaches_the_output_directory() {
+        let output = scratch_dir("cancel-output");
+        let work = scratch_dir("cancel-work");
+        let temp = scratch_dir("cancel-temp");
+
+        let finished = output.join("Title [BV1GJ411x7h7].m4a");
+        std::fs::write(&finished, b"audio").unwrap();
+        std::fs::write(temp.join("Title [BV1GJ411x7h7].m4a.part"), b"half").unwrap();
+        std::fs::write(work.join("info.json"), b"{}").unwrap();
+
+        // The same two calls `cancel_url_import` makes when the dirs differ.
+        crate::site::remove_partial_downloads(&work);
+        let _ = std::fs::remove_dir_all(&work);
+        if temp != work && temp.is_dir() {
+            crate::site::remove_partial_downloads(&temp);
+        }
+
+        assert!(!work.exists(), "the scratch directory must be gone");
+        assert!(
+            !temp.join("Title [BV1GJ411x7h7].m4a.part").exists(),
+            "the in-flight .part must be cleaned"
+        );
+        assert!(finished.is_file(), "the finished media must survive a cancel");
+
+        let _ = std::fs::remove_dir_all(&output);
+        let _ = std::fs::remove_dir_all(&temp);
     }
 }

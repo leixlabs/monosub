@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import i18n from '@/i18n';
 import { useStore, type UrlImportState } from '@/store/useStore';
 import { addPathsToQueue } from '@/lib/fileImport';
+import { reportFrontendError } from '@/lib/logging';
 import { processQueueBatch } from '@/lib/transcription';
 
 /**
@@ -179,6 +180,7 @@ export const ensureUrlImportListeners = (): (() => void) => {
 
   const unlistenError = listen<ErrorPayload>('url_import_error', (event) => {
     const { task_id, status } = event.payload;
+    reportFrontendError(status, { context: `url_import_error ${task_id}` });
     useStore.getState().updateUrlImport(task_id, {
       status: 'error',
       progress: undefined,
@@ -213,8 +215,9 @@ const queueImportedAudio = async (
   // back to the link, so the clipboard watcher stops offering it.
   const sourceUrl = store.urlImports[taskId]?.url;
 
-  // The name is set after the row exists, because `addPathsToQueue` derives it
-  // from the cache path (`<id>.m4a`), which is not what the user should see.
+  // The name is set explicitly rather than left to `addPathsToQueue`: the import
+  // already knows the platform title, and this keeps the row showing it even if
+  // the downloaded extension is not the one the metadata call reports.
   const before = new Set(store.files.map((file) => file.path));
   const result = await addPathsToQueue({
     paths: [outcome.path],
@@ -254,6 +257,9 @@ const queueImportedAudio = async (
 /**
  * `~/Downloads/MonoSub` when the setting is blank (design §5.4).
  *
+ * The same directory serves the media and its subtitle: a downloaded video/audio
+ * is the user's, so it is not parked in the app cache.
+ *
  * The default is resolved by Rust (`default_url_import_dir`), not spelled out
  * here: the home directory is a platform fact, and Tauri already knows it. The
  * result is cached because the dialog and each request ask for it.
@@ -266,7 +272,7 @@ export const loadDefaultUrlImportDir = async (): Promise<string> => {
   return defaultOutputDir;
 };
 
-/** The directory this app writes imported subtitles into. */
+/** The directory this app downloads imported media into and writes their subtitles into. */
 export const resolveUrlImportOutputDir = (): string => {
   const state = useStore.getState();
 
@@ -321,6 +327,9 @@ export const startUrlImport = async (url: string): Promise<string> => {
       },
     });
   } catch (error) {
+    // A rejected request never produces a `url_import_error` event, so this is
+    // the only place it can be recorded.
+    reportFrontendError(error, { context: `start_url_import ${taskId}` });
     state.updateUrlImport(taskId, {
       status: 'error',
       error: String(error),

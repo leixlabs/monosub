@@ -2,12 +2,12 @@ import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
 import { exists } from '@tauri-apps/plugin-fs';
 import i18n from '@/i18n';
+import { reportFrontendError } from '@/lib/logging';
 import {
   MODEL_NOT_INSTALLED_ERROR,
   modelNotInstalledId,
   listModels,
   isTranslationModel,
-  openModelsSettings,
 } from '@/lib/models';
 
 let isQueueProcessing = false;
@@ -132,7 +132,17 @@ export const startTranscriptionTask = async (taskId: string) => {
   // control is disabled, so the licence pre-flight is intentionally not routed
   // here any more. The flag still travels with the request; Rust owns the check.
 
-  state.updateFile(file.id, { status: 'processing', progress: 0, error: undefined });
+  state.updateFile(file.id, {
+    status: 'processing',
+    progress: 0,
+    error: undefined,
+    // A new attempt starts from a clean slate: a stale `missingModelId` left by an
+    // earlier missing-model failure would otherwise make an unrelated failure look
+    // like another missing model.
+    missingModelId: undefined,
+    missingModel: undefined,
+    downloadProgress: undefined,
+  });
   state.setIsProcessing(true);
   state.setCurrentTaskId(file.id);
 
@@ -163,20 +173,41 @@ export const startTranscriptionTask = async (taskId: string) => {
     return true;
   } catch (error) {
     if (isModelNotInstalledError(error)) {
-      // Guide the user straight to the download list instead of just failing.
-      // The models page shows recognition and translation models as separate
-      // groups, so either kind of miss is fixable from the same place.
+      // The row keeps its error text AND the id of the model that is missing, so
+      // the error dialog can offer the download itself. This path deliberately
+      // does not open Settings any more: jumping the user to the model list made
+      // them lose the file (and the queue) they were working on.
       const isTranslation = await isMissingTranslationModel(error);
+      reportFrontendError(error, {
+        level: 'warn',
+        context: `start_transcription ${file.id} MODEL_NOT_INSTALLED`,
+      });
       state.updateFile(file.id, {
         status: 'error',
         progress: 0,
         error: isTranslation
           ? i18n.t('errors.translationModelNotInstalled')
           : i18n.t('errors.modelNotInstalled'),
+        // `null` (the sentinel carried no id) becomes `undefined`, which the row
+        // reads as "cannot tell which model" — the prompt then only offers the
+        // model list instead of guessing.
+        missingModelId: modelNotInstalledId(error) ?? undefined,
+        missingModel: true,
+        // A previous attempt's transfer belongs to an earlier failure.
+        downloadProgress: undefined,
       });
-      openModelsSettings();
     } else {
-      state.updateFile(file.id, { status: 'error', progress: 0, error: String(error) });
+      // The file row shows the message; the log keeps it after the row is gone.
+      reportFrontendError(error, { context: `start_transcription ${file.id}` });
+      state.updateFile(file.id, {
+        status: 'error',
+        progress: 0,
+        error: String(error),
+        // Any other failure must not inherit the previous attempt's model prompt.
+        missingModelId: undefined,
+        missingModel: undefined,
+        downloadProgress: undefined,
+      });
     }
     state.setIsProcessing(false);
     state.setCurrentTaskId(null);

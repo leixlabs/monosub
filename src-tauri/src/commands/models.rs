@@ -22,7 +22,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::commands::video::open_in_finder;
+use crate::commands::opener::open_directory;
 use crate::engine::catalog::{self, ModelFile, ModelSpec};
 
 /// Sentinel error string used by the transcription layer to signal a missing
@@ -308,13 +308,20 @@ pub async fn remove_model(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Create (if needed) and reveal the models directory in the file manager.
+/// Create (if needed) and open the models directory in the file manager.
+///
+/// Opens the directory itself rather than revealing it inside its parent: the
+/// button says "open the models folder", and `open -R <dir>` (what this used to
+/// do through `open_in_finder`) only selects it in the parent window.
 #[tauri::command]
 pub async fn open_models_dir(app: AppHandle) -> Result<(), String> {
     let root = models_root(&app)?;
     std::fs::create_dir_all(&root)
         .map_err(|e| format!("failed to create {}: {}", root.display(), e))?;
-    open_in_finder(root.to_string_lossy().to_string()).await
+
+    open_directory(&root).await.inspect_err(|error| {
+        tracing::error!(path = %root.display(), error = %error, "Failed to open the models directory");
+    })
 }
 
 /// The models directory currently in effect, and whether it is the user's own.

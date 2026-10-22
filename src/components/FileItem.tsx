@@ -3,12 +3,25 @@ import { useTranslation } from 'react-i18next';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
 import { invoke } from '@tauri-apps/api/core';
-import { startTranscriptionTask } from '@/lib/transcription';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { isModelNotInstalledError, startTranscriptionTask } from '@/lib/transcription';
 import { useEffect, useState, useRef } from 'react';
+import { cn } from '@/lib/utils';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
-import { GlassBadge } from '@/components/ui/glass-badge';
+import { GlassBadge, glassBadgeVariants } from '@/components/ui/glass-badge';
 import { GlassSwitch } from '@/components/ui/glass-switch';
+import { ErrorDetailsDialog } from '@/components/ErrorDetailsDialog';
+import { MissingModelPrompt } from '@/components/MissingModelPrompt';
+import {
+  MODEL_DOWNLOAD_COMPLETE_EVENT,
+  MODEL_DOWNLOAD_ERROR_EVENT,
+  MODEL_DOWNLOAD_PROGRESS_EVENT,
+  downloadPercent,
+  type ModelDownloadCompletePayload,
+  type ModelDownloadErrorPayload,
+  type ModelDownloadProgressPayload,
+} from '@/lib/models';
 
 interface FileItemProps {
   file: VideoFile;
@@ -25,6 +38,7 @@ export function FileItem({ file }: FileItemProps) {
   const [liveElapsed, setLiveElapsed] = useState(0);
   const lastElapsedRef = useRef(0);
   const lastUpdateTimeRef = useRef(Date.now());
+  const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
 
   useEffect(() => {
     if (file.status !== 'processing' || !file.stepProgress) {
@@ -79,6 +93,124 @@ export function FileItem({ file }: FileItemProps) {
     } catch (error) {
       console.error('[open_in_finder] Failed:', error);
     }
+  };
+
+  /**
+   * Whether this row's error is a missing model, so the dialog offers a download.
+   *
+   * `missingModel` is the primary signal because it is the only one that can say
+   * "a model is missing but the backend could not name it"; `missingModelId` then
+   * adds which one. The sentinel check is a last-resort fallback for an `error`
+   * string that still carries the raw `MODEL_NOT_INSTALLED:<id>` (the two entry
+   * points localise it, so this is a guard, not a live branch).
+   */
+  const isMissingModel =
+    Boolean(file.missingModel) || Boolean(file.missingModelId) || isModelNotInstalledError(file.error);
+
+  // Mirror the missing model's transfer onto the row.
+  //
+  // The dialog's own subscription cannot do this job: Radix unmounts the dialog
+  // content when it closes, so a user who closes the box mid-download would otherwise
+  // have no indication that anything is still running. The duplication is deliberate
+  // and scoped to one model id; the backend treats a repeated start/cancel as a
+  // no-op, so the two subscriptions cannot fight.
+  //
+  // This is display only: it never starts, cancels or resets anything, and the row
+  // stays `error` throughout, so a progress event can never move the queue.
+  useEffect(() => {
+    const modelId = file.missingModelId;
+    if (!modelId || file.status !== 'error') return;
+
+    let disposed = false;
+    const registered: UnlistenFn[] = [];
+    const writeProgress = (downloadProgress: VideoFile['downloadProgress']) =>
+      useStore.getState().updateFile(file.id, { downloadProgress });
+
+    const setup = async () => {
+      const listeners = await Promise.all([
+        listen<ModelDownloadProgressPayload>(MODEL_DOWNLOAD_PROGRESS_EVENT, (event) => {
+          if (disposed || event.payload.id !== modelId) return;
+          writeProgress({ downloaded: event.payload.downloaded, total: event.payload.total });
+        }),
+        // Both terminals clear the mirror: a percentage that stops updating would
+        // keep describing a transfer that is over.
+        listen<ModelDownloadCompletePayload>(MODEL_DOWNLOAD_COMPLETE_EVENT, (event) => {
+          if (disposed || event.payload.id !== modelId) return;
+          writeProgress(undefined);
+        }),
+        listen<ModelDownloadErrorPayload>(MODEL_DOWNLOAD_ERROR_EVENT, (event) => {
+          if (disposed || event.payload.id !== modelId) return;
+          writeProgress(undefined);
+        }),
+      ]);
+
+      if (disposed) {
+        listeners.forEach((unlisten) => unlisten());
+        return;
+      }
+      registered.push(...listeners);
+    };
+
+    void setup();
+
+    return () => {
+      disposed = true;
+      registered.forEach((unlisten) => unlisten());
+    };
+  }, [file.id, file.missingModelId, file.status]);
+
+  /**
+   * Leave the error state without starting anything.
+   *
+   * The row goes back to `pending` so the Start button returns and the stale error
+   * text is gone. Nothing here calls `processQueueBatch()`, and nothing needs to:
+   * that loop is only entered from an explicit "start all", from a `transcribe_*`
+   * event, or from a URL import's auto-start — there is no store subscription that
+   * reacts to a new `pending` row, so this reset starts nothing by itself.
+   *
+   * The row's status is the dialog's lifetime. Until this runs the row stays
+   * `error`, which is what keeps `MissingModelPrompt` mounted through a finished
+   * download; once it runs the `error` branch unmounts and the dialog goes with it.
+   * `errorDetailsOpen` therefore needs no closing here — its owner is being
+   * unmounted, and calling setState on it would be the actual bug.
+   *
+   * The one case where `pending` still means "will run": a batch covering *other*
+   * files is in flight, and the loop's next re-entry picks this row up like any
+   * other pending file. That is the queue's existing meaning of pending
+   * (`cancel_transcription` resets rows the same way), so it is documented rather
+   * than special-cased. A batch whose *only* remaining file was this one has already
+   * stopped before the user could click: `transcribe_error` re-enters
+   * `processQueueBatch`, finds no pending and no processing files, and clears
+   * `isBatchProcessing`.
+   */
+  const resetFileAfterModelDownload = () => {
+    useStore.getState().updateFile(file.id, {
+      status: 'pending',
+      progress: 0,
+      error: undefined,
+      missingModelId: undefined,
+      missingModel: undefined,
+      downloadProgress: undefined,
+    });
+  };
+
+  const handleModelDownloadedStart = () => {
+    // `startTranscriptionTask` clears the same fields; doing it first keeps the row
+    // from flashing an error badge while its own reset is still in flight.
+    resetFileAfterModelDownload();
+    // `errorDetailsOpen` is this component's state, and `FileItem` itself stays
+    // mounted (its key is the file id) — only the `error` branch unmounts. The write
+    // is therefore safe, and it matters: leaving it `true` would make the next error
+    // on this file open its dialog unbidden.
+    setErrorDetailsOpen(false);
+    // Scheduled directly, never through `processQueueBatch`: this is one file the
+    // user just asked to run, not a batch.
+    void startTranscriptionTask(file.id);
+  };
+
+  const handleModelDownloadedLater = () => {
+    resetFileAfterModelDownload();
+    setErrorDetailsOpen(false);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -163,16 +295,56 @@ export function FileItem({ file }: FileItemProps) {
           </div>
         );
       case 'error':
+        // A real <button>, not a div: the full text only fits in a dialog, and a
+        // `title` tooltip is both unreliable in WebKit and impossible to select.
         return (
-          <GlassBadge
-            variant="destructive"
-            size="sm"
-            title={file.error || t('fileItem.error')}
-            className="cursor-default"
-          >
-            <AlertCircle className="w-3.5 h-3.5 mr-1" />
-            {t('fileItem.error')}
-          </GlassBadge>
+          <>
+            <button
+              type="button"
+              onClick={() => setErrorDetailsOpen(true)}
+              aria-label={t('fileItem.showErrorDetails', { name: file.name })}
+              title={file.error || t('fileItem.error')}
+              data-testid="file-error-badge"
+              className={cn(
+                // No `size`: `GlassBadge` forwards only `variant` to the cva call,
+                // so the row's other badges render at its `md` default. Matching
+                // that keeps this badge the same size it has always been.
+                glassBadgeVariants({ variant: 'destructive' }),
+                'cursor-pointer hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60',
+              )}
+            >
+              <AlertCircle className="w-3.5 h-3.5 mr-1" />
+              {t('fileItem.error')}
+            </button>
+            <ErrorDetailsDialog
+              open={errorDetailsOpen}
+              onOpenChange={setErrorDetailsOpen}
+              details={{
+                name: file.name,
+                path: file.path,
+                // Fall back to the badge's own word rather than opening an
+                // empty box: the dialog must always have something to show.
+                message: file.error || t('fileItem.errorUnknown'),
+              }}
+              // Only a missing model gets the download panel. A finished download
+              // does not close the dialog or reset the row: the user decides
+              // whether to run the file (see `MissingModelPrompt`).
+              extraActions={
+                isMissingModel ? (
+                  <MissingModelPrompt
+                    modelId={file.missingModelId ?? null}
+                    onStart={handleModelDownloadedStart}
+                    startDisabled={isProcessing}
+                    activeDownload={file.downloadProgress ?? null}
+                    onDismiss={handleModelDownloadedLater}
+                    onProgressCleared={() =>
+                      useStore.getState().updateFile(file.id, { downloadProgress: undefined })
+                    }
+                  />
+                ) : undefined
+              }
+            />
+          </>
         );
       default:
         return null;
@@ -250,7 +422,19 @@ export function FileItem({ file }: FileItemProps) {
                 {t('urlImport.login.queuedHint')}
               </p>
             )}
-          </div>
+            {/* The error dialog owns the download controls; this is the same
+                transfer seen from the queue, so closing the dialog does not hide
+                that something is still running. */}
+            {file.status === 'error' && file.downloadProgress && (
+              <p
+                className="text-xs text-text-tertiary dark:text-gray-500"
+                data-testid="file-model-download-progress"
+              >
+                {t('errors.missingModel.downloading', {
+                  percent: downloadPercent(file.downloadProgress.downloaded, file.downloadProgress.total),
+                })}
+              </p>
+            )}          </div>
         </div>
 
         {/* Actions */}

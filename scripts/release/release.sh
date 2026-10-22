@@ -17,7 +17,7 @@
 # Configuration
 APP_NAME="monosub"
 DIST_DIR="dist"
-RELEASE_REPO="0xkamalei/monosub"
+RELEASE_REPO="leixlabs/monosub"
 
 # Function to check if we're in the correct directory
 check_directory() {

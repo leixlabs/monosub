@@ -167,7 +167,7 @@ async fn fallback<D: Deps + ?Sized>(
     media: &SiteMedia,
     login_hint: bool,
 ) -> Result<Outcome, ImportError> {
-    let audio = match deps.cached_audio(media) {
+    let audio = match deps.cached_audio(params, media) {
         Some(path) => {
             tracing::info!(path = %path.display(), "reusing cached audio");
             path

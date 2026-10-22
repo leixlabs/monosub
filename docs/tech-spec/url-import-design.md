@@ -49,9 +49,9 @@
 | 字幕内容 | 优先直接用 info dict 里 `subtitles[tag][].data`（B 站提取器已转好的 SRT 文本）；没有 `data` 时才用 `--load-info-json` 单独下载这一条 | B 站提取器调用 `json2srt` 把 SRT 文本内联进 `data`（§9.11），省去第二次网络请求，也不需要 ffmpeg 转换 |
 | 不做格式转换 | **不用** `--convert-subs`；下载时使用 `--sub-format srt/best` | 转换要依赖 ffmpeg，而 B 站原生就是 SRT |
 | 降级触发 | `select()` 返回 `None`，或该条字幕取不到 / 解析为空 | 判定基于结构化数据和磁盘文件，**不看退出码**（无匹配语言时退出码为 0，§9.5） |
-| 降级动作 | `-f ba[ext=m4a]/ba/b` 下载到**应用缓存目录**，下载完成后**入队**为普通文件 | 复用 `FileItem` / `extract_wav` / `start_transcription` 全部既有路径（§5.3） |
+| 降级动作 | `-f ba[ext=m4a]/ba/b` 下载到**用户配置的下载目录**（与字幕同目录、同 stem），下载完成后**入队**为普通文件 | 媒体是用户的素材，不是中间产物；与字幕同目录才不会“清缓存时顺手删了下载” |
 | 音频下载时机 | **入队前**完成；入队的 `path` 永远是一个真实存在的本地文件 | 现有转录命令和元数据、缩略图命令都无需改动（§5.7） |
-| 输出目录 | 新增设置项 `urlImportOutputDir`（默认 `~/Downloads/MonoSub`）；`storageMode='custom'` 时用自定义目录 | 「与源文件同目录」对 URL 没有意义，源文件在缓存里。用户清缓存不能顺带删掉他的字幕（§5.4） |
+| 输出目录 | 新增设置项 `urlImportOutputDir`（默认 `~/Downloads/MonoSub`）；`storageMode='custom'` 时用自定义目录；**媒体与字幕共用这个目录** | 一个导入的产物是一个「视频 + 字幕」，分开存会让用户搞不清东西在哪、清缓存时丢东西（§5.4） |
 | 文件名 | `<sanitized title> [<id>].<ext>` | id 让文件名天然唯一：不同视频不会撞名，同一 URL 重导入得到同一路径，和本地文件一样走 `skipExistingSubtitle`（§5.5） |
 | 翻译 | 两条路径一致：字幕命中路径**同样**按设置翻译 | 同一个开关在两条路径上表现不同是坏体验。命中路径已有 `Vec<Segment>` 和确定的源语言标签（§5.6） |
 | B 站登录 | `--cookies-from-browser <browser>`，**默认未配置**；第一次遇到 412 或「需登录才有字幕」时，在行内引导用户选择浏览器，并持久化 | 无 cookie 时整条请求会 412（§9.6）；就算不 412，匿名请求的字幕列表也是空的（§9.12）。默认关闭是为了不在用户不知情时读浏览器数据，但必须给出一条能走通的引导 |
@@ -88,7 +88,7 @@
 │        ├─ 得到非空 SRT ──→ D. Materialize（§5.4）       │                │
 │        └─ 取不到 / 为空 ─────────────────────────────→ │                │
 │                                                       ▼                │
-│  E. Fallback（§5.3）  下载音频到缓存 → url_import_complete(Queued)      │
+│  E. Fallback（§5.3）  下载音频到输出目录 → url_import_complete(Queued) │
 │                       → 前端入队 → 现有队列启动转录                     │
 └────────────────────────────────────────────────────────────────────────┘
         │
@@ -243,7 +243,7 @@ Toolbar 在「添加文件」旁新增「从链接添加」（`Link` 图标，`d
 │ └─────────────────────────────────────────┘ │
 │ 一行一个，或用空格分隔                        │
 │ 字幕语言：中文（跟随设置）                    │
-│ 保存到：~/Downloads/MonoSub（跟随设置）        │
+│ 下载到：~/Downloads/MonoSub（跟随设置）        │
 │ [☑ 转录完成后自动开始]                        │
 │                            [取消] [导入]     │
 └─────────────────────────────────────────────┘
@@ -269,17 +269,30 @@ yt-dlp <常量参数> -f "ba[ext=m4a]/ba/b"
        --progress-template "download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.status)s"
        --ffmpeg-location <bundled ffmpeg>
        [--cookies-from-browser <browser>]
-       -o "<cache>/%(id)s/%(id)s.%(ext)s"
+       --paths home:<输出目录>
+       --paths temp:<app_cache_dir>/url-import/<id>
+       -o "<sanitized title> [<id>].%(ext)s"
        <url>
 ```
 
 - `ba[ext=m4a]/ba/b`：B 站实测直接给出 m4a（§9.8）。`m4a` 已在 `AUDIO_EXTENSIONS` 里，
   缩略图走既有的音频图标分支。`--ffmpeg-location` 只是保险：`b` 回退到音视频分离的
   格式时需要合并。
-- **下载位置是应用缓存目录**：`<app_cache_dir>/url-import/<id>/`。这个文件是中间产物，
-  不是用户素材；**字幕不写在这里**（§5.4）。
-- **复用**：目录里已有 `<id>.*` 且非空的媒体文件就跳过下载。需排除 `.part`、`.ytdl`、
-  `.info.json`、`.json`、`.srt`。
+- **媒体写在用户目录，和字幕同一个目录**：`--paths home:` 指向 §5.4 的输出目录，
+  `-o` 用的是与字幕完全相同的 stem（`<sanitized title> [<id>]`，见 §5.5），所以成品是
+  `~/Downloads/MonoSub/<title> [<id>].m4a`，旁边就是同名 `.srt`。
+  一个 URL 导入的产物是一个「视频 + 字幕」，把它们分到两个目录（缓存 + 输出）会让用户
+  删缓存时顺手丢掉他以为已经下载好的素材。
+- **缓存目录只放中间态**：`--paths temp:` 指向 `<app_cache_dir>/url-import/<id>/`，
+  只有未完成的 `.part` 和 `.ytdl` 这类文件落在这里。yt-dlp 自己在下载完成后把成品从
+  temp **移动**到 home（实测日志 `[MoveFiles] Moving file … to …`），所以成品只存在一份，
+  不需要我们再搬一次，也不会出现「缓存里一份、用户目录一份」。
+- `-o` 必须是**相对路径**：实测绝对路径的 `-o` 会让 yt-dlp 完全忽略 `--paths`。
+  `--paths` 的值是字面路径（实测 `%(id)s` 不会被替换），`-o` 里的 `%` 则按模板规则处理，
+  所以标题里本来就有的 `%` 要写成 `%%`，否则会被当成模板字段（`site::ytdlp::media_output_template`）。
+- **复用**：先查输出目录里本视频的成品 `<stem>.<ext>`（非空、排除 `.part` / `.ytdl` /
+  `.info.json` / `.json` / `.srt`），命中就直接入队、不再调用 yt-dlp。匹配按 `<stem>.` 前缀
+  而不是 `Path::file_stem`：标题本身可能带点（`v1.2 final [BV1]`）。
 - 下载完成后发 `url_import_complete { outcome: Queued { path, title, duration, login_hint } }`。
   前端调用**既有**的 `fileImport` 入队流程（`get_video_metadata` + `generate_thumbnail`，
   这样 `size` 等字段的来源与本地文件一致），只额外设置两个字段：
@@ -289,17 +302,20 @@ yt-dlp <常量参数> -f "ba[ext=m4a]/ba/b"
 - 自动开始：面板勾选了「自动开始」（默认勾选）且当前没有批处理在跑时，前端调用
   `processQueueBatch()`。这是纯前端行为，后端请求里**没有** `auto_start`。
 
-### 5.4 输出目录与字幕命中的落盘
+### 5.4 输出目录与落盘
 
-**输出目录**（两条路径共用，由前端算好后传入）：
+**输出目录**（两条路径共用，由前端算好后传入；**媒体与字幕都写到这里**）：
 
 | `storageMode` | URL 导入的输出目录 |
 |---------------|--------------------|
 | `same` | `settings.urlImportOutputDir`（默认 `~/Downloads/MonoSub`，不存在时自动创建） |
 | `custom` | `customStoragePath` |
 
+- 这个目录同时也是下载目录：降级路径的媒体直接用这个目录（§5.3），文件名与字幕同 stem，
+  两者就放在一起。设置项文案因此是「下载/保存目录」而不是「字幕保存位置」。
 - 降级路径：`VideoFile.outputDir` 存在时，`getOutputPath` 用它替代 `file.path` 的目录。
-  这是前端唯一的改动，`TranscribeRequest` **不变**。
+  这是前端唯一的改动，`TranscribeRequest` **不变**。识别产物也落在这个目录。（此时
+  媒体已经是本目录里的真实文件，`outputDir` 只是为了与 `storageMode='custom'` 保持一致。）
 - 字幕命中路径：
 
 ```
@@ -351,7 +367,9 @@ SRT 文本 → site::srt::parse → Vec<subtitle::Segment>
 - `cancel_url_import(task_id)`：abort 并等待 tokio task 结束；yt-dlp 子进程随
   `kill_on_drop` 被杀；`Drop` guard 清理 job 的临时目录。
 - **只作用于导入阶段**。`Queued` 之后这个 job 已经结束，后续取消就是 `cancel_transcription`
-  或从队列移除文件。已下载完的缓存音频**不删**，下次导入同一 URL 可复用；`.part` 则清理掉。
+  或从队列移除文件。已完成的媒体**不删**（它在输出目录里，缓存里本来就没有成品），
+  下次导入同一 URL 直接复用；`.part` / `.ytdl` / `.temp` 则清理掉。
+- 清理只扫「临时目录 + 缓存目录」，**从不扫输出目录**：用户拿到的成品不会因为一次取消而消失。
 
 ### 5.9 命令与事件（IPC）
 
@@ -429,6 +447,8 @@ struct UrlImportRequest {
 | `--ffmpeg-location <bundled>` | 只有需要合并时才会用到。显式指定可以避免误用系统上的 ffmpeg |
 
 - **不要**加 `--no-warnings`：412、需登录、地区限制等需要上报的信息就在警告里。
+- 音频阶段额外带一对 `--paths home:<输出目录>` / `--paths temp:<缓存>` 和相对路径的
+  `-o`（§5.3）。两个值都是常量形状、单 argv 元素；`home` 不能省，否则成品会落回缓存目录。
 - stdout 按行读，同时排空 stderr；子进程 `kill_on_drop(true)`；`stdin` 关闭。
 - URL 作为**单一 argv 元素**传入，不经 shell。
 - 首版不需要 JS 运行时，也不需要代理（这两项都是 YouTube 的需求，见 §10）。
@@ -558,6 +578,27 @@ PROG 5408198 5408198 NA finished BV1GJ411x7h7
 'Subtitles are only available when logged in. …')`，字幕列表为空，**不报错**。
 第三方工具（2026-06）的记录是：匿名请求在所有测试过的视频上都返回空字幕列表。
 → 不登录时实际上**永远**走转录；这正是 §4.5 提示的依据。
+
+### 9.13 `--paths home:/temp:` 分离成品与中间态（随包 2026.08.19 实测）
+
+用一个本地 HTTP 源（`python3 -m http.server`）测完，与 B 站无关的机制都直接适用：
+
+```
+$ yt-dlp -f ba/b -P home:/out -P temp:/cache -o "Title [BV1].%(ext)s" <url>
+[download] Destination: /cache/Title [BV1].m4a.part      ← 下载中只写在 temp
+[MoveFiles] Moving file "/cache/Title [BV1].m4a" to "/out/Title [BV1].m4a"
+```
+
+四条实测结论，都是 §5.3 那条命令的前提：
+
+1. **成品只存在一份**：yt-dlp 自己在下载完成后从 `temp` 移动到 `home`；不需要我们再搬一次，
+   也不会出现“缓存一份 + 用户目录一份”。
+2. **`-o` 必须是相对路径**：绝对路径的 `-o` 会让 yt-dlp **完全忽略** `--paths`，
+   `.part` 直接写进目标目录。
+3. **`--paths` 的值是字面路径**：写成 `/out/%(id)s` 会真的建一个叫 `%(id)s` 的目录；
+   而 `-o` 里的 `%` 照模板规则处理，标题里的 `%` 需要写成 `%%`。
+4. **开工前会先查已有文件**：同名的零字节文件也会被当成“已下载”（`has already been
+   downloaded`，退码 0），所以复用判定必须自己检查 `len > 0`，不能依赖 yt-dlp。
 
 ---
 

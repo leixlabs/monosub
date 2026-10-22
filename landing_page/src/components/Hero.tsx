@@ -24,7 +24,7 @@ export const Hero = () => {
             
             <div className="space-y-4">
               <a
-                href="https://github.com/0xkamalei/monosub/releases/latest"
+                href="https://github.com/leixlabs/monosub/releases/latest"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-block cta-button text-white font-semibold px-8 py-4 rounded-lg text-lg transition-all"

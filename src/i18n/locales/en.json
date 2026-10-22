@@ -37,7 +37,9 @@
     "starting": "Starting...",
     "skipped": "Skipped",
     "multiSpeaker": "Speakers",
-    "multiSpeakerHint": "Detect and label speakers for this file (slower)"
+    "multiSpeakerHint": "Detect and label speakers for this file (slower)",
+    "showErrorDetails": "Show the full error for “{{name}}”",
+    "errorUnknown": "This file failed, but no error message was recorded."
   },
   "steps": {
     "extracting_audio": "Extracting audio",
@@ -109,7 +111,10 @@
       "noModels": "No translation model is available in this build."
     },
     "system": {
-      "title": "System"
+      "title": "System",
+      "logDir": "Log Directory",
+      "logDirHint": "Logs are kept for the last 7 days. Attach the newest file when reporting a problem.",
+      "openLogs": "Open"
     },
     "urlImport": {
       "title": "URL Import"
@@ -147,11 +152,38 @@
     "translationTitle": "Translation models"
   },
   "errors": {
-    "modelNotInstalled": "The speech model is not installed. Open Settings → Models to download it.",
-    "translationModelNotInstalled": "The translation model is not installed. Open Settings → Translation to download it.",
+    "modelNotInstalled": "The speech model is not installed. Click this file's error badge to see details and download it.",
+    "translationModelNotInstalled": "The translation model is not installed. Click this file's error badge to see details and download it.",
     "engineMissing": "The speech engine is missing or not executable. Reinstall MonoSub to restore it.",
     "engineFailed": "Speech recognition failed. See the logs for details.",
-    "audioExtractFailed": "Could not extract audio from this file."
+    "audioExtractFailed": "Could not extract audio from this file.",
+    "missingModel": {
+      "lookingUp": "Looking up the missing model…",
+      "unknown": "MonoSub cannot tell which model is missing. Open Settings → Models to check what is installed.",
+      "roleRecognition": "Recognition",
+      "roleTranslation": "Translation",
+      "needsDownload": "This model has to be downloaded before the file can be transcribed.",
+      "downloading": "Downloading… {{percent}}%",
+      "installed": "Downloaded. The file can be transcribed now.",
+      "download": "Download model",
+      "cancelDownload": "Cancel download",
+      "start": "Start transcription",
+      "later": "Later",
+      "openSettings": "Open Settings → Models",
+      "failed": "The download failed: {{message}}"
+    },
+    "detailsTitle": "Error details",
+    "detailsHint": "Copy the message into a bug report, or open the log directory for what led up to it.",
+    "fileLabel": "File",
+    "pathLabel": "Path",
+    "messageLabel": "Message",
+    "copyPath": "Copy path",
+    "copyError": "Copy error",
+    "copied": "Copied",
+    "copyFailed": "Could not copy to the clipboard. Select the text and copy it manually.",
+    "openLogs": "Open log folder",
+    "logsFailed": "Could not open the log folder.",
+    "close": "Close"
   },
   "notification": {
     "completed": "Subtitle generation completed"
@@ -220,7 +252,7 @@
     "hint": "One link per line, or separated by spaces. Bilibili videos only for now.",
     "subtitleLanguage": "Subtitle language",
     "followingSettings": "{{value}} (follows Settings)",
-    "outputDir": "Save to",
+    "outputDir": "Download to",
     "outputDirDefault": "Follow Settings",
     "autoStart": "Start transcribing automatically",
     "autoStartHint": "When a video has no platform subtitle, download its audio and start right away",
@@ -273,8 +305,8 @@
     },
     "settings": {
       "title": "URL import",
-      "outputDir": "Save imported subtitles to",
-      "outputDirHint": "Imported subtitles go here instead of next to the source, which is a cache file. Leave empty for ~/Downloads/MonoSub.",
+      "outputDir": "Download and save to",
+      "outputDirHint": "Downloaded video/audio and the subtitle go into this same folder, named after the video. Leave empty for ~/Downloads/MonoSub.",
       "chooseFolder": "Choose folder",
       "cookiesBrowser": "Bilibili cookies",
       "cookiesBrowserHint": "Needed only for videos whose subtitles require a login.",

@@ -28,36 +28,67 @@ const GlassDialogOverlay = React.forwardRef<
 ))
 GlassDialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 
+export interface GlassDialogContentProps
+  extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
+  /**
+   * Overrides the built-in close button's colours.
+   *
+   * The default surface is dark glass, so the close glyph is white/60. A dialog
+   * that paints a light surface instead cannot restate that from `className`:
+   * the close button is rendered here, not by the caller.
+   */
+  closeClassName?: string
+}
+
 const GlassDialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+  GlassDialogContentProps
+>(({ className, closeClassName, children, ...props }, ref) => (
   <GlassDialogPortal>
     <GlassDialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",
-        "rounded-2xl border border-white/20 p-6",
-        "bg-white/10 backdrop-blur-2xl",
-        "shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
-        "before:absolute before:inset-0 before:rounded-2xl",
-        "before:bg-gradient-to-b before:from-white/15 before:to-transparent before:pointer-events-none",
-        "data-[state=open]:animate-in data-[state=closed]:animate-out",
-        "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-        "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
-        "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
-        "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
-        className,
-      )}
-      {...props}
-    >
-      <div className="relative z-10">{children}</div>
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1 text-white/60 transition-all hover:text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/50">
-        <X className="h-4 w-4" />
-        <span className="sr-only">Close</span>
-      </DialogPrimitive.Close>
-    </DialogPrimitive.Content>
+    {/*
+      Centred with flexbox, not `left-1/2 top-1/2 -translate-*`.
+
+      The translate version did not work: `tailwindcss-animate`'s `animate-in`
+      keyframes set `transform` with `animation-fill-mode: both`, which overrides
+      the utility's `--tw-translate-y: -50%`. The computed transform was the
+      identity matrix, so `top: 50%` became the dialog's *top* edge — a 484px-tall
+      dialog on an 800px viewport started at 400px and ran off the bottom, with its
+      buttons cut off (measured in the running app). Flex centring needs no
+      transform, so the entrance animation cannot break the layout.
+
+      `p-4` keeps a gutter, and the max height lives on the content so a tall
+      dialog scrolls inside the viewport instead of leaving it.
+    */}
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-4">
+      <DialogPrimitive.Content
+        ref={ref}
+        className={cn(
+          "pointer-events-auto relative flex max-h-full w-full max-w-lg flex-col",
+          "rounded-2xl border border-white/20 p-6",
+          "bg-white/10 backdrop-blur-2xl",
+          "shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
+          "before:absolute before:inset-0 before:rounded-2xl",
+          "before:bg-gradient-to-b before:from-white/15 before:to-transparent before:pointer-events-none",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out",
+          "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+          "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+          className,
+        )}
+        {...props}
+      >
+        <div className="relative z-10 flex min-h-0 flex-col">{children}</div>
+        <DialogPrimitive.Close
+          className={cn(
+            "absolute right-4 top-4 rounded-lg p-1 text-white/60 transition-all hover:text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/50",
+            closeClassName,
+          )}
+        >
+          <X className="h-4 w-4" />
+          <span className="sr-only">Close</span>
+        </DialogPrimitive.Close>
+      </DialogPrimitive.Content>
+    </div>
   </GlassDialogPortal>
 ))
 GlassDialogContent.displayName = DialogPrimitive.Content.displayName
