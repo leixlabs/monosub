@@ -21,10 +21,11 @@ export type PlanPassthrough = boolean;
 /**
  * 语种场景 — mirrors `engine::plan::LanguageProfile`.
  *
- * `mandarin` is the default and keeps the per-language family table; `mixed` and
- * `multilingual` re-rank it toward the models that transcribe language switches.
+ * `mandarin` is the default and keeps the per-language family table; `english`
+ * biases to the English-first families; `mixed` and `multilingual` re-rank it
+ * toward the models that transcribe language switches.
  */
-export type LanguageProfile = 'mandarin' | 'mixed' | 'multilingual';
+export type LanguageProfile = 'mandarin' | 'english' | 'mixed' | 'multilingual';
 
 /**
  * 显存占用 — mirrors `engine::plan::MemoryBudget`.

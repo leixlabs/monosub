@@ -255,6 +255,7 @@ export function SettingsModelPlan() {
               testId="plan-language-profile"
               options={[
                 { value: 'mandarin', label: t('modelPlan.languageMandarin') },
+                { value: 'english', label: t('modelPlan.languageEnglish') },
                 { value: 'mixed', label: t('modelPlan.languageMixed') },
                 { value: 'multilingual', label: t('modelPlan.languageMultilingual') },
               ]}

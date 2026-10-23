@@ -1,8 +1,14 @@
+export interface PrivacyTable {
+  headers: string[];
+  rows: string[][];
+}
+
 export interface PrivacySection {
   heading: string;
   paragraphs: string[];
   list?: string[];
   afterList?: string[];
+  table?: PrivacyTable;
 }
 
 export interface PrivacyContent {
@@ -27,6 +33,47 @@ const en: PrivacyContent = {
     'MonoSub ("the App") is a desktop transcription and subtitle-generation application that runs on your own computer. This policy describes what data the App processes, where it goes, and what it does not do. MonoSub has no account system, no analytics SDK, and no advertising.',
   back_home: '← Back to Home',
   sections: [
+    {
+      heading: 'Information We Collect (Overview)',
+      paragraphs: [
+        'MonoSub is designed to collect as little as possible. The table below summarizes what the App does and does not collect:'
+      ],
+      table: {
+        headers: ['Scenario', 'Collected?', 'Details'],
+        rows: [
+          [
+            'Account registration & login',
+            'No',
+            'MonoSub has no account system. No name, email, or phone number is required to use the App.'
+          ],
+          [
+            'Core features (transcription & subtitles)',
+            'No',
+            'Files are processed entirely on your device. Nothing is uploaded to any server.'
+          ],
+          [
+            'Service optimization & security',
+            'No',
+            'No device model, OS version, location, or usage telemetry is collected. Runtime logs stay on your device.'
+          ],
+          [
+            'Network requests',
+            'Minimal',
+            'The manual update check sends only your app version and IP address. Model downloads and URL import contact the relevant service directly.'
+          ],
+          [
+            'System permissions',
+            'None',
+            'The App does not request camera, photo album, microphone, or location permissions.'
+          ],
+          [
+            'Clipboard (optional)',
+            'Local only',
+            'Optional clipboard watching runs on-device; clipboard contents are never uploaded or stored.'
+          ]
+        ]
+      }
+    },
     {
       heading: 'Audio and Video Files Stay on Your Device',
       paragraphs: [
@@ -65,6 +112,21 @@ const en: PrivacyContent = {
       ]
     },
     {
+      heading: 'Cookies and Local Storage',
+      paragraphs: [
+        'The MonoSub website uses your browser\u2019s local storage to remember your language preference. We do not use advertising cookies, web beacons, or cross-site tracking. You can clear or block local storage at any time through your browser settings without affecting the core functions of the App.'
+      ]
+    },
+    {
+      heading: 'Sharing, Transfer, and Public Disclosure',
+      paragraphs: ['We do not sell your personal information.'],
+      list: [
+        'Sharing: we share data only in the limited third-party interactions described in this policy (e.g., model downloads, manual update checks, and the video platform you import from). No data is shared with advertisers or data brokers.',
+        'Transfer: in the event of a merger, acquisition, or reorganization, we may transfer the limited data we hold as part of the transaction and will notify you of any change in this policy.',
+        'Public disclosure: we disclose personal information only when required by law or with your explicit consent.'
+      ]
+    },
+    {
       heading: 'Third-Party Services',
       paragraphs: ['MonoSub interacts with the following third-party services, and only in the ways described above:'],
       list: [
@@ -81,20 +143,37 @@ const en: PrivacyContent = {
       ]
     },
     {
+      heading: 'Your Rights',
+      paragraphs: [
+        'Because MonoSub has no account and keeps your data on your own device, you can exercise most rights directly:'
+      ],
+      list: [
+        'Access and correction: review or modify your settings (settings.json), models, logs, and subtitle files at any time through your file manager.',
+        'Deletion: delete any local data at any time by removing the corresponding files; no server-side copy exists.',
+        'Withdrawing consent: disable clipboard watching in Settings, and stop update checks or model downloads by simply not using those features.',
+        'Account deletion: there is no account system, so no account deletion is needed.',
+        'Other rights: depending on your jurisdiction (e.g., GDPR, CCPA/CPRA, or China\u2019s Personal Information Protection Law), you may have additional rights; email us to exercise them.'
+      ]
+    },
+    {
       heading: 'Children\u2019s Privacy',
       paragraphs: [
-        'The App does not knowingly collect personal information from anyone, including children; all processing is local.'
+        'The App does not knowingly collect personal information from anyone, including children; all processing is local. It is not directed to children under 13 (or under 14 in China).'
       ]
     },
     {
       heading: 'Changes to This Policy',
       paragraphs: [
-        'We may update this policy when functionality changes. The "Last updated" date will be revised accordingly.'
+        'We may update this policy when functionality changes. The "Last updated" date will be revised accordingly. Material changes (e.g., new data processing purposes or service scope) will be announced on our website and noted in the App.'
       ]
     },
     {
       heading: 'Contact',
-      paragraphs: ['Questions about this policy or your data? Email kamalei.zhang@gmail.com.']
+      paragraphs: [
+        'Operator: MonoSub is provided by an individual developer.',
+        'Contact email: kamalei.zhang@gmail.com.',
+        'Response time: we aim to respond to your request within 15 business days.'
+      ]
     }
   ]
 };
@@ -110,6 +189,25 @@ const zh: PrivacyContent = {
     'MonoSub（"本 App"）是在你自己电脑上运行的本地转写与字幕生成工具。本政策说明 App 处理哪些数据、数据去向，以及它不会做什么。MonoSub 无账号系统、无埋点分析 SDK、无广告。',
   back_home: '← 返回首页',
   sections: [
+    {
+      heading: '我们收集的信息（范围一览）',
+      paragraphs: ['MonoSub 的设计目标是尽可能少地收集信息。下表汇总了 App 收集与不收集的内容：'],
+      table: {
+        headers: ['场景', '是否收集', '说明'],
+        rows: [
+          ['账号注册与登录', '不收集', 'MonoSub 无账号系统，使用 App 无需提供姓名、邮箱或手机号。'],
+          ['核心功能（转写与字幕）', '不收集', '文件全部在本地设备处理，不上传任何服务器。'],
+          [
+            '服务优化与安全防护',
+            '不收集',
+            '不采集设备型号、系统版本、位置或使用统计；运行日志仅存本机。'
+          ],
+          ['网络请求', '最小化', '手动检查更新仅发送应用版本号与 IP；模型下载与链接导入直连对应服务。'],
+          ['系统权限', '不申请', '本 App 不申请相机、相册、麦克风、位置权限。'],
+          ['剪贴板（可选）', '仅本地', '可选的剪贴板监听在本地完成，内容不上传、不记录。']
+        ]
+      }
+    },
     {
       heading: '音视频文件不出本机',
       paragraphs: [
@@ -148,6 +246,21 @@ const zh: PrivacyContent = {
       ]
     },
     {
+      heading: 'Cookie 与本地存储',
+      paragraphs: [
+        'MonoSub 网站使用浏览器本地存储来记住你的语言偏好。我们不会使用广告 Cookie、网络信标或跨站追踪。你可以随时通过浏览器设置清除或禁用本地存储，不影响 App 的核心功能。'
+      ]
+    },
+    {
+      heading: '共享、转让与公开披露',
+      paragraphs: ['我们不会出售你的个人信息。'],
+      list: [
+        '共享：仅限本政策所述的有限第三方交互（如模型下载、手动更新检查、你导入的视频平台）。不与广告商或数据经纪商共享任何数据。',
+        '转让：如发生合并、收购或重组，我们可能随交易转让持有的少量数据，并会通知你本政策的相应变更。',
+        '公开披露：仅在法律法规要求或获得你明确同意的情况下披露个人信息。'
+      ]
+    },
+    {
       heading: '第三方服务',
       paragraphs: ['MonoSub 仅按上文所述方式与以下第三方服务交互：'],
       list: [
@@ -164,20 +277,35 @@ const zh: PrivacyContent = {
       ]
     },
     {
+      heading: '您的权利',
+      paragraphs: ['由于 MonoSub 无账号系统且数据都在你自己的设备上，你大多可以直接行使以下权利：'],
+      list: [
+        '查阅与更正：随时通过文件管理器查看或修改你的设置（settings.json）、模型、日志和字幕文件。',
+        '删除：随时删除本地数据（直接删除对应文件即可），服务端不存在任何副本。',
+        '撤回同意：在设置中关闭剪贴板监听；不使用更新检查或模型下载功能即可停止相应网络请求。',
+        '注销账号：无账号系统，因此无需注销。',
+        '其他权利：根据你所在地区的法律（如 GDPR、CCPA/CPRA 或中国《个人信息保护法》），你可能享有其他权利，可通过邮件联系我们行使。'
+      ]
+    },
+    {
       heading: '儿童隐私',
       paragraphs: [
-        'App 不会故意收集任何人（包括儿童）的个人信息；所有处理均在本地完成。'
+        'App 不会故意收集任何人（包括儿童）的个人信息；所有处理均在本地完成。本 App 不面向未满 13 周岁的儿童（中国地区为未满 14 周岁）。'
       ]
     },
     {
       heading: '政策更新',
       paragraphs: [
-        '功能发生变化时，我们可能更新本政策，并相应修订"最后更新"日期。'
+        '功能发生变化时，我们可能更新本政策，并相应修订"最后更新"日期。重大变更（如个人信息处理目的或服务范围变化）将通过官网公告并在应用内提示。'
       ]
     },
     {
       heading: '联系我们',
-      paragraphs: ['对本政策或你的数据有疑问？请发送邮件至 kamalei.zhang@gmail.com。']
+      paragraphs: [
+        '运营者：MonoSub 由个人开发者提供。',
+        '联系邮箱：kamalei.zhang@gmail.com。',
+        '响应时间：我们将在 15 个工作日内处理并答复您的请求。'
+      ]
     }
   ]
 };

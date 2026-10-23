@@ -75,6 +75,38 @@ export const PrivacyPolicy = () => {
                   {paragraph}
                 </p>
               ))}
+              {section.table && (
+                <div className="overflow-x-auto mt-2 mb-4">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead>
+                      <tr>
+                        {section.table.headers.map((header) => (
+                          <th
+                            key={header}
+                            className="border border-dark-border px-3 py-2 text-primary font-semibold"
+                          >
+                            {header}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.table.rows.map((row) => (
+                        <tr key={row.join('|')}>
+                          {row.map((cell) => (
+                            <td
+                              key={cell}
+                              className="border border-dark-border px-3 py-2 text-gray-400 align-top"
+                            >
+                              {cell}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
               {section.list && (
                 <ul className="list-disc list-inside text-gray-400 space-y-1.5 leading-relaxed">
                   {section.list.map((item) => (

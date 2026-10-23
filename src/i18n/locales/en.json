@@ -256,8 +256,9 @@
   "modelPlan": {
     "title": "Recognition plan",
     "languageProfile": "Language",
-    "languageProfileHint": "What the audio actually contains. Pick “Chinese + English” when a single sentence can switch between the two — a Chinese-only model would drop half of it.",
+    "languageProfileHint": "What the audio actually contains. Pick “English-led” for English recordings, and “Chinese + English” when a single sentence can switch between the two — a Chinese-only model would drop half of it.",
     "languageMandarin": "Mandarin-led",
+    "languageEnglish": "English-led",
     "languageMixed": "Chinese + English",
     "languageMultilingual": "Multilingual",
     "diarization": "Speaker separation (default)",

@@ -51,7 +51,7 @@ App 发布后只有 GUI 一种使用方式。批量脚本、CI、给 Agent 调�
 
 ```
 src/store/useStore.ts:563  partialize: { storageMode, customStoragePath, settings, modelOverrides }
-   └─ settings.languageProfile   ('mandarin' | 'mixed' | 'multilingual')
+   └─ settings.languageProfile   ('mandarin' | 'english' | 'mixed' | 'multilingual')
       settings.memoryBudget      ('small' | 'medium' | 'large')
       settings.requireWordTimestamps  (bool)
       settings.defaultDiarization     (bool)
@@ -315,7 +315,7 @@ pub async fn transcribe(
 
   // 新增：GUI 求解出的方案，CLI 直接消费
   "recognitionPlan": {
-    "languageProfile": "mixed",        // mandarin | mixed | multilingual
+    "languageProfile": "mixed",        // mandarin | english | mixed | multilingual
     "memoryBudget": "medium",          // small | medium | large
     "requireWordTimestamps": false,
     "diarization": true,
@@ -764,7 +764,7 @@ R4 决定**——现在移动会让 `git mv` 与未提交改动纠缠。
    **不需要新事件或定时器**。
    写的是 `Requirements`（已归一化的五个值）而不是 wire 请求：wire 那边 `zh-en`、
    `multi` 这类别名和缺省字段会原样落盘，CLI 就得把别名表再实现一遍。因此
-   `languageProfile` 存的一定是 `mandarin`/`mixed`/`multilingual` 三者之一。
+   `languageProfile` 存的一定是 `mandarin`/`english`/`mixed`/`multilingual` 四者之一。
 2. **`save_translation_settings`**（新命令）由 Settings → 翻译 写。
 
 #### 为什么写失败不致命

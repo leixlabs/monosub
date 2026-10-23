@@ -256,8 +256,9 @@
   "modelPlan": {
     "title": "识别方案",
     "languageProfile": "语种场景",
-    "languageProfileHint": "音频里实际是什么语言。一句话里中英来回切换请选「中英混合」——只认中文的模型会漏掉一半内容。",
+    "languageProfileHint": "音频里实际是什么语言。英文录音选「英语为主」，一句话里中英来回切换请选「中英混合」——只认中文的模型会漏掉一半内容。",
     "languageMandarin": "普通话为主",
+    "languageEnglish": "英语为主",
     "languageMixed": "中英混合",
     "languageMultilingual": "多语种",
     "diarization": "说话人分离（默认）",

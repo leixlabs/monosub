@@ -364,7 +364,7 @@ Requirements { language_profile (语种场景), diarization, word_timestamps,
 
 | # | Setting | Values | What it decides |
 |---|---|---|---|
-| 1 | `languageProfile` | `mandarin` / `mixed` / `multilingual` | the family bias (§5.4). `mixed`/`multilingual` re-rank the table toward the models that follow a mid-sentence language switch, so `sense_asr` (one token language per session) stops being the pick for Chinese. |
+| 1 | `languageProfile` | `mandarin` / `english` / `mixed` / `multilingual` | the family bias (§5.4). `english` biases to the English-first families (`parakeet_tdt` first), which `mandarin` + `auto` would not reach. `mixed`/`multilingual` re-rank the table toward the models that follow a mid-sentence language switch, so `sense_asr` (one token language per session) stops being the pick for Chinese. |
 | 2 | `defaultDiarization` | bool | whether the `Asr+Diarize+TurnAttribution` template is enumerated |
 | 3 | `requireWordTimestamps` | bool | `word_shortfall_rank` — a ranking term, not a filter, so a catalogue without a word-capable ASR still plans one and reports a gap |
 | 4 | `memoryBudget` | `small` / `medium` / `large` | `footprint(spec)` (weight-file bytes) → `over_budget_rank` + the `memory_match` score term |
@@ -489,6 +489,22 @@ Rules that follow from this:
   a gap is not evidence of a new speaker). This is the design's "以 diar 为准",
   and it is why the turns travel out of the recognition block in
   `commands/transcribe.rs` instead of dying with the chunk labels.
+  **This is now measured, not inferred** — `docs/eval/diarization-quality-eval.md`
+  re-scored the same 4-hour interview before and after the change against an
+  independent audio ground truth (frame f0, frame-level speaker composition,
+  unsupervised ECAPA embeddings, and text-content markers): label accuracy
+  **93.90 % → 99.85 %**, and the host's questions mislabelled as the guest
+  **30.77 % → 0.67 %**. The gain is concentrated on the host (25.65 % → 0.40 %
+  wrong) exactly as predicted, because he owns only 15.6 % of the audio and so
+  loses every chunk that spans a question/answer boundary. The remaining 5 errors
+  are not attribution bugs: one is a genuine mislabel, one follows from an
+  estimated-timing boundary that overlaps the previous speaker's tail, one is a
+  0.6 s filler, one is the documented "no overlap keeps the old label" choice
+  (`None`), and one is a 4.7 s cue that genuinely holds both speakers. Note that evaluation doc also records a caveat this codebase must not
+  forget — the **timeline** is unchanged by this fix, and on the estimated-timing
+  path a cue's text and its time span can disagree (the motivating cue
+  「这对于其他模型公司很难吗？」 now has the right *label* but its span still sits
+  on the guest's audio). Label quality and timeline quality are separate axes.
 - **The catalogue is all-or-nothing, so its enums are open.** `load_catalog` fails
   the whole file on one bad value, which would take every working model down. The
   survey introduced `speed: "slow"` (7–14B translation models), third-party
@@ -1273,7 +1289,7 @@ bilibiliCookiesBrowser: CookiesBrowser    // '' = not configured → no cookie f
 preferLocalRecognition: boolean           // false: take the platform subtitle when offered
 
 // settings (v6; the recognition plan's four questions)
-languageProfile: 'mandarin' | 'mixed' | 'multilingual'  // 'mandarin'
+languageProfile: 'mandarin' | 'english' | 'mixed' | 'multilingual'  // 'mandarin'
 memoryBudget: 'small' | 'medium' | 'large'              // 'medium'
 // `speedPreference` was REMOVED in v6: `memoryBudgetFromSpeed` maps
 // fast→small, accurate→large, balanced→medium, so a v5 blob keeps its intent.
@@ -1843,6 +1859,9 @@ cd src-tauri && cargo clean && cargo build
 - `docs/tech-spec/refactor-audiocpp.md` — the refactor spec
 - `docs/tech-spec/audiocpp-poc.md` — measured CLI behaviour
 - `docs/tech-spec/audiocpp-accuracy-p1-23.md` — accuracy + VAD tuning evidence
+- `docs/eval/diarization-quality-eval.md` — cue-level attribution measured on a
+  4-hour interview (93.90% → 99.85%); the method, the four independent judges, and
+  why the residual errors are not attribution bugs
 - `docs/tech-spec/translation-design.md` — translation design
 - `docs/tech-spec/translation-poc.md` — measured llama.cpp / HY-MT behaviour
 - `docs/tech-spec/url-import-design.md` — URL import design (flow, language rules, IPC)

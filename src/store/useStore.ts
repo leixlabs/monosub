@@ -30,7 +30,7 @@ export type TranslateTargetLanguage =
  * It does two jobs (`engine/plan.rs::LanguageProfile`): it owns the family bias
  * table, and it is why `中英混合` does not pick a Chinese-only model.
  */
-export type LanguageProfile = 'mandarin' | 'mixed' | 'multilingual'
+export type LanguageProfile = 'mandarin' | 'english' | 'mixed' | 'multilingual'
 /**
  * 显存占用 — how much memory the user is willing to spend.
  *
@@ -391,7 +391,7 @@ const defaultSettings: AppSettings = {
 
 const MODEL_OVERRIDE_SLOTS: ModelOverrideSlot[] = ['asr', 'vad', 'align', 'diar']
 
-const LANGUAGE_PROFILES: LanguageProfile[] = ['mandarin', 'mixed', 'multilingual']
+const LANGUAGE_PROFILES: LanguageProfile[] = ['mandarin', 'english', 'mixed', 'multilingual']
 const MEMORY_BUDGETS: MemoryBudget[] = ['small', 'medium', 'large']
 
 const isLanguageProfile = (value: unknown): value is LanguageProfile =>

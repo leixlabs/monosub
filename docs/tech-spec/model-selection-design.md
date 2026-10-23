@@ -17,7 +17,7 @@
 
 | # | 设置 | 取值 | 决定什么 |
 |---|---|---|---|
-| 1 | `language_profile` 语种场景 | `mandarin` / `mixed` / `multilingual` | §5.4 的 family 偏置表。`mixed`/`multilingual` 把表重排向能跟随句中语言切换的模型，于是「一次会话一个语言 token」的 `sense_asr` 不再是中文首选。 |
+| 1 | `language_profile` 语种场景 | `mandarin` / `english` / `mixed` / `multilingual` | §5.4 的 family 偏置表。`english` 偏向英文专精家族（`parakeet_tdt` 首位），补上 `mandarin` + `auto` 到不了的位置。`mixed`/`multilingual` 把表重排向能跟随句中语言切换的模型，于是「一次会话一个语言 token」的 `sense_asr` 不再是中文首选。 |
 | 2 | `diarization` 说话人分离 | bool | 是否枚举 `Passthrough` 或 `Asr+Diarize+TurnAttribution` 模板 |
 | 3 | `word_timestamps` 词级时间戳 | bool | `word_shortfall_rank`：**排序项，不是过滤器**，所以目录里没有词级模型时仍然能选出一个并报缺口 |
 | 4 | `memory` 显存占用 | `small` / `medium` / `large` | `footprint(spec)`（权重文件字节数）→ `over_budget_rank` + 评分项 `memory_match` |
@@ -361,6 +361,8 @@ score =  100 * (tier == "recommended" ? 1 : 0)
 ### 5.4 语言驱动的模型选择（用户明确要求）
 
 `bias_families(language, language_profile)`。`Mandarin` 走下面这张按语言的表；
+`English`（英语为主）把表换成 `parakeet_tdt → sense_asr → qwen3_asr`——`Mandarin` +
+`auto` 的首选是 `sense_asr`，所以若不单列，英语场景永远到不了英文专精家族；
 `Mixed`（中英混合）与 `Multilingual`（多语种）把表换成
 `qwen3_asr → moss_transcribe_diarize`——只有这两家能跟随句中语言切换，`sense_asr` /
 `fun_asr_nano` 是「一次会话一个语言 token」的中文家族。
@@ -700,7 +702,7 @@ export interface AppSettings {
 
   // 新增：识别方案需求（现行是 §0 的四个问题）
   requireWordTimestamps: boolean      // false
-  languageProfile: 'mandarin' | 'mixed' | 'multilingual'  // 'mandarin'
+  languageProfile: 'mandarin' | 'english' | 'mixed' | 'multilingual'  // 'mandarin'
   memoryBudget: 'small' | 'medium' | 'large'              // 'medium'
 }
 // `passthroughMode` 与 `speedPreference` 都没有实现：前者由求解器按能力自动决定（§6.2

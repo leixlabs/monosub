@@ -376,6 +376,17 @@ mod tests {
             LanguageProfile::Multilingual
         );
         assert_eq!(
+            language_profile_from_wire(Some("english")),
+            LanguageProfile::English
+        );
+        // `en` is accepted as a spelling of the profile, even though `en` is
+        // also a language tag: the two live in different fields and never
+        // collide (`language` carries the tag, `languageProfile` the profile).
+        assert_eq!(
+            language_profile_from_wire(Some("en")),
+            LanguageProfile::English
+        );
+        assert_eq!(
             language_profile_from_wire(Some("nonsense")),
             LanguageProfile::Mandarin
         );

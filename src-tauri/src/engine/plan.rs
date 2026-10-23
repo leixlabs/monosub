@@ -84,6 +84,16 @@ pub enum LanguageProfile {
     /// 普通话为主: Chinese-dominant audio (Simplified or Traditional output).
     #[default]
     Mandarin,
+    /// 英语为主: English-dominant audio.
+    ///
+    /// Its own profile rather than "Mandarin with `outputLanguage = en`", because
+    /// those are not the same answer. `Mandarin` + `auto` falls through to the
+    /// `auto` row of §5.4, whose first pick is `sense_asr` — a Chinese-led model
+    /// that is *fast* on English but not the one to plan for an English
+    /// recording. This profile biases to the English-first families regardless of
+    /// the output-language tag, so the answer does not depend on whether the user
+    /// happened to set 语言 to `en` or left it on `auto`.
+    English,
     /// 中英混合: one speaker switching between Chinese and English in a
     /// sentence. Needs a model that transcribes both without a language switch,
     /// which rules `sense_asr` out — it emits one token language per session.
@@ -94,9 +104,10 @@ pub enum LanguageProfile {
 
 impl LanguageProfile {
     /// Wire spelling. Kept here (not in `commands/plan.rs`) so the front end and
-    /// both commands cannot drift on the three names.
+    /// both commands cannot drift on the four names.
     pub fn from_wire(value: Option<&str>) -> Self {
         match value.map(|value| value.trim().to_lowercase()).as_deref() {
+            Some("english") | Some("en") => Self::English,
             Some("mixed") | Some("zh-en") | Some("zh_en") => Self::Mixed,
             Some("multilingual") | Some("multi") => Self::Multilingual,
             _ => Self::Mandarin,
@@ -340,11 +351,11 @@ pub struct ModelPlan {
 
 /// Which model runs each stage: `vad` / `asr` / `diar`.
 ///
-/// The plan's [`id`](ModelPlan::id) is a *shape* key — it names the steps plus
-/// the one model that makes the shape distinctive (`asr+diar+turns:nemotron`),
-/// which reads as "nemotron transcribes" when nemotron only supplies speaker
-/// turns and a different model does the ASR. This is the question the id cannot
-/// answer: which model fills which stage.
+/// The answer to the only question a reader of the run log has — *which model
+/// does what* — and nothing else. The plan's [`id`](ModelPlan::id) is not this:
+/// it is a shape key (`asr+diar+turns:nemotron`) whose model half names only
+/// the step that makes the shape distinctive, so read alone it says "nemotron
+/// transcribes" when nemotron only supplies speaker turns.
 ///
 /// The pure-Rust turn-attribution step is deliberately absent: it has no model
 /// and no CLI call, so there is nothing to name.
@@ -357,10 +368,22 @@ pub struct StageModels {
     pub asr: Option<String>,
     /// Speaker-turns model, `None` when the plan separates no speakers.
     pub diar: Option<String>,
+    /// The plan names a speaker-turns model, but **this run** turned separation
+    /// off (`enable_diarization = false`), so it will not run.
+    ///
+    /// The model id is kept rather than cleared: "the plan has no diar model"
+    /// and "the plan has one and this file skipped it" are different answers,
+    /// and collapsing them would hide the fact that the user's per-file switch
+    /// is what made the difference.
+    pub diar_disabled: bool,
 }
 
 impl ModelPlan {
     /// The stage → model answer. See [`StageModels`].
+    ///
+    /// Reads the plan as it stands, so call it **before** a per-file filter
+    /// drops steps: after the drop there is no `Diarize` step left to name, and
+    /// the answer would read "no speaker model" instead of "one was skipped".
     pub fn stage_models(&self) -> StageModels {
         let model_of = |kind: StepKind| {
             self.steps
@@ -376,17 +399,38 @@ impl ModelPlan {
                 .unwrap_or_else(|| crate::engine::vad::DEFAULT_FAMILY.to_string()),
             asr: model_of(StepKind::Asr),
             diar: model_of(StepKind::Diarize),
+            diar_disabled: false,
         }
     }
 }
 
 impl StageModels {
-    /// The value to log for a stage the plan does not run.
+    /// The value logged for a stage the plan does not run.
     ///
-    /// Explicit rather than omitted: an absent `diar` field would read as "this
-    /// log line predates the field", which is exactly the ambiguity the model
-    /// status badges were changed to remove.
+    /// Explicit rather than omitted: an absent field would read as "this log
+    /// line predates the field", which is the ambiguity the model status badges
+    /// were changed to remove.
     pub const ABSENT: &'static str = "none";
+
+    /// Suffix marking a stage whose model is planned but not running this run.
+    pub const DISABLED: &'static str = "[disabled]";
+
+    pub fn asr_label(&self) -> &str {
+        self.asr.as_deref().unwrap_or(Self::ABSENT)
+    }
+
+    /// The `diar` field: the model, `<model>[disabled]`, or `none`.
+    ///
+    /// The marker goes on the model rather than replacing it, because the model
+    /// is still the answer to "what would have run" — and that is what a user
+    /// turning the switch back on needs to know.
+    pub fn diar_label(&self) -> String {
+        match self.diar.as_deref() {
+            Some(id) if self.diar_disabled => format!("{id}{}", Self::DISABLED),
+            Some(id) => id.to_string(),
+            None => Self::ABSENT.to_string(),
+        }
+    }
 }
 
 // --- §5.6 gaps -------------------------------------------------------------
@@ -589,13 +633,27 @@ fn declares_concrete_language(spec: &ModelSpec) -> bool {
 
 /// First-choice ASR families per 语种场景 and language — a bias, never a filter.
 ///
-/// The 语种场景 decides the table when it is not `Mandarin`: `中英混合` and
-/// `多语种` both need a model that transcribes language switches, which only the
-/// Qwen / MOSS families do. For `Mandarin` the per-language rows of §5.4 still
-/// apply, so an English or Japanese file does not get SenseVoice just because
-/// the profile says "普通话为主".
+/// The 语种场景 decides the table when it is not `Mandarin`: `英语为主` biases to
+/// the English-first families, and `中英混合` / `多语种` both need a model that
+/// transcribes language switches, which only the Qwen / MOSS families do. For
+/// `Mandarin` the per-language rows of §5.4 still apply, so an English or
+/// Japanese file does not get SenseVoice just because the profile says
+/// "普通话为主".
 fn bias_families(language: &str, profile: LanguageProfile) -> &'static [&'static str] {
     match profile {
+        // 英语为主: `parakeet_tdt` first — it is the English specialist in this
+        // catalogue (NVIDIA Parakeet, `tier: recommended`), and §5.4 notes it is
+        // the fast choice for English. Ordering `sense_asr` first instead would
+        // make this profile a no-op: `Mandarin` + `auto` already lands on
+        // `sense_asr`, so the option would change nothing the user could observe.
+        //
+        // The trade-off is deliberate and worth stating: `parakeet_tdt` is
+        // `unverified` here (offered, never exercised), while `sense_asr` is
+        // `supported`. Language fit outranks verification in the ordering
+        // (`bias_rank` sits ahead of the score), which is the same rule that lets
+        // 中英混合 plan a 1 GB model under 显存小 — and `sense_asr` stays second,
+        // so a user who wants the proven model pins it in the overrides.
+        LanguageProfile::English => &["parakeet_tdt", "sense_asr", "qwen3_asr"],
         // 中英混合: one model, no language switch. Qwen3-ASR first (it is the
         // catalogue's word-timestamp model too), then MOSS.
         LanguageProfile::Mixed => &["qwen3_asr", "moss_transcribe_diarize"],
@@ -1277,6 +1335,7 @@ pub fn apply_model_overrides(
 pub fn language_profile_name(profile: LanguageProfile) -> &'static str {
     match profile {
         LanguageProfile::Mandarin => "mandarin",
+        LanguageProfile::English => "english",
         LanguageProfile::Mixed => "mixed",
         LanguageProfile::Multilingual => "multilingual",
     }
@@ -1780,8 +1839,63 @@ mod tests {
                 vad: "silero_vad".to_string(),
                 asr: Some("sensevoice_small_q8".to_string()),
                 diar: Some("nemotron_3_diar_q8_0".to_string()),
+                diar_disabled: false,
             }
         );
+    }
+
+    /// The `[disabled]` marker: the model stays named, so "this file skipped it"
+    /// is distinguishable from "the plan has none".
+    #[test]
+    fn a_skipped_diar_model_keeps_its_name_and_is_marked_disabled() {
+        let stages = StageModels {
+            vad: "silero_vad".to_string(),
+            asr: Some("qwen3_asr_0_6b_q8_0".to_string()),
+            diar: Some("nemotron_3_diar_q8_0".to_string()),
+            diar_disabled: true,
+        };
+
+        assert_eq!(stages.diar_label(), "nemotron_3_diar_q8_0[disabled]");
+        assert_eq!(stages.asr_label(), "qwen3_asr_0_6b_q8_0");
+    }
+
+    /// Two different absences, two different spellings: a plan with no speaker
+    /// model at all is `none`, and must never grow the `[disabled]` suffix.
+    #[test]
+    fn a_plan_without_a_diar_model_reports_none_not_disabled() {
+        let stages = StageModels {
+            vad: "silero_vad".to_string(),
+            asr: Some("sensevoice_small_q8".to_string()),
+            diar: None,
+            diar_disabled: false,
+        };
+
+        assert_eq!(stages.diar_label(), "none");
+    }
+
+    /// The gap plan has no steps, so every stage it has no model for reads
+    /// `none` — never a blank field, which would read as a broken log line.
+    #[test]
+    fn a_gap_plan_reports_none_for_every_stage() {
+        let plan = ModelPlan {
+            id: "gap".to_string(),
+            title_key: "modelPlan.gapTitle",
+            model_ids: Vec::new(),
+            steps: Vec::new(),
+            cost: PlanCost {
+                steps: 0,
+                speed: Speed::Balanced,
+                memory: MemoryBudget::Medium,
+            },
+            capabilities: NOTHING,
+            gaps: Vec::new(),
+        };
+
+        let stages = plan.stage_models();
+        assert_eq!(stages.asr_label(), "none");
+        assert_eq!(stages.diar_label(), "none");
+        // The bundled VAD is not a plan step, so it is still named.
+        assert_eq!(stages.vad, "silero_vad");
     }
 
     /// A pinned VAD model is a real `Vad` step, and must replace the bundled
@@ -1815,19 +1929,6 @@ mod tests {
             vad_id,
             "a pinned VAD model must be the one reported, not the bundled default"
         );
-    }
-
-    /// Speaker separation off: `diar` is explicitly `none`, never a stale id and
-    /// never silently absent.
-    #[test]
-    fn stage_models_of_a_plain_asr_plan_report_no_diar() {
-        let catalogue = catalogue();
-        let installed = all_installed();
-
-        let plan = &solve(&catalogue, &installed, &req())[0];
-
-        assert_eq!(plan.stage_models().asr, Some("sensevoice_small_q8".to_string()));
-        assert_eq!(plan.stage_models().diar, None);
     }
 
     #[test]
@@ -2336,6 +2437,86 @@ mod tests {
             "a footprint over budget is not a capability gap: {:?}",
             plans[0].gaps
         );
+    }
+
+    /// `英语为主` must actually move the pick, or the option is a no-op.
+    ///
+    /// The trap this pins: `Mandarin` + `auto` already biases to `sense_asr`
+    /// (the `auto` row of §5.4), so an `English` profile that kept `sense_asr`
+    /// first would change nothing a user could observe. It has to reach the
+    /// English specialist.
+    ///
+    /// Uses the committed catalogue: the fixture has no `parakeet_tdt`, so the
+    /// bias this profile exists for could only be tested against the real file.
+    #[test]
+    fn english_profile_moves_the_pick_off_sense_asr() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let real = crate::engine::catalog::load_catalog(path).expect("committed models.json");
+        let installed = all_installed();
+
+        let mandarin = best_model_for_role(
+            &real,
+            &installed,
+            Role::Asr,
+            &Requirements {
+                language: "auto".to_string(),
+                language_profile: LanguageProfile::Mandarin,
+                ..Requirements::default()
+            },
+        )
+        .expect("a Mandarin ASR is available");
+
+        let english = best_model_for_role(
+            &real,
+            &installed,
+            Role::Asr,
+            &Requirements {
+                language: "auto".to_string(),
+                language_profile: LanguageProfile::English,
+                ..Requirements::default()
+            },
+        )
+        .expect("an English ASR is available");
+
+        assert_eq!(
+            mandarin.family, "sense_asr",
+            "the Mandarin default for `auto` is SenseVoice"
+        );
+        assert_eq!(
+            english.family, "parakeet_tdt",
+            "英语为主 must reach the English specialist, not SenseVoice again"
+        );
+    }
+
+    /// The English profile does not depend on the output-language tag: leaving
+    /// 语言 on `auto` and setting `en` explicitly must agree.
+    #[test]
+    fn english_profile_answers_the_same_for_auto_and_en() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let real = crate::engine::catalog::load_catalog(path).expect("committed models.json");
+        let installed = all_installed();
+
+        let pick = |language: &str| {
+            best_model_for_role(
+                &real,
+                &installed,
+                Role::Asr,
+                &Requirements {
+                    language: language.to_string(),
+                    language_profile: LanguageProfile::English,
+                    ..Requirements::default()
+                },
+            )
+            .map(|spec| spec.id.clone())
+        };
+
+        assert_eq!(pick("auto"), pick("en"));
     }
 
     /// 中英混合 is a promise about the audio that a single-language token model

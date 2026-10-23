@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
 use crate::engine::catalog::{self, ModelSpec};
-use crate::engine::plan::{self, ModelPlan, StageModels, StepKind};
+use crate::engine::plan::{self, ModelPlan, StepKind};
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
 use crate::translate;
@@ -464,25 +464,18 @@ pub async fn start_transcription(
     // and a changed catalogue cannot disagree about what a step can do.
     plan::refresh_from_catalogue(&mut plan, &catalogue);
 
+    // Read the stages **before** the per-file filter below, because that filter
+    // drops the `Diarize` step: afterwards there is no model left to name, and
+    // the plan line would read "no speaker model" instead of "one was skipped".
+    let mut stages = plan.stage_models();
+
     // Per-file speaker separation is a *subset* of the frozen plan, not a second
     // solve: turning it off for one file drops the diarization steps and runs the
     // ASR alone. Turning it **on** for a file whose plan has no diar step cannot
     // invent a model — that would be exactly the run-time re-solve this design
     // removed — so it is logged and the file runs without speaker labels.
     if !enable_diarization && plan.steps.iter().any(|step| step.kind == StepKind::Diarize) {
-        // Name the model being dropped, not just that something was: this line is
-        // read next to `model plan selected`, and without it the two look
-        // contradictory — `enable_diarization=false` above a plan whose `diar`
-        // field still named a model.
-        let dropped = plan
-            .stage_models()
-            .diar
-            .unwrap_or_else(|| StageModels::ABSENT.to_string());
-        tracing::info!(
-            task_id = %task_id,
-            dropped_diar = %dropped,
-            "this file has speaker separation off; running the plan without its diarization steps"
-        );
+        stages.diar_disabled = true;
         plan.steps.retain(|step| {
             !matches!(step.kind, StepKind::Diarize | StepKind::TurnAttribution)
         });
@@ -490,12 +483,13 @@ pub async fn start_transcription(
     } else if enable_diarization
         && !plan.steps.iter().any(|step| step.kind == StepKind::Diarize)
     {
-        let stages = plan.stage_models();
+        // Not the same as `[disabled]`: here the plan itself has no speaker
+        // model, so turning the switch on cannot help. That is a stale plan and
+        // deserves its own warning rather than a suffix on a model name.
         tracing::warn!(
             task_id = %task_id,
             vad = %stages.vad,
-            asr = stages.asr.as_deref().unwrap_or(StageModels::ABSENT),
-            diar = stages.diar.as_deref().unwrap_or(StageModels::ABSENT),
+            asr = stages.asr_label(),
             "speaker separation is on for this file, but the saved plan has no diarization step; \
              run without speaker labels (re-save the plan in Settings ▸ 模型 to add one)"
         );
@@ -553,19 +547,17 @@ pub async fn start_transcription(
         .find(|step| step.kind == StepKind::Vad && !step.model_id.is_empty())
         .map(|step| step.model_id.clone());
 
-    // `plan` is the shape key (`asr+diar+turns:nemotron`), which names the step
-    // shape plus the one model that makes it distinctive — so on its own it
-    // reads as "nemotron transcribes", when nemotron only supplies the speaker
-    // turns. The three stage fields are the unambiguous answer to the question
-    // a reader actually has: which model runs VAD, which transcribes, which
-    // separates speakers.
-    let stages = plan.stage_models();
+    // One line, one answer: which model runs each stage. `plan=` is deliberately
+    // absent — it is a shape key whose model half names only the step that makes
+    // the shape distinctive (`asr+diar+turns:nemotron` reads as "nemotron
+    // transcribes"), so it cannot answer this question and only invites the wrong
+    // reading. The key still travels on `ModelPlanDto` for the pilot selector and
+    // the React list key, which is what it is actually for.
     tracing::info!(
         task_id = %task_id,
-        plan = %plan.id,
         vad = %stages.vad,
-        asr = stages.asr.as_deref().unwrap_or(StageModels::ABSENT),
-        diar = stages.diar.as_deref().unwrap_or(StageModels::ABSENT),
+        asr = stages.asr_label(),
+        diar = %stages.diar_label(),
         "model plan selected"
     );
 
