@@ -843,10 +843,11 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
-            verified: true,
+            status: crate::engine::catalog::SupportStatus::Supported,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         };
         let missing = Path::new("/nowhere/HY-MT1.5-1.8B-Q4_K_M.gguf");
 

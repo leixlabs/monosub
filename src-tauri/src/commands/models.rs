@@ -116,12 +116,15 @@ pub struct ModelStatus {
     pub source: Option<String>,
     /// `tier` (`default` / `recommended` / `optional` / `experimental`).
     pub tier: Option<String>,
-    /// Whether this model has been run end to end and is known to work.
+    /// How far this app stands behind the entry: `supported` (run end to end and
+    /// known to work), `unverified` (offered, never exercised here), or
+    /// `unsupported` (deliberately not offered).
     ///
-    /// Distinct from `installed`: a model can be downloaded and still never
-    /// verified (it may not even run). The UI labels unverified entries and the
-    /// solver ranks them below verified ones, but they stay selectable.
-    pub verified: bool,
+    /// One field rather than the two booleans it replaced, because they answered
+    /// overlapping halves of one question and could express a state that never
+    /// existed (`supported: false` + `verified: true`). Distinct from
+    /// `installed`: a model can be downloaded and still never verified.
+    pub status: String,
     /// Every manifest file present with a matching size.
     pub installed: bool,
     /// Bytes currently on disk (`0` when not installed).
@@ -173,7 +176,7 @@ impl ModelStatus {
             produces_text: capabilities.produces_text,
             source: spec.source.map(|source| source.as_str().to_string()),
             tier: spec.tier.map(|tier| tier.as_str().to_string()),
-            verified: false,
+            status: spec.status.as_str().to_string(),
             installed: status.installed,
             size_on_disk: status.size_on_disk,
         }
@@ -436,6 +439,19 @@ fn find_spec(paths: &AppPaths, id: &str) -> Result<ModelSpec, String> {
             "model '{}' needs the '{}' runtime, which this build does not include",
             id,
             spec.engine.as_str()
+        ));
+    }
+
+    // A second, softer gate: the entry runs, but this app has decided not to
+    // offer it. `sortformer_diar` (v1) is the case — it works, and its 120 s
+    // graph ceiling plus four-speaker cap make it worse than the alternative on
+    // every recording longer than two minutes, so offering the download would
+    // only produce a model the solver never plans. `Unverified` passes: it is
+    // offered, just not yet proven.
+    if !spec.status.is_offered() {
+        return Err(format!(
+            "model '{}' is not supported by this version of MonoSub",
+            id
         ));
     }
     Ok(spec)
@@ -996,10 +1012,11 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
-            verified: false,
+            status: crate::engine::catalog::SupportStatus::Unverified,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         };
 
         let status = ModelStatus::from_catalog(catalog::ModelStatus {
@@ -1040,10 +1057,11 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
-            verified: false,
+            status: crate::engine::catalog::SupportStatus::Unverified,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         };
 
         let status = ModelStatus::from_catalog(catalog::ModelStatus {

@@ -33,7 +33,10 @@ interface StepInfoPayload {
 
 interface TranscribeProgressPayload {
   task_id: string;
+  /** Progress within the current step, 0…100. */
   progress: number;
+  /** Progress across the whole run, 0…100; absent on non-step events. */
+  overall?: number;
   status: string;
   step?: StepInfoPayload;
   total_time?: number;
@@ -147,6 +150,10 @@ function App() {
 
       const updates: Partial<import('./store/useStore').VideoFile> = {
         status: 'processing',
+        // `overall`, not `progress`: the latter restarts at 0 for every step,
+        // so a bar driven by it would jump backwards four times per file. The
+        // tray percentage and the row's bar both read this one field.
+        progress: event.payload.overall ?? event.payload.progress,
       };
 
       if (step) {

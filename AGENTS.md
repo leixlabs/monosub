@@ -427,6 +427,49 @@ Rules that follow from this:
 - **Diarization requires a non-Tongyi model.** Neither `sense_asr` nor `fun_asr_nano`
   exposes speaker output; FunASR's "ASR + VAD + CAM++" pipeline is a *Python*
   composition, not a checkpoint capability.
+- **`status` is one three-state field, not two booleans.** `models.json` says
+  `status: "supported" | "unverified" | "unsupported"` per entry, and the enum
+  (`catalog::SupportStatus`) is the single answer to *how far do we stand behind
+  this model?*:
+  `supported` = run end to end here and known to work; `unverified` = offered but
+  never exercised here; `unsupported` = deliberately not offered. The two booleans
+  this replaced (`supported` / `verified`) answered overlapping halves of one
+  question and could express a state that never existed (`supported: false` +
+  `verified: true` = measured *and* never offered). An absent field reads as
+  `unverified`: not `unsupported`, which would empty every plan, and not
+  `supported`, which would claim 124 unrun entries are proven.
+- **`unsupported` retires an entry without deleting it.** A retired entry stays in
+  `models.json` so the survey still reads as one document and the measurement
+  stays next to the model, but four places refuse it: `plan::solve` filters it
+  out, `plan::apply_model_overrides` drops a pin to it (a `localStorage` override
+  from before the retirement is a real path), `download_model` rejects it, and
+  `commands::transcribe` / `monosub-cli` refuse a *frozen* plan that names one
+  (`modelPlan.unsupportedModel` / exit 2) rather than running it. Its first use is
+  `sortformer_diar` v1.
+- **`unverified` is offered, just ranked lower.** It stays selectable and
+  downloadable; it only loses `VERIFIED_BONUS` in the solver. `is_offered()` and
+  `is_verified()` are the two questions callers actually ask, and the distinction
+  matters at every gate: the downloader and the solver ask the first, the score
+  asks the second. Filtering `unverified` out would hide most of the 129-entry
+  catalogue behind a manual override.
+- **The diarization default is `nemotron_3_diar`, not `sortformer_diar`.** v1's
+  ceiling is architectural, not a budget: its encoder graph is sized from
+  `tf_encoder.max_source_positions=1500` at 12.5 fps, so **120 s** is the most it
+  can ever see in one call, and `session_len_sec` above that fails outright
+  (`session_len_sec exceeds tf_encoder.max_source_positions`, measured). Long
+  audio therefore only worked through `diar::diarize_long`'s window stitching,
+  and any regression there silently dropped speaker labels past 120 s — which is
+  the bug that motivated the switch. `nemotron_3_diar` has 8 speakers instead of
+  4, no fixed position table (RoPE, so no ceiling), a permissive licence
+  (OpenMDW-1.1 vs CC-BY-NC-4.0), and **no `session_len_sec` session option at
+  all**. That last point is why `diar::session_args` gates the flag on the
+  model's own GGUF spec (`engine/spec.rs::session_options`): `audiocpp_cli` fails
+  the whole run on an undeclared session option rather than ignoring it.
+  `sortformer_diar_v2` is **not** a candidate — audio.cpp ships no GGUF for it
+  (redistribution approval pending), and NVIDIA's own
+  `diar_streaming_sortformer_4spk-v2.q8_0.gguf` is a NeMo-Speech.cpp artifact
+  (`general.architecture = sortformer`), which `audiocpp_cli` cannot load: it
+  requires `general.architecture = audiocpp` plus `audiocpp.model_spec.json`.
 - The `[Speaker A]: ` prefix in `subtitle/writer.rs` is fed by `RawChunk.speaker`;
   `subtitle/postprocess.rs` must not merge across differing speakers.
 - **The catalogue is all-or-nothing, so its enums are open.** `load_catalog` fails
@@ -835,7 +878,7 @@ plan; `translate` entries are grouped separately by `role` in the UI.
 
 | Event | Payload | Purpose |
 |-------|---------|---------|
-| `transcribe_progress` | `{task_id, progress, status, step?, total_time?}` | Progress + step updates |
+| `transcribe_progress` | `{task_id, progress, overall?, status, step?, total_time?}` | Progress + step updates |
 | `transcribe_complete` | `{task_id, total_time?}` | Finished; all formats written |
 | `transcribe_error` | `{task_id, status}` | Failed; `status` is user-showable |
 | `model_download_progress` | `{id, downloaded, total}` | Throttled to ≥200 ms |
@@ -852,6 +895,21 @@ their exact spelling, because `FileItem.tsx` derives the i18n key as
 `steps.<lowercase, spaces → _>` and renaming one would blank that step. `total_steps` is
 **4 normally and 5 when the run translates**: `Steps::new(translating)` picks the
 denominator per run, and the first step event already carries the right one.
+
+**Two percentages, and only one belongs in a bar.** `progress` is the fraction *within
+the current step* and restarts at 0 whenever a step begins; `overall` is the run-wide
+figure, `(current - 1 + progress/100) / total`, and is what `FileItem`'s bar, the tray
+title and the CLI's `percent` all read. Before `overall` existed the frontend mapped
+`progress` onto `file.progress`, so the bar and the menu-bar percentage fell back to
+0 % at every step change. `overall` is absent on `queued` / `error` events, where there
+is no position in the run to report.
+
+**The ASR stage reports progress in audio seconds, not chunk counts.**
+`ProgressFn`'s `(done, total)` are weighted units summed from each VAD chunk's sample
+length, so a 15 s sentence advances the bar 30× as far as a 0.5 s interjection. Counting
+chunks made the percentage describe the bookkeeping — a 1 % step for "嗯", then seconds
+of stillness on a long utterance — and the VAD segmentation already carries the lengths,
+so weighting them costs nothing.
 
 `TranscribeRequest` carries three translation fields, all `Option` so an older frontend
 that sends none of them translates nothing: `translate_enabled`, `target_language`, and
@@ -1269,20 +1327,33 @@ unrecognised family is "send", which is what every model got before.
 segment support accepts it and simply writes no file (measured with `sense_asr`),
 and the read side treats a missing file as "fall back to estimated timing".
 
-### Verified vs unverified models
+### Model status: supported / unverified / unsupported
 
-`models.json` carries `verified: bool`, orthogonal to `tier`: `tier` says how much
-a model is *recommended*, `verified` says whether anyone actually ran it end to
-end. A model that loads is not necessarily a model that works — a GGUF can declare
-a family and still fail on the CLI.
+`models.json` carries one `status` per entry, orthogonal to `tier`: `tier` says how
+much a model is *recommended* within the offered set, `status` says whether the
+model is offered at all and whether anyone has run it. A model that loads is not
+necessarily a model that works — a GGUF can declare a family and still fail on the
+CLI. (This replaced the `verified` / `supported` boolean pair; see the model-plan
+rules above for why one axis is the honest shape.)
+
+| status | solver | download | UI badge |
+|---|---|---|---|
+| `supported` | plans it, +`VERIFIED_BONUS` | yes | — |
+| `unverified` | plans it, no bonus | yes | `models.unverified` (neutral) |
+| `unsupported` | never plans it | refused | `models.unsupported` (destructive) |
 
 Unverified models stay **selectable**. They lose `VERIFIED_BONUS` (45) in the
 solver's score, which is larger than `INSTALLED_BONUS` (30) but smaller than
 `RECOMMENDED_TIER_BONUS` (100) — so a verified model that still needs a download
 beats an unverified one already on disk, while 显存预算 and language fit still
-outrank verification. The UI labels them (`models.unverified`) instead of hiding
-them; filtering them out would hide most of the catalogue behind a manual
-override.
+outrank verification. The UI labels them instead of hiding them; filtering them
+out would hide most of the catalogue behind a manual override.
+
+The Settings row shows exactly one status badge, and a retired entry has no
+download button because the backend would refuse the request. The manual model
+pickers in `SettingsModelPlan` filter `unsupported` out entirely and clear a pin
+that points at one, so a stale `localStorage` override cannot freeze a plan the
+run then rejects.
 
 ### Skipping existing subtitles (`skipExistingSubtitle`)
 

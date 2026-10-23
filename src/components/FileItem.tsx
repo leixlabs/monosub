@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge, glassBadgeVariants } from '@/components/ui/glass-badge';
+import { GlassProgress } from '@/components/ui/glass-progress';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import { ErrorDetailsDialog } from '@/components/ErrorDetailsDialog';
 import { MissingModelPrompt } from '@/components/MissingModelPrompt';
@@ -458,7 +459,27 @@ export function FileItem({ file }: FileItemProps) {
                   percent: downloadPercent(file.downloadProgress.downloaded, file.downloadProgress.total),
                 })}
               </p>
-            )}          </div>
+            )}
+            {/* Whole-run progress. The step badges above say *what* is running;
+                this says *how far along* it is, and it only appears while the
+                row is processing, because a finished row has nothing left to
+                track. `file.progress` is the run-wide figure (App.tsx maps
+                `overall` onto it), so it never jumps back to 0 on a step change. */}
+            {file.status === 'processing' && file.progress !== undefined && (
+              <div className="space-y-1" data-testid="file-progress">
+                <GlassProgress
+                  value={Math.min(100, Math.max(0, file.progress))}
+                  aria-label={t('fileItem.stepOfTotal', {
+                    current: file.stepProgress?.currentStep ?? 1,
+                    total: file.stepProgress?.totalSteps ?? 1,
+                  })}
+                />
+                <p className="text-xxs text-text-tertiary dark:text-gray-500 text-right tabular-nums">
+                  {Math.round(file.progress)}%
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Actions */}

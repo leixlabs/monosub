@@ -223,7 +223,10 @@ impl PlanStep {
     }
 
     /// The pure-Rust step (design §6.4): no model, no CLI invocation.
-    fn rust(kind: StepKind) -> Self {
+    ///
+    /// Public because [`thaw`] rebuilds it from an empty `model_id`, and a test
+    /// that round-trips a frozen plan has to construct the same value.
+    pub fn rust(kind: StepKind) -> Self {
         Self {
             kind,
             model_id: String::new(),
@@ -436,8 +439,13 @@ pub fn best_model_for_role<'a>(
         .filter(|spec| {
             // Only audio.cpp models can fill a recognition step; a llama.cpp
             // translate entry must never be handed to `audiocpp_cli`
-            // (translation-design §9).
+            // (translation-design §9). `status` is the second gate: an entry the
+            // app deliberately does not offer (v1 diarization, which its own
+            // 120 s graph ceiling makes unusable for real recordings) must not be
+            // planned even though it would run. `Unverified` passes: it is
+            // offered, just ranked lower.
             spec.engine == Engine::Audiocpp
+                && spec.status.is_offered()
                 && spec.has_role(role)
                 && language_ok(spec, &req.language)
         })
@@ -607,7 +615,7 @@ fn single_model_score(spec: &ModelSpec, req: &Requirements, installed: &dyn Fn(&
     if installed(&spec.id) {
         total += INSTALLED_BONUS;
     }
-    if spec.verified {
+    if spec.status.is_verified() {
         total += VERIFIED_BONUS;
     }
 
@@ -720,7 +728,11 @@ pub fn solve(
     // slice.
     let recognition: Vec<ModelSpec> = catalogue
         .iter()
-        .filter(|spec| spec.engine == Engine::Audiocpp && !spec.has_role(Role::Translate))
+        .filter(|spec| {
+            spec.engine == Engine::Audiocpp
+                && spec.status.is_offered()
+                && !spec.has_role(Role::Translate)
+        })
         .cloned()
         .collect();
     let catalogue: &[ModelSpec] = &recognition;
@@ -1155,6 +1167,15 @@ pub fn apply_model_overrides(
             tracing::warn!(slot = %slot, model = %model_id, "ignoring override for an unknown model id");
             continue;
         };
+        // A retired entry stays in the catalogue for attribution, but pinning it
+        // would freeze a plan the run then refuses (the install gate and
+        // `download_model` both reject an unsupported entry). An override stored
+        // before the retirement is exactly how a stale `localStorage` reaches
+        // here, so this is a real path, not a defensive check.
+        if !spec.status.is_offered() {
+            tracing::warn!(slot = %slot, model = %model_id, "ignoring override for a model this version does not support");
+            continue;
+        }
         let Some(task) = kind.override_task() else {
             continue;
         };
@@ -1189,14 +1210,125 @@ pub fn apply_model_overrides(
     }
 
     // A pin changes what the plan *is*, not just which file it loads: the title,
-    // id, capabilities and cost all describe the old model set. Recomputing them here is what keeps the Settings preview honest —
-    // without it the preview showed "SenseVoice + VAD" while listing
-    // `qwen3_asr + sortformer` underneath the same label.
-    refresh_plan_summary(plan, catalogue);
+    // id, capabilities and cost all describe the old model set. Recomputing them
+    // here is what keeps the Settings preview honest — without it the preview
+    // showed "SenseVoice + VAD" while listing `qwen3_asr + sortformer` underneath
+    // the same label.
+    refresh_from_catalogue(plan, catalogue);
+}
+
+// --- frozen plan (Settings-time solve, run-time read) ----------------------
+
+/// Wire spelling of a [`LanguageProfile`], as `settings.json` stores it.
+///
+/// Lives here rather than in `commands::plan` because both the Settings command
+/// and [`freeze`] write it, and the CLI reads it back.
+pub fn language_profile_name(profile: LanguageProfile) -> &'static str {
+    match profile {
+        LanguageProfile::Mandarin => "mandarin",
+        LanguageProfile::Mixed => "mixed",
+        LanguageProfile::Multilingual => "multilingual",
+    }
+}
+
+/// Freeze `plan` into the record `settings.json` keeps.
+///
+/// This is the only place a solved plan is turned into stored form, so the
+/// Settings preview and the persisted file cannot describe different plans.
+/// The four answers travel with it because the CLI reports them and a future
+/// re-solve needs the inputs, not just the output.
+pub fn freeze(
+    plan: &ModelPlan,
+    req: &Requirements,
+) -> crate::model_dir::RecognitionPlan {
+    crate::model_dir::RecognitionPlan {
+        language_profile: language_profile_name(req.language_profile).to_string(),
+        memory_budget: req.memory.label().to_string(),
+        require_word_timestamps: req.word_timestamps,
+        diarization: req.diarization,
+        language: req.language.clone(),
+        model_ids: plan.model_ids.clone(),
+        steps: plan.steps.iter().map(record_step).collect(),
+    }
+}
+
+fn record_step(step: &PlanStep) -> crate::model_dir::PlanStepRecord {
+    crate::model_dir::PlanStepRecord {
+        kind: step.kind.label().to_string(),
+        model_id: step.model_id.clone(),
+        task: step.task.clone(),
+        family: step.family.clone(),
+    }
+}
+
+/// Rebuild the executable plan from its frozen record.
+///
+/// `Ok(None)` means "the record describes the gap plan" (no steps), which the
+/// caller reports as a missing model rather than running. `Err` means a stored
+/// step cannot be interpreted — a settings file written by a different build —
+/// and is deliberately loud: running a partially understood plan would produce
+/// silently wrong output.
+///
+/// The four answers are not read back from the record here; the caller already
+/// has the request's language, and the rest describe *why* the plan was chosen
+/// rather than what to execute.
+///
+/// `catalogue` is only read to fill `capabilities`, which the run consults for
+/// the word-timestamp decision. A step whose model has left the catalogue keeps
+/// the `NOTHING` capability rather than failing here — the install gate reports
+/// that case with the id the user needs to download.
+pub fn thaw(
+    record: &crate::model_dir::RecognitionPlan,
+    catalogue: &[ModelSpec],
+) -> Result<Option<ModelPlan>, String> {
+    if record.steps.is_empty() {
+        return Ok(None);
+    }
+
+    let mut steps = Vec::with_capacity(record.steps.len());
+    for stored in &record.steps {
+        let kind = step_kind_from_label(&stored.kind).ok_or_else(|| {
+            format!(
+                "the saved recognition plan has an unknown step `{}`; \
+                 open Settings ▸ 模型 and save the plan again",
+                stored.kind
+            )
+        })?;
+        steps.push(PlanStep {
+            kind,
+            model_id: stored.model_id.clone(),
+            task: stored.task.clone(),
+            family: stored.family.clone(),
+        });
+    }
+
+    Ok(Some(ModelPlan {
+        id: plan_id(&steps),
+        title_key: title_key(&steps),
+        model_ids: model_ids(&steps),
+        cost: PlanCost {
+            steps: steps.len(),
+            // A frozen plan is executed, never compared, so the cost hints are
+            // only here because the type requires them.
+            speed: Speed::Balanced,
+            memory: MemoryBudget::from_wire(Some(&record.memory_budget)),
+        },
+        capabilities: union_capabilities(&steps, catalogue),
+        // A frozen plan carries no gaps: the user saved a plan that solved, and
+        // a model deleted since is reported by the install gate instead.
+        gaps: Vec::new(),
+        steps,
+    }))
 }
 
 /// Recompute every derived field of `plan` from its (possibly overridden) steps.
-fn refresh_plan_summary(plan: &mut ModelPlan, catalogue: &[ModelSpec]) {
+///
+/// Public because the run calls it after [`thaw`]: a frozen record stores *which*
+/// models to load, while `model_ids`, `capabilities` and `cost` are derived from
+/// the current catalogue and must not be read back from the record. It is also
+/// what makes dropping a step (a file with speaker separation off) leave no
+/// stale model id behind.
+pub fn refresh_from_catalogue(plan: &mut ModelPlan, catalogue: &[ModelSpec]) {
     plan.model_ids = model_ids(&plan.steps);
     plan.title_key = title_key(&plan.steps);
     plan.id = plan_id(&plan.steps);
@@ -1214,10 +1346,22 @@ fn refresh_plan_summary(plan: &mut ModelPlan, catalogue: &[ModelSpec]) {
     );
 }
 
+/// Inverse of [`StepKind::label`], for reading a frozen plan back.
+fn step_kind_from_label(label: &str) -> Option<StepKind> {
+    match label {
+        "vad" => Some(StepKind::Vad),
+        "asr" => Some(StepKind::Asr),
+        "align" => Some(StepKind::Align),
+        "diar" => Some(StepKind::Diarize),
+        "turns" => Some(StepKind::TurnAttribution),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::catalog::ModelFile;
+    use crate::engine::catalog::{ModelFile, SupportStatus};
 
     const SENSE_LANGS: &[&str] = &[
         "auto", "zh", "en", "yue", "ja", "ko", "pt", "ru", "es", "it", "fr", "de", "nl", "pl",
@@ -1275,7 +1419,11 @@ mod tests {
             speed: Some(fake.speed),
             source: Some(fake.source),
             tier: Some(fake.tier),
-            verified: fake.verified,
+            status: if fake.verified {
+                SupportStatus::Supported
+            } else {
+                SupportStatus::Unverified
+            },
             licenses: Vec::new(),
             // Only the ASR whose word-timestamp claim is conditional on another
             // model needs a dependency; keeping it out of `FakeModel` avoids
@@ -1286,6 +1434,7 @@ mod tests {
                 Vec::new()
             },
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         }
     }
 
@@ -1490,6 +1639,63 @@ mod tests {
             plan.model_ids.first(),
             Some(&vad_id),
             "model_ids[0] is the ASR model; a VAD pin must not take it"
+        );
+    }
+
+    #[test]
+    fn an_override_for_a_retired_model_is_ignored() {
+        // An `Unsupported` entry stays in the catalogue for attribution, and an
+        // override stored before the retirement still reaches here through
+        // `localStorage`. Pinning it would freeze a plan the run then refuses, so
+        // the override must be dropped rather than honoured.
+        let mut catalogue = catalogue();
+        catalogue
+            .iter_mut()
+            .find(|spec| spec.id == "nemotron_3_diar_q8_0")
+            .expect("the fake catalogue has the diar model")
+            .status = SupportStatus::Unsupported;
+
+        // An ASR-only plan, so a diar pin is visibly either added or not.
+        let mut plans = vec![ModelPlan {
+            id: "asr:sense".to_string(),
+            title_key: "modelPlan.planAsrVad",
+            model_ids: vec!["sensevoice_small_q8".to_string()],
+            steps: vec![PlanStep {
+                kind: StepKind::Asr,
+                model_id: "sensevoice_small_q8".to_string(),
+                task: "asr".to_string(),
+                family: "sense_asr".to_string(),
+            }],
+            cost: PlanCost {
+                steps: 1,
+                speed: Speed::Balanced,
+                memory: MemoryBudget::Medium,
+            },
+            capabilities: Capabilities::default(),
+            gaps: Vec::new(),
+        }];
+
+        let mut overrides = HashMap::new();
+        overrides.insert("diar".to_string(), "nemotron_3_diar_q8_0".to_string());
+        apply_model_overrides(&mut plans, &overrides, &catalogue);
+
+        assert_eq!(
+            plans[0].id, "asr:sense",
+            "a retired model must not become part of the plan: {:?}",
+            plans[0].steps
+        );
+        assert!(
+            !plans[0]
+                .steps
+                .iter()
+                .any(|step| step.kind == StepKind::Diarize),
+            "the retired model must not be planned: {:?}",
+            plans[0].steps
+        );
+        assert_eq!(
+            plans[0].model_ids,
+            vec!["sensevoice_small_q8".to_string()],
+            "the retired model must not reach the install gate"
         );
     }
 
@@ -2257,7 +2463,10 @@ mod tests {
         let pair = [unverified.clone(), verified.clone()];
         let picked = best_model_for_role(&pair, &installed, Role::Asr, &req())
             .expect("a candidate exists");
-        assert!(picked.verified, "the verified model must win the tie-break");
+        assert!(
+            picked.status.is_verified(),
+            "the verified model must win the tie-break"
+        );
 
         // And the bonus is bounded: a verified model three sizes over budget must
         // still lose to a small unverified one under 显存小.
@@ -2287,7 +2496,7 @@ mod tests {
         let picked = best_model_for_role(&pair, &installed, Role::Asr, &budget_req)
             .expect("a candidate exists");
         assert!(
-            !picked.verified,
+            !picked.status.is_verified(),
             "显存预算 must outrank verification, got {}",
             picked.id
         );

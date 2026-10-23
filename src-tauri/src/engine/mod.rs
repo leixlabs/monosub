@@ -139,6 +139,13 @@ fn resolve_vad_model(
 }
 
 /// Progress callback payload: `(done, total, message)`.
+///
+/// Both numbers are **weighted units**, not item counts: the ASR stage reports
+/// the sample length of the audio it has finished rather than the number of VAD
+/// chunks, so a 15 s chunk advances the bar 30× as far as a 0.5 s one. Counting
+/// chunks made the bar jump in unpredictable steps — the VAD segmentation
+/// already knows each chunk's real length, so using it costs nothing and is
+/// what makes the percentage track the work.
 pub type ProgressFn<'a> = dyn Fn(usize, usize, &str) + Send + Sync + 'a;
 
 /// audio.cpp task for ASR. The `family` always comes from the selected model's
@@ -287,9 +294,22 @@ async fn transcribe_estimated(
     let total = chunks.len();
     tracing::info!(task_id = %task_id, chunks = total, "VAD chunk plan ready");
 
+    // Progress is weighted by audio length, not by chunk count. A VAD plan is
+    // typically a few long utterances plus many short interjections, so counting
+    // chunks made the bar jump 1 % for a 0.4 s "嗯" and then stall for seconds on
+    // a 15 s sentence — the percentage described the bookkeeping, not the work.
+    // The lengths are already in the chunk list, so this costs nothing.
+    // Keyed by chunk index, not position: the index comes from the CLI and the
+    // batch loop walks `chunks` in order, but nothing guarantees they agree.
+    let weights: std::collections::HashMap<usize, usize> = chunks
+        .iter()
+        .map(|chunk| (chunk.index, chunk_progress_units(chunk)))
+        .collect();
+    let total_units = weights.values().sum::<usize>().max(1);
+
     // Step 3a: slice the 16 kHz mono WAV at the sample offsets VAD reported.
     let audio = wav::read(wav_path)?;
-    on_progress(0, total, "Segmenting audio");
+    on_progress(0, total_units, "Segmenting audio");
     for chunk in &chunks {
         let out_path = wav::chunk_path(dir, chunk.index);
         wav::slice(&audio, chunk.start_sample, chunk.end_sample, &out_path)?;
@@ -324,7 +344,8 @@ async fn transcribe_estimated(
             &language,
             opts.backend,
             batch,
-            total,
+            &weights,
+            total_units,
             done,
             options,
             on_progress,
@@ -337,8 +358,14 @@ async fn transcribe_estimated(
         for (index, spans) in segments {
             spans_by_chunk.insert(index, spans);
         }
-        done += batch.len();
-        on_progress(done, total, "Transcribing");
+        // The batch is done as a unit: every chunk in it has finished, so the
+        // bar advances by the whole batch's audio length in one step rather than
+        // by a per-chunk count.
+        done += batch
+            .iter()
+            .map(|chunk| weights.get(&chunk.index).copied().unwrap_or(0))
+            .sum::<usize>();
+        on_progress(done, total_units, "Transcribing");
     }
 
     // Step 4 is `subtitle::postprocess`. A chunk whose model emitted real
@@ -406,7 +433,8 @@ async fn transcribe_batch(
     language: &str,
     backend: Backend,
     batch: &[vad::VadChunk],
-    total: usize,
+    weights: &std::collections::HashMap<usize, usize>,
+    total_units: usize,
     done_before: usize,
     options: spec::RequestOptions,
     on_progress: &ProgressFn<'_>,
@@ -433,7 +461,17 @@ async fn transcribe_batch(
     };
 
     match run_sequence(
-        paths, dir, model_file, family, &vad_dir, &requests_path, backend, batch, total, done_before,
+        paths,
+        dir,
+        model_file,
+        family,
+        &vad_dir,
+        &requests_path,
+        backend,
+        batch,
+        weights,
+        total_units,
+        done_before,
         &report,
     )
     .await
@@ -446,16 +484,37 @@ async fn transcribe_batch(
             );
             // Announce only if the notice itself would not move progress back.
             if floor.load(std::sync::atomic::Ordering::SeqCst) <= done_before {
-                on_progress(done_before, total, "Metal unavailable, retrying on CPU");
+                on_progress(done_before, total_units, "Metal unavailable, retrying on CPU");
             }
             run_sequence(
-                paths, dir, model_file, family, &vad_dir, &requests_path, Backend::Cpu, batch, total,
-                done_before, &report,
+                paths,
+                dir,
+                model_file,
+                family,
+                &vad_dir,
+                &requests_path,
+                Backend::Cpu,
+                batch,
+                weights,
+                total_units,
+                done_before,
+                &report,
             )
             .await
         }
         Err(err) => Err(err),
     }
+}
+
+/// Progress weight of one VAD chunk: its length in samples, floored so a
+/// zero-length chunk still counts as something.
+///
+/// Progress is reported in these units rather than in chunk counts because a VAD
+/// plan mixes 15 s sentences with sub-second interjections. Counting chunks made
+/// the bar advance 1 % for a 0.4 s "嗯" and then sit still for several seconds on
+/// a long sentence, i.e. it described the bookkeeping instead of the work.
+fn chunk_progress_units(chunk: &vad::VadChunk) -> usize {
+    chunk.end_sample.saturating_sub(chunk.start_sample) as usize
 }
 
 /// True when `done` advances the monotonic floor, recording the new high-water
@@ -482,7 +541,8 @@ async fn run_sequence(
     requests_path: &std::path::Path,
     backend: Backend,
     batch: &[vad::VadChunk],
-    total: usize,
+    weights: &std::collections::HashMap<usize, usize>,
+    total_units: usize,
     done_before: usize,
     on_progress: &ProgressFn<'_>,
 ) -> Result<
@@ -514,6 +574,8 @@ async fn run_sequence(
 
     let mut reported: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
     let mut metrics_seen = 0usize;
+    // Audio length finished inside THIS batch, in the same units as `weights`.
+    let mut done_units = 0usize;
     // Seeded from `done_before`, not 0: on a Metal→CPU retry some metrics may
     // already have advanced inside the failed attempt, so starting at 0 would
     // re-emit an already-reported value and let the percentage visibly regress.
@@ -537,10 +599,15 @@ async fn run_sequence(
                     if !reported.contains_key(&format!("__metric__{}", index)) {
                         reported.insert(format!("__metric__{}", index), PathBuf::new());
                         metrics_seen += 1;
-                        let done = (done_before + metrics_seen).min(total);
+                        // Each finished chunk advances by its own audio length,
+                        // so the bar tracks minutes transcribed rather than
+                        // chunks returned. `weights` is keyed by the chunk's own
+                        // index, which is what the CLI reports.
+                        done_units += weights.get(&index).copied().unwrap_or(0);
+                        let done = (done_before + done_units).min(total_units);
                         if done != last_reported_done {
                             last_reported_done = done;
-                            on_progress(done, total, "Transcribing");
+                            on_progress(done, total_units, "Transcribing");
                         }
                     }
                 } else {

@@ -246,9 +246,8 @@ async fn run(args: Args) -> ExitCode {
 
     if resolved.recognition.is_none() && !args.quiet {
         eprintln!(
-            "monosub-cli: the app has not saved a model plan yet — using the default \
-             requirements.\n             Open MonoSub once and pick your preferences in \
-             Settings ▸ 模型 so the CLI uses the same models."
+            "monosub-cli: no model plan is saved yet — open MonoSub once and pick your \
+             preferences in Settings ▸ 模型, then run this again."
         );
     }
 
@@ -326,8 +325,14 @@ async fn run_one(
             .unwrap_or_else(|| "sensevoice_small_q8".to_string()),
         vad_model_id: None,
         backend: monosub::engine::Backend::Metal,
-        want_word_timestamps: plan.capabilities.timestamps
-            >= monosub::engine::catalog::TimestampGrade::Word,
+        // The saved plan's own answer, not a re-derivation: the plan was solved
+        // against `require_word_timestamps`, and a plan that cannot align still
+        // runs (with estimated timing) — the engine decides from the model, this
+        // field only says whether the user asked.
+        want_word_timestamps: resolved
+            .recognition
+            .as_ref()
+            .is_some_and(|saved| saved.require_word_timestamps),
         translation,
         plan,
         completed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -420,50 +425,69 @@ fn resolve_translation(
     }
 }
 
-/// Solve the plan from the persisted answers, or explain what is missing.
+/// Read the plan the GUI froze, or explain what is missing.
+///
+/// The CLI does **not** solve. The four questions are answered in the app and
+/// frozen into `settings.json`; re-solving here would let the CLI run a model the
+/// user never saw, and would pick a different one the day a model was deleted.
+/// What it does still check is that the frozen models are on disk — a stale plan
+/// must name the missing model rather than fail inside the engine.
 fn resolve_plan(
     paths: &AppPaths,
     resolved: &Resolved,
 ) -> Result<monosub::engine::plan::ModelPlan, (String, Option<String>)> {
     use monosub::engine::{catalog, plan};
 
+    let Some(saved) = resolved.recognition.as_ref() else {
+        return Err((
+            "no model plan is saved yet; open MonoSub once and pick your preferences in \
+             Settings ▸ 模型"
+                .to_string(),
+            None,
+        ));
+    };
+
     let catalogue = catalog::catalog(paths)
         .map_err(|error| (format!("cannot read the model catalogue: {error}"), None))?;
 
-    let requirements = match &resolved.recognition {
-        Some(saved) => plan::Requirements {
-            word_timestamps: saved.require_word_timestamps,
-            diarization: saved.diarization,
-            language: resolved.language.clone(),
-            language_profile: plan::LanguageProfile::from_wire(Some(&saved.language_profile)),
-            memory: plan::MemoryBudget::from_wire(Some(&saved.memory_budget)),
-            backend: monosub::engine::Backend::Metal,
-        },
-        None => plan::Requirements {
-            language: resolved.language.clone(),
-            ..Default::default()
-        },
+    let mut plan = match plan::thaw(saved, &catalogue) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => {
+            // The gap plan was frozen: Settings itself found no model for the
+            // saved answers. There is nothing to run and no id to suggest.
+            return Err((
+                "the saved plan names no model; open Settings ▸ 模型 and save a plan".to_string(),
+                None,
+            ));
+        }
+        Err(detail) => return Err((detail, None)),
     };
+
+    plan::refresh_from_catalogue(&mut plan, &catalogue);
 
     let installed = |id: &str| catalog::is_installed(paths, id);
-    let solved = plan::solve(&catalogue, &installed, &requirements);
-
-    let Some(plan) = solved.into_iter().next() else {
-        return Err(("no model plan could be solved".to_string(), None));
-    };
-
-    // A gap-bearing empty plan is the solver saying "nothing fits".
-    if plan.steps.is_empty() {
-        let missing = plan
-            .gaps
-            .iter()
-            .find_map(|gap| gap.suggested_model_id.clone());
-        return Err(("no usable model plan for these settings".to_string(), missing));
-    }
-
     for model_id in &plan.model_ids {
+        // Same gate as the app: a retired entry may still be on disk from an
+        // older install, and running it would silently produce the defect it was
+        // retired for. No model id in the error, so the "download it" hint below
+        // does not print — downloading it is exactly what the app refuses.
+        if catalogue
+            .iter()
+            .any(|spec| spec.id == *model_id && !spec.status.is_offered())
+        {
+            return Err((
+                format!(
+                    "model `{model_id}` is not supported by this version of MonoSub; \
+                     open Settings ▸ 模型 in the app and save the plan again"
+                ),
+                None,
+            ));
+        }
         if !installed(model_id) {
-            return Err((format!("model `{model_id}` is not installed"), Some(model_id.clone())));
+            return Err((
+                format!("model `{model_id}` is not installed"),
+                Some(model_id.clone()),
+            ));
         }
     }
 
@@ -500,7 +524,11 @@ impl ProgressSink for Sink {
                     eprintln!("{}", input.display());
                     *warned = true;
                 }
-                let percent = snapshot.progress.round() as u8;
+                // `overall`, not the per-step `progress`: the step fraction
+                // restarts at 0 on every step change, so a line driven by it
+                // would print 0 % four times in one file. The step name still
+                // says which step the percentage belongs to.
+                let percent = snapshot.overall.round() as u8;
                 // Only redraw when the rounded percentage moves: a per-chunk
                 // event would otherwise fill the terminal with duplicates.
                 if percent == *last_percent {
@@ -514,13 +542,17 @@ impl ProgressSink for Sink {
             }
             Sink::Json { input, warned } => {
                 let _ = warned;
+                // `percent` is the run-wide figure (what a script wants to
+                // render); `step_percent` is the fraction inside the current
+                // step, kept separate so the two are never confused.
                 println!(
                     "{{\"event\":\"progress\",\"input\":{},\"step\":{},\"total\":{},\"name\":{},\
-                     \"percent\":{}}}",
+                     \"percent\":{},\"step_percent\":{}}}",
                     json_string(&input.to_string_lossy()),
                     snapshot.current_step,
                     snapshot.total_steps,
                     json_string(snapshot.step_name),
+                    snapshot.overall.round() as u8,
                     snapshot.progress.round() as u8
                 );
             }

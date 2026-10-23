@@ -94,6 +94,61 @@ pub fn slice_file(
     write_slice(&data, start_sample, end_sample, out_path)
 }
 
+/// Copy `start_sample..end_sample` of `src` into a new 16 kHz mono s16le WAV
+/// without holding the whole source in memory.
+///
+/// [`slice_file`] decodes the entire file first, which is fine for a VAD chunk
+/// of a few seconds but not for a diarization window cut from a multi-hour
+/// recording: the source is already 16 kHz mono s16le by construction, so this
+/// streams it frame by frame instead. The range is clamped to the available
+/// frames exactly like [`slice`].
+pub fn copy_range(
+    src: &Path,
+    start_sample: u64,
+    end_sample: u64,
+    out_path: &Path,
+) -> Result<usize, crate::engine::EngineError> {
+    let mut reader = WavReader::open(src).map_err(|e| invalid_audio(src, e))?;
+    let spec = reader.spec();
+    if spec.sample_rate != SAMPLE_RATE
+        || spec.channels != CHANNELS
+        || spec.bits_per_sample != BITS_PER_SAMPLE
+        || spec.sample_format != SampleFormat::Int
+    {
+        return Err(EngineError::InvalidAudio(format!(
+            "{}: unsupported WAV layout for a streamed copy",
+            src.display()
+        )));
+    }
+
+    let total = reader.duration() as u64;
+    let (start, end) = clamp_range(total as usize, start_sample, end_sample);
+    let (start, end) = (start as u64, end as u64);
+
+    let out_spec = WavSpec {
+        channels: CHANNELS,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: BITS_PER_SAMPLE,
+        sample_format: SampleFormat::Int,
+    };
+    let mut writer = WavWriter::create(out_path, out_spec).map_err(|e| io_error(out_path, e))?;
+
+    let samples = reader.samples::<i16>();
+    for (index, sample) in samples.enumerate() {
+        let index = index as u64;
+        if index >= end {
+            break;
+        }
+        let sample = sample.map_err(|e| invalid_audio(src, e))?;
+        if index >= start {
+            writer.write_sample(sample).map_err(|e| io_error(out_path, e))?;
+        }
+    }
+    writer.finalize().map_err(|e| io_error(out_path, e))?;
+
+    Ok((end - start) as usize)
+}
+
 /// Write the clamped range and return the number of frames written.
 fn write_slice(
     data: &WavData,

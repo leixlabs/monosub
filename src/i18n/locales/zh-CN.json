@@ -153,6 +153,11 @@
     "engineFailed": "语音识别失败，详情请查看日志。",
     "engineMissing": "语音引擎缺失或无法执行。请重新安装 MonoSub。",
     "modelNotInstalled": "语音识别模型尚未安装。点击这个文件的错误标签可查看详情并下载。",
+    "modelPlan": {
+      "notConfigured": "尚未保存识别方案。请打开「设置 → 模型」，回答四个问题后重试。",
+      "unreadable": "已保存的识别方案无法读取。请打开「设置 → 模型」重新保存方案。",
+      "unsupportedModel": "已保存的方案使用了当前版本不再支持的模型。请打开「设置 → 模型」重新保存方案。"
+    },
     "translationModelNotInstalled": "翻译模型尚未安装。点击这个文件的错误标签可查看详情并下载。",
     "missingModel": {
       "lookingUp": "正在查找缺失的模型…",
@@ -213,7 +218,9 @@
     "recognitionTitle": "识别模型",
     "translationTitle": "翻译模型",
     "unverified": "未验证",
-    "unverifiedHint": "尚未完整实测，可能无法正常工作"
+    "unverifiedHint": "尚未完整实测，可能无法正常工作",
+    "unsupported": "不支持",
+    "unsupportedHint": "当前版本的 MonoSub 不再提供该模型。它保留在清单中仅为完整性；方案求解不会选中它，也无法下载。"
   },
   "modelPlan": {
     "title": "识别方案",

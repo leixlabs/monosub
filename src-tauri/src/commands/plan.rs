@@ -136,14 +136,6 @@ pub fn language_profile_from_wire(value: Option<&str>) -> LanguageProfile {
 /// task's to edit; `MemoryBudget::label` is the same idea. Canonical on purpose:
 /// the accepted aliases (`zh-en`, `multi`) must be normalised before they are
 /// written to `settings.json`, or the CLI would see a spelling the UI never uses.
-fn language_profile_name(profile: LanguageProfile) -> &'static str {
-    match profile {
-        LanguageProfile::Mandarin => "mandarin",
-        LanguageProfile::Mixed => "mixed",
-        LanguageProfile::Multilingual => "multilingual",
-    }
-}
-
 /// Same rule as `transcribe::resolve_backend`: only an explicit `cpu` forces
 /// CPU, everything else is Metal on macOS and CPU elsewhere.
 pub fn backend_from_device(device: Option<&str>) -> Backend {
@@ -296,11 +288,8 @@ pub async fn resolve_model_plan(
 
     // `solve` returns a gap-bearing empty plan when nothing fits, so the first
     // entry is always a valid payload; an empty list is still handled.
-    let plan_dto = candidates
-        .first()
-        .cloned()
-        .map(ModelPlanDto::from)
-        .unwrap_or_else(|| ModelPlanDto {
+    let chosen = candidates.first().cloned();
+    let plan_dto = chosen.clone().map(ModelPlanDto::from).unwrap_or_else(|| ModelPlanDto {
             id: "unsolved".to_string(),
             title_key: "modelPlan.gapTitle",
             model_ids: Vec::new(),
@@ -326,12 +315,19 @@ pub async fn resolve_model_plan(
     // is called on every requirement change, so "what the user picked" reaches
     // disk immediately — no new event or timer.
     //
+    // The record is built by [`plan::freeze`] from the solved plan, not from the
+    // DTO: the DTO's step labels are the frontend's (`diarize`,
+    // `turn_attribution`) while the stored form is the solver's (`diar`,
+    // `turns`), and `plan::thaw` reads only the latter. Building it twice is how
+    // a saved plan becomes unreadable.
+    //
     // A write failure must NOT fail the command: the user is browsing the
-    // Settings page and the preview is the answer they asked for. The CLI will
-    // fall back to the default four answers if the file is stale.
-    let persisted = recognition_plan_from_requirements(&req, &plan_dto);
-    if let Err(error) = crate::model_dir::save_recognition_plan(&app, persisted) {
-        tracing::warn!(error = %error, "failed to persist the chosen recognition plan");
+    // Settings page and the preview is the answer they asked for.
+    if let Some(chosen) = chosen {
+        let persisted = plan::freeze(&chosen, &req);
+        if let Err(error) = crate::model_dir::save_recognition_plan(&app, persisted) {
+            tracing::warn!(error = %error, "failed to persist the chosen recognition plan");
+        }
     }
 
     Ok(PlanResponse {
@@ -339,26 +335,6 @@ pub async fn resolve_model_plan(
         candidates: candidates.into_iter().map(ModelPlanDto::from).collect(),
         gaps,
     })
-}
-
-/// Build the persisted record from the requirements and the plan that won.
-///
-/// The five requirement fields are copied from [`Requirements`] (canonical
-/// spellings) rather than from the wire request, so an alias like `zh-en` or a
-/// missing field cannot be stored verbatim. `model_ids` is the solver's output —
-/// a cache the CLI re-verifies, not the authority.
-fn recognition_plan_from_requirements(
-    req: &Requirements,
-    plan: &ModelPlanDto,
-) -> crate::model_dir::RecognitionPlan {
-    crate::model_dir::RecognitionPlan {
-        language_profile: language_profile_name(req.language_profile).to_string(),
-        memory_budget: req.memory.label().to_string(),
-        require_word_timestamps: req.word_timestamps,
-        diarization: req.diarization,
-        language: req.language.clone(),
-        model_ids: plan.model_ids.clone(),
-    }
 }
 
 /// Persist the Settings → 翻译 intent for the CLI to report.
@@ -526,10 +502,11 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
-            verified: false,
+            status: crate::engine::catalog::SupportStatus::Unverified,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         }];
 
         let mut plans = plan::solve(&catalogue, &|_: &str| true, &Requirements::default());
@@ -602,26 +579,30 @@ mod tests {
             device: None,
             model_overrides: None,
         };
-        let plan = ModelPlanDto {
+        let plan = ModelPlan {
             id: "word".to_string(),
             title_key: "modelPlan.planWord",
             model_ids: vec!["qwen3_asr_0_6b_q8_0".to_string()],
-            steps: Vec::new(),
-            cost: PlanCostDto {
+            steps: vec![PlanStep {
+                kind: StepKind::Asr,
+                model_id: "qwen3_asr_0_6b_q8_0".to_string(),
+                task: "asr".to_string(),
+                family: "qwen3_asr".to_string(),
+            }],
+            cost: PlanCost {
                 steps: 1,
-                speed: "balanced",
-                memory: "medium",
+                speed: Speed::Balanced,
+                memory: MemoryBudget::Medium,
             },
             capabilities: Capabilities {
                 timestamps: TimestampGrade::Word,
                 diarization: DiarizationGrade::None,
                 produces_text: true,
-            }
-            .into(),
+            },
             gaps: Vec::new(),
         };
 
-        let persisted = recognition_plan_from_requirements(&request.to_requirements(), &plan);
+        let persisted = plan::freeze(&plan, &request.to_requirements());
 
         assert_eq!(persisted.language_profile, "mixed");
         assert_eq!(persisted.memory_budget, "small");
@@ -629,6 +610,9 @@ mod tests {
         assert!(!persisted.diarization);
         assert_eq!(persisted.language, "en");
         assert_eq!(persisted.model_ids, vec!["qwen3_asr_0_6b_q8_0"]);
+        // The stored label is the solver's (`asr`), which is what `thaw` reads.
+        assert_eq!(persisted.steps.len(), 1);
+        assert_eq!(persisted.steps[0].kind, "asr");
     }
 
     /// A request that uses a documented alias (`zh-en`) or omits a field must
@@ -641,26 +625,25 @@ mod tests {
             "memory_budget": "nonsense",
         }))
         .unwrap();
-        let plan = ModelPlanDto {
+        let plan = ModelPlan {
             id: "default".to_string(),
             title_key: "modelPlan.planDefault",
             model_ids: Vec::new(),
             steps: Vec::new(),
-            cost: PlanCostDto {
+            cost: PlanCost {
                 steps: 0,
-                speed: "balanced",
-                memory: "medium",
+                speed: Speed::Balanced,
+                memory: MemoryBudget::Medium,
             },
             capabilities: Capabilities {
                 timestamps: TimestampGrade::None,
                 diarization: DiarizationGrade::None,
                 produces_text: true,
-            }
-            .into(),
+            },
             gaps: Vec::new(),
         };
 
-        let persisted = recognition_plan_from_requirements(&request.to_requirements(), &plan);
+        let persisted = plan::freeze(&plan, &request.to_requirements());
 
         assert_eq!(
             persisted.language_profile, "mixed",
@@ -673,5 +656,75 @@ mod tests {
         assert_eq!(persisted.language, "zh", "the documented default language");
         assert!(!persisted.require_word_timestamps);
         assert!(!persisted.diarization);
+    }
+
+    /// The round trip is what makes `settings.json` the authority rather than a
+    /// cache: what Settings froze is exactly what a run reads back.
+    #[test]
+    fn a_frozen_plan_thaws_back_to_the_same_steps() {
+        let req = Requirements {
+            word_timestamps: true,
+            diarization: true,
+            language: "zh".to_string(),
+            ..Requirements::default()
+        };
+        let plan = ModelPlan {
+            id: "composed".to_string(),
+            title_key: "modelPlan.planAsrDiar",
+            model_ids: vec!["qwen3_asr_0_6b_q8_0".to_string(), "sortformer".to_string()],
+            steps: vec![
+                PlanStep {
+                    kind: StepKind::Asr,
+                    model_id: "qwen3_asr_0_6b_q8_0".to_string(),
+                    task: "asr".to_string(),
+                    family: "qwen3_asr".to_string(),
+                },
+                PlanStep {
+                    kind: StepKind::Diarize,
+                    model_id: "sortformer".to_string(),
+                    task: "diar".to_string(),
+                    family: "sortformer_diar".to_string(),
+                },
+                PlanStep::rust(StepKind::TurnAttribution),
+            ],
+            cost: PlanCost {
+                steps: 3,
+                speed: Speed::Balanced,
+                memory: MemoryBudget::Medium,
+            },
+            capabilities: Capabilities {
+                timestamps: TimestampGrade::Word,
+                diarization: DiarizationGrade::TurnsWithText,
+                produces_text: true,
+            },
+            gaps: Vec::new(),
+        };
+
+        let frozen = plan::freeze(&plan, &req);
+        // An empty catalogue on purpose: `thaw` must recover the steps without
+        // one, and an absent model only costs the capability union.
+        let thawed = plan::thaw(&frozen, &[]).unwrap().expect("a filled plan thaws");
+
+        assert_eq!(thawed.steps.len(), 3);
+        assert_eq!(thawed.steps[0].kind, StepKind::Asr);
+        assert_eq!(thawed.steps[1].kind, StepKind::Diarize);
+        assert_eq!(thawed.steps[2].kind, StepKind::TurnAttribution);
+        assert_eq!(thawed.model_ids, vec!["qwen3_asr_0_6b_q8_0", "sortformer"]);
+    }
+
+    /// The gap plan has no steps and must not be mistaken for a runnable one.
+    #[test]
+    fn the_gap_plan_thaws_to_nothing() {
+        let frozen = crate::model_dir::RecognitionPlan {
+            language_profile: "mandarin".to_string(),
+            memory_budget: "medium".to_string(),
+            require_word_timestamps: false,
+            diarization: false,
+            language: "zh".to_string(),
+            model_ids: Vec::new(),
+            steps: Vec::new(),
+        };
+
+        assert!(plan::thaw(&frozen, &[]).unwrap().is_none());
     }
 }

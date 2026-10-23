@@ -163,10 +163,17 @@
     "recognitionTitle": "Recognition models",
     "translationTitle": "Translation models",
     "unverified": "Unverified",
-    "unverifiedHint": "Not yet run end to end; it may not work"
+    "unverifiedHint": "Not yet run end to end; it may not work",
+    "unsupported": "Not supported",
+    "unsupportedHint": "This version of MonoSub does not offer this model. It is listed for completeness; the planner never selects it and it cannot be downloaded."
   },
   "errors": {
     "modelNotInstalled": "The speech model is not installed. Click this file's error badge to see details and download it.",
+    "modelPlan": {
+      "notConfigured": "No recognition plan has been saved yet. Open Settings → Models, answer the four questions, and try again.",
+      "unreadable": "The saved recognition plan cannot be read. Open Settings → Models and save the plan again.",
+      "unsupportedModel": "The saved plan uses a model this version no longer supports. Open Settings → Models and save the plan again."
+    },
     "translationModelNotInstalled": "The translation model is not installed. Click this file's error badge to see details and download it.",
     "engineMissing": "The speech engine is missing or not executable. Reinstall MonoSub to restore it.",
     "engineFailed": "Speech recognition failed. See the logs for details.",

@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
 use crate::engine::catalog::ModelSpec;
-use crate::engine::plan::{self, ModelPlan, Requirements, StepKind};
+use crate::engine::plan::{self, ModelPlan, StepKind};
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
 use crate::translate;
@@ -37,7 +37,11 @@ pub struct StepInfo {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TranscribeProgress {
     pub task_id: String,
+    /// Progress within the current step, 0…100.
     pub progress: f64,
+    /// Progress across the whole run, 0…100 (absent on non-step events).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overall: Option<f64>,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<StepInfo>,
@@ -237,23 +241,13 @@ pub async fn start_transcription(
         }
     };
 
-    // Solve the requirement → plan (M8-2). The model gate is now driven by the
-    // PLAN, not by the single default model: every model the chosen plan needs
-    // must be installed, and the missing id travels back so the UI can jump
-    // straight to that catalogue entry (M8-3).
-    let requirements = Requirements {
-        word_timestamps: require_word_timestamps.unwrap_or(false),
-        diarization: enable_diarization,
-        language: language.clone(),
-        language_profile: crate::engine::plan::LanguageProfile::from_wire(
-            language_profile.as_deref(),
-        ),
-        memory: memory_from_request(memory_budget.as_deref()),
-        backend,
-    };
-
-    let paths = match crate::paths::AppPaths::from_app(&app) {
-        Ok(paths) => paths,
+    // The plan is **not** solved here. Settings froze it into `settings.json`
+    // when the user answered the four questions, and a run executes exactly that
+    // plan: re-solving at run time made the model depend on the install state of
+    // the moment, so deleting a model silently swapped in a different one
+    // instead of telling the user. A missing model is now reported by the
+    // install gate below, which is what turns it into a download prompt.
+    let paths = match crate::paths::AppPaths::from_app(&app) {        Ok(paths) => paths,
         Err(error) => {
             tracing::error!(task_id = %task_id, error = %error, "failed to resolve app paths");
             emit_error(&app, &task_id, "engineFailed");
@@ -269,44 +263,130 @@ pub async fn start_transcription(
         }
     };
     let installed = |id: &str| engine::catalog::is_installed(&paths, id);
-    let mut plans = plan::solve(&catalogue, &installed, &requirements);
 
-    // Manual overrides pin a step to an explicit model. They are applied only
-    // to the winning plan, so an override cannot resurrect an unsatisfiable
-    // template (design §8.2.3).
-    if let Some(overrides) = model_overrides.as_ref() {
-        apply_model_overrides(&mut plans, overrides, &catalogue);
-    }
-
-    let Some(plan) = plans.into_iter().next() else {
-        tracing::warn!(task_id = %task_id, "the solver produced no plan at all");
-        return Err(MODEL_NOT_INSTALLED.to_string());
+    let saved = match crate::model_dir::load_settings(&app).recognition_plan {
+        Some(plan) => plan,
+        None => {
+            // No saved plan: the user has never opened Settings ▸ 模型. This is
+            // not a missing *model*, it is a missing *decision*, so it must not
+            // be reported as MODEL_NOT_INSTALLED — the download UI would open
+            // for a model nobody chose.
+            tracing::warn!(task_id = %task_id, "no saved recognition plan");
+            emit_error(&app, &task_id, "modelPlan.notConfigured");
+            return Ok(task_id);
+        }
     };
 
-    // A plan with no steps is the solver's "nothing fits" answer: report the
-    // missing model (when the catalogue knows one) so the download UI opens.
-    if plan.steps.is_empty() {
-        let missing = plan
-            .gaps
-            .iter()
-            .find_map(|gap| gap.suggested_model_id.clone());
+    // Manual overrides are part of the saved plan, not a run-time argument: they
+    // are applied once, in Settings, and frozen with everything else. A request
+    // that still carries them is logged so a stale frontend is visible rather
+    // than silently ignored.
+    if model_overrides.as_ref().is_some_and(|map| !map.is_empty()) {
         tracing::warn!(
             task_id = %task_id,
-            plan = %plan.id,
-            missing = ?missing,
-            "no usable model plan for this request"
+            "the request carries model overrides, which the saved plan already includes; ignoring them"
         );
-        return Err(match missing {
-            Some(id) => format!("{}:{}", MODEL_NOT_INSTALLED, id),
-            None => MODEL_NOT_INSTALLED.to_string(),
-        });
     }
 
-    // Every model in the plan must be present, and a manual override may name
-    // one the solver never checked.
+    // The four plan answers are the same kind of thing: they were answered in
+    // Settings and frozen with the plan, so a request carrying different values
+    // cannot re-solve anything. Logging the disagreement is the whole value of
+    // reading them here — a silent ignore would make a stale frontend
+    // undiagnosable.
+    let asked_differently = require_word_timestamps.unwrap_or(false) != saved.require_word_timestamps
+        || language_profile
+            .as_deref()
+            .is_some_and(|value| !value.eq_ignore_ascii_case(&saved.language_profile))
+        || memory_budget
+            .as_deref()
+            .is_some_and(|value| !value.eq_ignore_ascii_case(&saved.memory_budget));
+    if asked_differently {
+        tracing::warn!(
+            task_id = %task_id,
+            "the request's plan answers differ from the saved plan; the saved plan is what runs"
+        );
+    }
+
+    let mut plan = match plan::thaw(&saved, &catalogue) {
+        Ok(Some(plan)) => plan,
+        Ok(None) => {
+            // The gap plan was frozen, meaning Settings itself found no model for
+            // the request. There is no step to run, so the only useful answer is
+            // the download prompt — and it needs a model id to open on. The
+            // record does not store one (a gap plan has no steps), so this is the
+            // plain sentinel: the row then offers the model list rather than
+            // guessing which model the user should have.
+            tracing::warn!(task_id = %task_id, "the saved plan has no steps");
+            return Err(MODEL_NOT_INSTALLED.to_string());
+        }
+        Err(detail) => {
+            tracing::error!(task_id = %task_id, detail = %detail, "the saved plan cannot be read");
+            emit_error(&app, &task_id, "modelPlan.unreadable");
+            return Ok(task_id);
+        }
+    };
+
+    // Recompute the derived fields the runtime reads (`capabilities.timestamps`
+    // decides the word-timestamp path) from the catalogue, so a frozen step list
+    // and a changed catalogue cannot disagree about what a step can do.
+    plan::refresh_from_catalogue(&mut plan, &catalogue);
+
+    // Per-file speaker separation is a *subset* of the frozen plan, not a second
+    // solve: turning it off for one file drops the diarization steps and runs the
+    // ASR alone. Turning it **on** for a file whose plan has no diar step cannot
+    // invent a model — that would be exactly the run-time re-solve this design
+    // removed — so it is logged and the file runs without speaker labels.
+    if !enable_diarization && plan.steps.iter().any(|step| step.kind == StepKind::Diarize) {
+        tracing::info!(
+            task_id = %task_id,
+            "this file has speaker separation off; running the plan without its diarization steps"
+        );
+        plan.steps.retain(|step| {
+            !matches!(step.kind, StepKind::Diarize | StepKind::TurnAttribution)
+        });
+        plan::refresh_from_catalogue(&mut plan, &catalogue);
+    } else if enable_diarization
+        && !plan.steps.iter().any(|step| step.kind == StepKind::Diarize)
+    {
+        tracing::warn!(
+            task_id = %task_id,
+            "speaker separation is on for this file, but the saved plan has no diarization step; \
+             run without speaker labels (re-save the plan in Settings ▸ 模型 to add one)"
+        );
+    }
+
+    if plan.steps.is_empty() {
+        tracing::warn!(task_id = %task_id, "the saved plan has no usable steps");
+        return Err(MODEL_NOT_INSTALLED.to_string());
+    }
+
+    // Every model in the saved plan must be present. A model deleted since the
+    // plan was saved is reported here — never replaced by another one.
     for model_id in &plan.model_ids {
+        // A model this version retired (`status: unsupported`) is still in the
+        // catalogue for attribution, and may still be on disk from an older
+        // install. Running it is not the answer: v1 diarization silently drops
+        // speaker labels past 120 s, and `download_model` would refuse to
+        // replace it. The plan is stale, so say that instead of starting.
+        if catalogue
+            .iter()
+            .any(|spec| spec.id == *model_id && !spec.status.is_offered())
+        {
+            tracing::warn!(
+                task_id = %task_id,
+                model = %model_id,
+                "the saved plan names a model this version does not support"
+            );
+            emit_error(&app, &task_id, "modelPlan.unsupportedModel");
+            return Ok(task_id);
+        }
         if !installed(model_id) {
-            tracing::warn!(task_id = %task_id, model = %model_id, plan = %plan.id, "plan model is not installed");
+            tracing::warn!(
+                task_id = %task_id,
+                model = %model_id,
+                plan = %plan.id,
+                "the saved plan needs a model that is not installed"
+            );
             return Err(format!("{}:{}", MODEL_NOT_INSTALLED, model_id));
         }
     }
@@ -388,7 +468,12 @@ pub async fn start_transcription(
         model_id: primary_model_id,
         vad_model_id,
         backend,
-        want_word_timestamps: requirements.word_timestamps,
+        // What the user asked for when the plan was saved, not what this request
+        // carries: the plan is frozen, so its own answer is the one that was
+        // solved against. Kept as a separate field because the engine must only
+        // align when it was *asked* for it, and a plan can outlive the request
+        // that produced it.
+        want_word_timestamps: saved.require_word_timestamps,
         plan,
         translation,
         completed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -603,12 +688,21 @@ pub async fn transcribe_file(
                             "monosub-diar-turns-{}.json",
                             params.task_id
                         ));
+                        // The recognition stage already ran VAD, so the speech
+                        // spans are free: they let the diar windows be cut in
+                        // silence instead of on a blind time grid. They are *not*
+                        // the unit of work — see `diar::detect_turns`.
+                        let speech: Vec<(f64, f64)> = chunks
+                            .iter()
+                            .map(|chunk| (chunk.start_s, chunk.end_s))
+                            .collect();
                         match engine::diar::detect_turns(
                             paths,
                             audio.path(),
                             &diar_id,
                             params.backend,
                             &turns_path,
+                            &speech,
                         )
                         .await
                         {
@@ -862,6 +956,7 @@ impl Steps {
         sink.step(&StepSnapshot {
             task_id: task_id.to_string(),
             progress,
+            overall: self.overall(progress),
             status: status.to_string(),
             current_step: self.current,
             total_steps: self.total,
@@ -870,6 +965,31 @@ impl Steps {
             step_elapsed: self.step_start.elapsed().as_secs_f64(),
             total_elapsed: self.start.elapsed().as_secs_f64(),
         });
+    }
+
+    /// This run's percentage, across every step.
+    ///
+    /// `progress` is per **step** and restarts at 0 whenever a new step begins, so
+    /// a bar driven by it alone jumps back to zero four times in one file. The
+    /// whole-run figure weights every step equally and takes the current step's
+    /// own fraction as its partial credit:
+    ///
+    /// ```text
+    /// overall = (current - 1 + progress/100) / total * 100
+    /// ```
+    ///
+    /// Equal weights are a deliberate choice, not an approximation: step 3
+    /// (transcription) dominates wall time, and pretending to know the split in
+    /// advance would be a fabricated number. The bar moves monotonically and
+    /// reaches 100 exactly when the last step does, which is what a progress bar
+    /// owes the user.
+    fn overall(&self, progress: f64) -> f64 {
+        if self.total == 0 {
+            return 0.0;
+        }
+        let step = self.current.saturating_sub(1) as f64;
+        let fraction = (progress / 100.0).clamp(0.0, 1.0);
+        ((step + fraction) / self.total as f64 * 100.0).clamp(0.0, 100.0)
     }
 
     fn total_seconds(&self) -> f64 {
@@ -884,7 +1004,10 @@ impl Steps {
 /// [`transcribe_file`].
 pub struct StepSnapshot {
     pub task_id: String,
+    /// Progress **within** the current step, 0…100.
     pub progress: f64,
+    /// Progress across the whole run, 0…100. This is what a progress bar shows.
+    pub overall: f64,
     pub status: String,
     pub current_step: u32,
     pub total_steps: u32,
@@ -920,6 +1043,7 @@ impl ProgressSink for EventSink<'_> {
             TranscribeProgress {
                 task_id: snapshot.task_id.clone(),
                 progress: snapshot.progress,
+                overall: Some(snapshot.overall),
                 status: snapshot.status.clone(),
                 step: Some(StepInfo {
                     current_step: snapshot.current_step,
@@ -943,6 +1067,7 @@ impl ProgressSink for EventSink<'_> {
             TranscribeProgress {
                 task_id: task_id.to_string(),
                 progress: 100.0,
+                overall: Some(100.0),
                 status: "completed".to_string(),
                 step: None,
                 total_time: Some(total_seconds),
@@ -964,6 +1089,7 @@ fn emit_queued(app: &AppHandle, task_id: &str) {
         TranscribeProgress {
             task_id: task_id.to_string(),
             progress: 0.0,
+            overall: Some(0.0),
             status: "Pending in queue...".to_string(),
             step: None,
             total_time: None,
@@ -977,6 +1103,9 @@ fn emit_error(app: &AppHandle, task_id: &str, status: &str) {
         TranscribeProgress {
             task_id: task_id.to_string(),
             progress: 0.0,
+            // An error is not a position in the run, so there is no overall
+            // figure to report: the row shows the failure, not a stuck bar.
+            overall: None,
             status: status.to_string(),
             step: None,
             total_time: None,
@@ -1285,15 +1414,18 @@ fn derive_output_paths(
 
 /// Map `small` / `medium` / `large`; anything else is `Medium`.
 ///
-/// Kept as a thin wrapper over [`crate::engine::plan::MemoryBudget::from_wire`]
-/// so the run and the Settings preview cannot drift on the three spellings.
+/// Test-only now: the run reads the answers off the frozen plan instead of the
+/// request, so this survives only to pin the three wire spellings the Settings
+/// DTO also uses.
+#[cfg(test)]
 fn memory_from_request(value: Option<&str>) -> crate::engine::plan::MemoryBudget {
     crate::engine::plan::MemoryBudget::from_wire(value)
 }
 
 // Manual overrides live in the solver module (`plan::apply_model_overrides`),
-// because the Settings preview must apply exactly the same pinning the run
-// does. Keeping one copy is what stops the preview and the run from drifting.
+// because the Settings preview must apply exactly the same pinning the freeze
+// does. The run no longer applies them — they are part of the saved plan.
+#[cfg(test)]
 use crate::engine::plan::apply_model_overrides;
 
 /// The frontend does not send `device` today; `auto`/absent means "the engine
@@ -1339,6 +1471,63 @@ mod tests {
     use super::*;
     use crate::engine::catalog::Speed;
     use std::time::Duration;
+
+    // --- progress -----------------------------------------------------------
+
+    /// `overall` must climb across steps, never jump back to 0 at a step
+    /// boundary, and land on exactly 100 in the last step.
+    ///
+    /// Regression: the bar used to be driven by `progress`, which restarts at 0
+    /// for every step, so it fell back to zero four times per file and the tray
+    /// percentage (`buildTitle` averages `file.progress`) read 0 % while a
+    /// two-hour file was being transcribed.
+    #[test]
+    fn overall_progress_is_monotonic_across_steps() {
+        let steps = Steps::new(false);
+        assert_eq!(steps.total, 4);
+
+        let mut seen = Vec::new();
+        for step in 1..=4u32 {
+            let mut steps = Steps::new(false);
+            steps.current = step;
+            for fraction in [0.0, 25.0, 50.0, 100.0] {
+                seen.push(steps.overall(fraction));
+            }
+        }
+
+        assert!(
+            seen.windows(2).all(|pair| pair[0] <= pair[1]),
+            "overall must never regress: {seen:?}"
+        );
+        assert_eq!(seen.first(), Some(&0.0));
+        assert_eq!(seen.last(), Some(&100.0), "the last step must reach 100");
+        // Step 3 at 50 % is halfway through a 4-step run.
+        let mut steps = Steps::new(false);
+        steps.current = 3;
+        assert_eq!(steps.overall(50.0), 62.5);
+    }
+
+    /// A translating run has five steps, so the same per-step fraction is worth
+    /// less. The denominator comes from `Steps::new`, not a constant.
+    #[test]
+    fn a_translating_run_spreads_the_same_work_over_five_steps() {
+        let mut plain = Steps::new(false);
+        plain.current = 4;
+        let mut translating = Steps::new(true);
+        translating.current = 4;
+
+        assert_eq!(plain.overall(100.0), 100.0);
+        assert_eq!(translating.overall(100.0), 80.0);
+    }
+
+    /// An out-of-range fraction is clamped rather than producing 120 % or -5 %.
+    #[test]
+    fn overall_progress_clamps_out_of_range_input() {
+        let mut steps = Steps::new(false);
+        steps.current = 2;
+        assert_eq!(steps.overall(-10.0), 25.0);
+        assert_eq!(steps.overall(250.0), 50.0);
+    }
 
 
     // --- M8: request → solver requirement mapping -------------------------
@@ -1652,10 +1841,11 @@ mod tests {
                 speed: None,
                 source: None,
                 tier: None,
-                verified: false,
+                status: crate::engine::catalog::SupportStatus::Unverified,
                 licenses: Vec::new(),
                 requires: Vec::new(),
                 language_tokens: Vec::new(),
+            max_session_seconds: None,
             },
         ];
 
@@ -1722,10 +1912,11 @@ mod tests {
             speed: Some(Speed::Balanced),
             source: None,
             tier: None,
-            verified: false,
+            status: crate::engine::catalog::SupportStatus::Unverified,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         };
 
         let mut plans = vec![ModelPlan {

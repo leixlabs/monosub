@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Info, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
-import { useStore } from '@/store/useStore';
+import { useStore, type ModelOverrideSlot } from '@/store/useStore';
 import type { LanguageProfile, MemoryBudget } from '@/lib/modelPlan';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { GlassButton } from '@/components/ui/glass-button';
@@ -99,6 +99,28 @@ export function SettingsModelPlan() {
     }
   }, []);
 
+  // A pin that points at a model this version no longer offers would render as
+  // an empty dropdown (CustomSelect cannot label a value it has no option for)
+  // and would be dropped by the backend anyway. Clearing it is what makes the
+  // slot read "Auto" instead of silently blank.
+  useEffect(() => {
+    if (models.length === 0) return;
+    const known = new Map(models.map((model) => [model.id, model]));
+    for (const [slot, modelId] of Object.entries(modelOverrides) as [
+      ModelOverrideSlot,
+      string | undefined,
+    ][]) {
+      if (!modelId) continue;
+      const model = known.get(modelId);
+      if (!model || model.status === 'unsupported') {
+        console.warn(
+          `[SettingsModelPlan] clearing ${slot} override ${modelId}: the model is no longer offered`,
+        );
+        setModelOverride(slot, '');
+      }
+    }
+  }, [models, modelOverrides, setModelOverride]);
+
   // Live preview: re-solve whenever any requirement changes (design §8.2.1).
   useEffect(() => {
     let cancelled = false;
@@ -148,10 +170,15 @@ export function SettingsModelPlan() {
   const slotOptions = useMemo(() => {
     const build = (slot: Slot): SelectOption<string>[] => {
       const role = SLOT_ROLE[slot];
-      const eligible = models.filter((model) =>
-        model.roles.length > 0
-          ? model.roles.includes(role)
-          : role === 'asr',
+      // A retired entry (`status: unsupported`) must not be selectable here: the
+      // manual override would freeze a plan the run then refuses to execute.
+      // `unverified` stays listed — it is offered, just not yet proven.
+      const eligible = models.filter(
+        (model) =>
+          model.status !== 'unsupported' &&
+          (model.roles.length > 0
+            ? model.roles.includes(role)
+            : role === 'asr'),
       );
       return [
         { value: '', label: t('modelPlan.slotAuto') },

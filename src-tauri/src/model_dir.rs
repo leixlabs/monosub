@@ -67,19 +67,23 @@ pub struct BackendSettings {
     pub translation: Option<TranslationSettings>,
 }
 
-/// The four plan answers plus the plan they produced, for the CLI to reuse.
-///
-/// `model_ids` is a **cache, not the authority**: the CLI
-/// re-runs `plan::solve` over `language_profile` / `memory_budget` /
-/// `require_word_timestamps` / `diarization` and trusts the solver, warning when
-/// the two disagree (the user may have deleted a model since). The cache is
-/// still worth keeping — it is the only record of what the user actually chose,
-/// including a manually pinned model.
+/// The four plan answers **and the plan they produced**, frozen at Settings time.
 ///
 /// `#[serde(default)]` on the container is deliberate: a cached hint must never
 /// make the whole file unreadable, because `BackendSettings` parses
 /// all-or-nothing and a dropped `modelsDir` would silently point the app at an
 /// empty default directory.
+///
+/// This is the authority, not a cache: `start_transcription` reads `steps` and
+/// runs exactly those models, so a model deleted from disk is reported as
+/// `MODEL_NOT_INSTALLED:<id>` rather than silently replaced by a different one
+/// the solver would have preferred that day. The user picks once, in Settings;
+/// a run does not re-solve.
+///
+/// `steps` is the whole plan in executable order, including the pure-Rust
+/// `turn_attribution` step (which has an empty `model_id`). Storing the steps
+/// rather than only `model_ids` is what makes the order and the role of each
+/// model recoverable without consulting the catalogue.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct RecognitionPlan {
@@ -93,8 +97,33 @@ pub struct RecognitionPlan {
     pub diarization: bool,
     /// The language the plan was solved for (`auto` is never a plan input).
     pub language: String,
-    /// Cached solver output, in plan order.
+    /// Model ids in plan order — the download prompts and the install gate read
+    /// this, so it stays even though `steps` carries the same information.
     pub model_ids: Vec<String>,
+    /// The executable plan, frozen. Empty means "nothing could be solved", which
+    /// is the gap plan and must not be run.
+    pub steps: Vec<PlanStepRecord>,
+}
+
+/// One step of a frozen plan.
+///
+/// Deliberately its own type rather than reusing `engine::plan::PlanStep`: that
+/// one is an in-memory value whose `kind` has no stable spelling, while this is
+/// written to `settings.json` and read back by a different process. The `kind`
+/// string is the same one [`crate::engine::plan::StepKind::label`] produces
+/// (`asr` / `diar` / `turns`), pinned here so a rename in the solver cannot
+/// silently reinterpret an existing settings file.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PlanStepRecord {
+    /// `asr` / `diar` / `turns` (and `vad` for a manually pinned VAD model).
+    pub kind: String,
+    /// Catalogue id; empty for the pure-Rust `turns` step.
+    pub model_id: String,
+    /// audio.cpp `--task`; empty for the pure-Rust step.
+    pub task: String,
+    /// audio.cpp `--family`; empty for the pure-Rust step.
+    pub family: String,
 }
 
 /// The Settings → 翻译 panel's intent, persisted so the CLI can report the same
@@ -323,6 +352,20 @@ mod tests {
             model_ids: vec![
                 "qwen3_asr_0_6b_q8_0".to_string(),
                 "qwen3_forced_aligner_0_6b_q8_0".to_string(),
+            ],
+            steps: vec![
+                PlanStepRecord {
+                    kind: "asr".to_string(),
+                    model_id: "qwen3_asr_0_6b_q8_0".to_string(),
+                    task: "asr".to_string(),
+                    family: "qwen3_asr".to_string(),
+                },
+                PlanStepRecord {
+                    kind: "align".to_string(),
+                    model_id: "qwen3_forced_aligner_0_6b_q8_0".to_string(),
+                    task: "align".to_string(),
+                    family: "qwen3_forced_aligner".to_string(),
+                },
             ],
         }
     }

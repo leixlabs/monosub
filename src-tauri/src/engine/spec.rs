@@ -121,6 +121,42 @@ impl RequestOptions {
     }
 }
 
+/// The `--session-option`s this pipeline may send.
+///
+/// Only one is conditional today. It is a separate type rather than another bool
+/// on [`RequestOptions`] because the two travel by different mechanisms — a
+/// request option goes into `requests.json`, a session option onto the command
+/// line — and one being allowed says nothing about the other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionOptions {
+    /// Send `{family}.session_len_sec=<seconds>`.
+    ///
+    /// `sortformer_diar` (v1) needs it: it builds a fixed-capacity graph sized by
+    /// this value, defaulting to 20 s, so omitting it makes any real recording
+    /// fail with `request exceeds fixed graph capacity`. `nemotron_3_diar` has no
+    /// such option and rejects it outright.
+    pub session_len_sec: bool,
+}
+
+impl SessionOptions {
+    /// Everything on — the historic behaviour, and the answer when the model
+    /// cannot be inspected.
+    pub const ALL: Self = Self {
+        session_len_sec: true,
+    };
+
+    /// Nothing: the family sizes its own graph.
+    pub const NONE: Self = Self {
+        session_len_sec: false,
+    };
+
+    fn from_declared(declared: &[String]) -> Self {
+        Self {
+            session_len_sec: declared.iter().any(|name| name == "session_len_sec"),
+        }
+    }
+}
+
 /// What a model accepts, resolved from its GGUF and its family.
 ///
 /// `spec` is the model's path on disk, which is why this takes a [`ModelSpec`]
@@ -129,10 +165,10 @@ impl RequestOptions {
 pub fn request_options(family: &str, model_path: Option<&Path>) -> RequestOptions {
     // Layer 1: the embedded spec, when it is a full one.
     if let Some(path) = model_path {
-        match declared_request_options(path) {
+        match declared_options(path) {
             // A non-empty declaration is authoritative.
-            Ok(Some(declared)) if !declared.is_empty() => {
-                return RequestOptions::from_declared(&declared);
+            Ok(Some(declared)) if !declared.request.is_empty() => {
+                return RequestOptions::from_declared(&declared.request);
             }
             // Minimal spec (2 keys) or a full spec with no request options at
             // all: fall through rather than concluding "accepts nothing". A
@@ -158,6 +194,47 @@ pub fn request_options(family: &str, model_path: Option<&Path>) -> RequestOption
     RequestOptions::ALL
 }
 
+/// The `--session-option` names a family declares.
+///
+/// Separate from [`RequestOptions`] because the two are not interchangeable: a
+/// session option is validated against the family spec exactly like a request
+/// option, and an unknown one fails the whole run —
+///
+/// ```text
+/// audiocpp_cli failed: unknown Sortformer diar session option: sortformer_diar.bogus_option
+/// ```
+///
+/// — so `session_len_sec` cannot be sent unconditionally. Measured across the
+/// two diar families this app can run:
+///
+/// | family | declares `session_len_sec` |
+/// |---|---|
+/// | `sortformer_diar` (v1) | **yes** — and needs it, because its graph is sized from it and defaults to 20 s |
+/// | `nemotron_3_diar` | **no** — its geometry is chosen by `latency_profile`, and it has no fixed position table |
+///
+/// Resolution mirrors [`request_options`]: the embedded spec decides when it
+/// declares any session options at all, and only a minimal/unreadable spec falls
+/// through to "send", which is what every model got before this existed.
+pub fn session_options(model_path: Option<&Path>) -> SessionOptions {
+    let Some(path) = model_path else {
+        return SessionOptions::ALL;
+    };
+    match declared_options(path) {
+        Ok(Some(declared)) if !declared.session.is_empty() => {
+            SessionOptions::from_declared(&declared.session)
+        }
+        Ok(_) => SessionOptions::ALL,
+        Err(error) => {
+            tracing::warn!(
+                path = %path.display(),
+                error = %error,
+                "could not read the embedded model spec; sending the historic session options"
+            );
+            SessionOptions::ALL
+        }
+    }
+}
+
 /// Resolve for a catalogue entry, using the same `AppPaths` resolution the
 /// transcription pipeline uses to find the weights.
 pub fn request_options_for(
@@ -176,6 +253,23 @@ pub fn request_options_for(
 /// carries one with no request options. The caller treats both as "ask the next
 /// layer" — the distinction is kept for tests and logs.
 pub fn declared_request_options(gguf_path: &Path) -> Result<Option<Vec<String>>, String> {
+    Ok(declared_options(gguf_path)?.map(|declared| declared.request))
+}
+
+/// Every option name a GGUF's embedded spec declares, both kinds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeclaredOptions {
+    pub request: Vec<String>,
+    pub session: Vec<String>,
+}
+
+/// Walk a GGUF's embedded spec for its declared option names.
+///
+/// `Ok(None)` means the file carries no spec at all. `Ok(Some(default))` means it
+/// carries a *minimal* one (`family`/`sources` only), which yields empty lists —
+/// and the caller must read that as "ask the next layer", never as "accepts
+/// nothing".
+pub fn declared_options(gguf_path: &Path) -> Result<Option<DeclaredOptions>, String> {
     let file = std::fs::File::open(gguf_path)
         .map_err(|e| format!("open {}: {}", gguf_path.display(), e))?;
     let mut reader = BufReader::new(file);
@@ -183,7 +277,7 @@ pub fn declared_request_options(gguf_path: &Path) -> Result<Option<Vec<String>>,
 }
 
 /// Walk a GGUF header looking for [`SPEC_KEY`].
-fn read_spec<R: Read + Seek>(reader: &mut R) -> Result<Option<Vec<String>>, String> {
+fn read_spec<R: Read + Seek>(reader: &mut R) -> Result<Option<DeclaredOptions>, String> {
     let mut magic = [0u8; 4];
     reader
         .read_exact(&mut magic)
@@ -208,7 +302,7 @@ fn read_spec<R: Read + Seek>(reader: &mut R) -> Result<Option<Vec<String>>, Stri
 
         if key == SPEC_KEY {
             let json = read_string(reader)?;
-            return Ok(Some(request_option_names(&json)?));
+            return Ok(Some(option_names(&json)?));
         }
         skip_value(reader, value_type)?;
     }
@@ -216,27 +310,33 @@ fn read_spec<R: Read + Seek>(reader: &mut R) -> Result<Option<Vec<String>>, Stri
     Ok(None)
 }
 
-/// Pull `options.request[].name` out of an embedded spec document.
+/// Pull `options.request[].name` and `options.session[].name` out of an embedded
+/// spec document.
 ///
 /// A spec whose top-level keys are only `family`/`sources` is the *minimal*
-/// variant and yields an empty list.
-fn request_option_names(json: &str) -> Result<Vec<String>, String> {
+/// variant and yields empty lists.
+fn option_names(json: &str) -> Result<DeclaredOptions, String> {
     let document: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("parse embedded spec: {}", e))?;
 
-    let Some(request) = document
-        .get("options")
-        .and_then(|options| options.get("request"))
-        .and_then(|request| request.as_array())
-    else {
-        return Ok(Vec::new());
+    let names = |kind: &str| -> Vec<String> {
+        document
+            .get("options")
+            .and_then(|options| options.get(kind))
+            .and_then(|list| list.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|entry| entry.get("name").and_then(|name| name.as_str()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
 
-    Ok(request
-        .iter()
-        .filter_map(|entry| entry.get("name").and_then(|name| name.as_str()))
-        .map(str::to_string)
-        .collect())
+    Ok(DeclaredOptions {
+        request: names("request"),
+        session: names("session"),
+    })
 }
 
 fn read_u32<R: Read>(reader: &mut R) -> Result<u32, String> {
@@ -271,10 +371,10 @@ fn read_string<R: Read>(reader: &mut R) -> Result<String, String> {
 /// Byte size of a fixed-width GGUF scalar type, or `None` for string/array.
 fn scalar_size(value_type: u32) -> Option<u64> {
     Some(match value_type {
-        0 | 1 | 7 => 1,  // u8, i8, bool
-        2 | 3 => 2,      // u16, i16
-        4 | 5 | 6 => 4,  // u32, i32, f32
-        10 | 11 | 12 => 8, // u64, i64, f64
+        0 | 1 | 7 => 1,   // u8, i8, bool
+        2 | 3 => 2,       // u16, i16
+        4..=6 => 4,       // u32, i32, f32
+        10..=12 => 8,     // u64, i64, f64
         _ => return None,
     })
 }
@@ -364,7 +464,7 @@ mod tests {
         out
     }
 
-    fn options_of(bytes: Vec<u8>) -> Option<Vec<String>> {
+    fn options_of(bytes: Vec<u8>) -> Option<DeclaredOptions> {
         read_spec(&mut Cursor::new(bytes)).expect("parse")
     }
 
@@ -372,18 +472,51 @@ mod tests {
     fn a_full_spec_yields_its_request_options() {
         let spec = r#"{"family":"moss_transcribe_diarize","options":{"request":[
             {"name":"max_tokens"},{"name":"instruct"}]}}"#;
-        let names = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
+        let declared = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
             .expect("spec present");
-        assert_eq!(names, vec!["max_tokens", "instruct"]);
+        assert_eq!(declared.request, vec!["max_tokens", "instruct"]);
+        assert!(declared.session.is_empty(), "no session options declared");
+    }
+
+    /// The measured v1 shape: a diar family that **needs** `session_len_sec`.
+    /// Sending it to a family that does not declare it fails the whole run.
+    #[test]
+    fn a_diar_spec_declares_session_len_sec_separately_from_request_options() {
+        let spec = r#"{"family":"sortformer_diar","options":{
+            "request":[{"name":"speaker_threshold"}],
+            "session":[{"name":"session_len_sec"},{"name":"graph_arena_mb"}]}}"#;
+        let declared = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
+            .expect("spec present");
+
+        assert_eq!(declared.request, vec!["speaker_threshold"]);
+        assert_eq!(declared.session, vec!["session_len_sec", "graph_arena_mb"]);
+        assert!(SessionOptions::from_declared(&declared.session).session_len_sec);
+    }
+
+    /// The measured Nemotron 3 shape: geometry comes from `latency_profile`, and
+    /// there is no `session_len_sec` to send.
+    #[test]
+    fn a_streaming_diar_spec_without_session_len_sec_disables_it() {
+        let spec = r#"{"family":"nemotron_3_diar","options":{
+            "request":[{"name":"speaker_threshold"}],
+            "session":[{"name":"latency_profile"},{"name":"graph_arena_mb"}]}}"#;
+        let declared = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
+            .expect("spec present");
+
+        assert!(
+            !SessionOptions::from_declared(&declared.session).session_len_sec,
+            "Nemotron must not receive a session_len_sec it never declared"
+        );
     }
 
     #[test]
     fn a_minimal_spec_yields_no_options_rather_than_an_error() {
         // Measured shape of the shipped qwen3_asr GGUF: two keys, no `options`.
         let spec = r#"{"family":"qwen3_asr","sources":[]}"#;
-        let names = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
+        let declared = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
             .expect("spec present");
-        assert!(names.is_empty());
+        assert!(declared.request.is_empty());
+        assert!(declared.session.is_empty());
     }
 
     #[test]
@@ -422,8 +555,8 @@ mod tests {
         bytes.extend_from_slice(&(spec.len() as u64).to_le_bytes());
         bytes.extend_from_slice(spec.as_bytes());
 
-        let names = options_of(bytes).expect("spec present");
-        assert_eq!(names, vec!["language", "audio_chunk_mode"]);
+        let declared = options_of(bytes).expect("spec present");
+        assert_eq!(declared.request, vec!["language", "audio_chunk_mode"]);
     }
 
     #[test]

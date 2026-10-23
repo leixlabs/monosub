@@ -53,16 +53,25 @@ export interface ModelStatus {
   source: string | null;
   tier: string | null;
   /**
-   * Whether this model has been run end to end and is known to work.
+   * How far the app stands behind this model.
+   *
+   * - `supported`   — run end to end here and known to work; ranks highest.
+   * - `unverified`  — offered but never exercised here; still selectable, the
+   *                   solver just ranks it below a verified one.
+   * - `unsupported` — deliberately not offered; listed only so the survey reads
+   *                   as one document. The solver never plans it and the
+   *                   backend refuses to download it.
    *
    * Independent of `installed`: a model can be downloaded and still never
-   * verified. Unverified entries stay selectable — the solver ranks them below
-   * verified ones — so the UI only has to *label* them, not hide them.
+   * verified.
    */
-  verified: boolean;
+  status: ModelSupportStatus;
   installed: boolean;
   size_on_disk: number;
 }
+
+/** How far the app stands behind a catalogue entry (mirrors `SupportStatus`). */
+export type ModelSupportStatus = 'supported' | 'unverified' | 'unsupported';
 
 export interface ModelDownloadProgressPayload {
   id: string;
@@ -122,6 +131,16 @@ const asNumber = (value: unknown, fallback = 0): number =>
 const asStringArray = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
+/**
+ * Read the catalogue's `status` field.
+ *
+ * An unrecognised or missing value means `unverified`: the model stays offered
+ * (an older backend sends no field at all, and reading that as `unsupported`
+ * would empty the whole list) without claiming it was ever run.
+ */
+const asSupportStatus = (value: unknown): ModelSupportStatus =>
+  value === 'supported' || value === 'unsupported' ? value : 'unverified';
+
 const normalizeFile = (raw: unknown): ModelFileManifest => {
   const file = isRecord(raw) ? raw : {};
   const urls = asStringArray(file.urls);
@@ -173,23 +192,34 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
     produces_text: manifest.produces_text !== false,
     source: typeof manifest.source === 'string' ? manifest.source : null,
     tier: typeof manifest.tier === 'string' ? manifest.tier : null,
-    verified: status.verified === true,
+    // An unknown or absent value is read as `unverified`: the catalogue may be
+    // older than this field, and that default keeps every entry offered without
+    // claiming anyone proved it works.
+    status: asSupportStatus(status.status),
     installed: status.installed === true,
     size_on_disk: asNumber(status.size_on_disk),
   };
 };
 
 /**
- * True when some INSTALLED model can produce speaker information, either as a
- * diar-only model (`turns`) or as a passthrough model that emits labels with
- * text (`turns_with_text`). Drives the BottomBar multi-speaker toggle.
+ * True when some INSTALLED model can produce speaker information, i.e. one
+ * whose `capabilities.diarization` is not `none`. Drives the BottomBar
+ * multi-speaker toggle.
+ *
+ * `status` is part of the test: a retired model can still sit on disk from an
+ * older install, and enabling the toggle on the strength of one would only fail
+ * later in the run.
  */
 export const hasInstalledDiarizationModel = (models: ModelStatus[]): boolean =>
-  models.some((model) => model.installed && model.diarization !== 'none');
+  models.some(
+    (model) => model.installed && model.status !== 'unsupported' && model.diarization !== 'none',
+  );
 
 /** True when some installed model can fill `role` (design §8.2). */
 export const hasInstalledRole = (models: ModelStatus[], role: string): boolean =>
-  models.some((model) => model.installed && model.roles.includes(role));
+  models.some(
+    (model) => model.installed && model.status !== 'unsupported' && model.roles.includes(role),
+  );
 
 /** The role a local translation model declares (translation-design §6). */
 export const TRANSLATE_ROLE = 'translate';

@@ -266,6 +266,67 @@ impl Tier {
     }
 }
 
+/// How far this app is willing to stand behind a catalogue entry.
+///
+/// One field replacing the two booleans (`supported` / `verified`) that used to
+/// answer overlapping halves of the same question. They were never independent:
+/// `supported: false` was always accompanied by `verified: false`, because an
+/// entry nobody offers cannot have been run. Three states, one axis:
+///
+/// | status | meaning | solver | download |
+/// |---|---|---|---|
+/// | [`Supported`](SupportStatus::Supported) | run end to end, works | plans it, ranks it highest | yes |
+/// | [`Unverified`](SupportStatus::Unverified) | offered, never exercised here | plans it, ranked below verified | yes |
+/// | [`Unsupported`](SupportStatus::Unsupported) | deliberately not offered | never plans it | no |
+///
+/// The retired case is `sortformer_diar` (v1): it runs, but its encoder graph is
+/// fixed-capacity at 120 s of audio and it caps out at four speakers, while
+/// `nemotron_3_diar` has neither limit and a permissive licence. Keeping it in
+/// the catalogue at `Unsupported` is more honest than deleting it — the
+/// measurement that ruled it out stays next to the model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SupportStatus {
+    /// Run end to end on this machine; known to work.
+    Supported,
+    /// Offered, but nobody has exercised it here. Stays selectable — hiding most
+    /// of the 模型调查 survey behind a manual override would be worse.
+    Unverified,
+    /// This app does not offer it at all.
+    Unsupported,
+}
+
+impl SupportStatus {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SupportStatus::Supported => "supported",
+            SupportStatus::Unverified => "unverified",
+            SupportStatus::Unsupported => "unsupported",
+        }
+    }
+
+    /// True when the solver may plan it and the downloader may fetch it.
+    pub fn is_offered(self) -> bool {
+        !matches!(self, SupportStatus::Unsupported)
+    }
+
+    /// True when someone has actually run it end to end.
+    pub fn is_verified(self) -> bool {
+        matches!(self, SupportStatus::Supported)
+    }
+}
+
+/// The catalogue's default for an entry that predates `status`.
+///
+/// `unverified` rather than `supported`: the old catalogue carried
+/// `verified: true` on five entries out of 129, so "absent means verified" would
+/// silently promote the other 124. It is not `unsupported` either — that would
+/// empty every recognition plan, and the catalogue is all-or-nothing.
+fn default_status() -> SupportStatus {
+    SupportStatus::Unverified
+}
+
 /// One licence attached to a model. `licenses[]` supersedes the single
 /// `license` string, which is retained for back-compat.
 #[derive(Debug, Clone)]
@@ -276,10 +337,12 @@ pub struct License {
 
 /// One model entry from `models.json`.
 ///
-/// Derives `Default` so test literals only spell the fields they care about
-/// (`..Default::default()`): every v3 field added here would otherwise have to
-/// be threaded through eight unrelated fixtures.
-#[derive(Debug, Clone, Default)]
+/// `Default` is hand-written rather than derived so `status` defaults to
+/// `Unverified`: a fixture that spells only the fields it cares about
+/// (`..Default::default()`) describes an offered model, and a derived `Default`
+/// would make every such fixture unsupported — the same trap the wire side
+/// avoids with `default_status()`.
+#[derive(Debug, Clone)]
 pub struct ModelSpec {
     pub id: String,
     /// audio.cpp `family` for recognition models (e.g. `sense_asr`); for a
@@ -308,19 +371,18 @@ pub struct ModelSpec {
     pub speed: Option<Speed>,
     pub source: Option<Source>,
     pub tier: Option<Tier>,
-    /// Whether this entry has actually been run end to end on this machine.
+    /// How far this app stands behind the entry: supported / unverified /
+    /// unsupported (see [`SupportStatus`]).
     ///
-    /// Orthogonal to [`Self::tier`]: `tier` says how much we *recommend* a model,
-    /// this says whether anyone *verified* it works. The catalogue carries the
-    /// whole 模型调查 survey, and a model that loads is not necessarily a model
-    /// that runs — a GGUF can declare a family and still fail on the CLI, and
-    /// several families have never been exercised here.
+    /// Orthogonal to [`Self::tier`]: `tier` says how much we *recommend* a model
+    /// within the offered set, this says whether the model is offered at all and
+    /// whether anyone has run it. A model that loads is not necessarily a model
+    /// that runs — a GGUF can declare a family and still fail on the CLI.
     ///
-    /// Unverified models stay **selectable**: they rank below verified ones and
-    /// the UI labels them, but the solver will still plan one when it is the only
-    /// candidate. Refusing to plan them outright would hide most of the
-    /// catalogue behind a manual override.
-    pub verified: bool,
+    /// The two booleans this replaced (`verified` / `supported`) could express a
+    /// state that never existed: `supported: false, verified: true` claimed an
+    /// entry was measured and also never offered. One enum cannot.
+    pub status: SupportStatus,
     pub licenses: Vec<License>,
     /// Other catalogue ids this model cannot work without (v3).
     ///
@@ -339,6 +401,49 @@ pub struct ModelSpec {
     /// that same token, so the mapping belongs in one declarative place rather
     /// than in a match arm. Untagged entries fall back to `catalog::map_language`.
     pub language_tokens: Vec<LanguageToken>,
+    /// Longest audio, in seconds, this model can diarize in **one** session (v4).
+    ///
+    /// Declared per entry because it is baked into the checkpoint's own config,
+    /// not into the code: `sortformer_diar` sizes its encoder graph from
+    /// `fc_encoder.max_position_embeddings` / `tf_encoder.max_source_positions`,
+    /// which works out to 120 s. Measured on audio.cpp 0.9.1: 120 s succeeds,
+    /// 121 s fails with `session_len_sec exceeds tf_encoder.max_source_positions`
+    /// — and no `--session-option` can raise it, because the limit is the
+    /// architecture, not a budget.
+    ///
+    /// `None` means "the catalogue declares no ceiling", which keeps the old
+    /// single-call behaviour for every model that has never hit one.
+    pub max_session_seconds: Option<f64>,
+}
+
+/// A `ModelSpec` with nothing filled in but `status: Unverified`, which is what a
+/// fixture means when it spells only a few fields.
+impl Default for ModelSpec {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            family: String::new(),
+            display_name: String::new(),
+            target_directory: String::new(),
+            model_file: String::new(),
+            files: Vec::new(),
+            languages: Vec::new(),
+            license: String::new(),
+            attribution: None,
+            capabilities_raw: None,
+            roles: Vec::new(),
+            engine: Engine::default(),
+            prompt_template: None,
+            speed: None,
+            source: None,
+            tier: None,
+            status: SupportStatus::Unverified,
+            licenses: Vec::new(),
+            requires: Vec::new(),
+            language_tokens: Vec::new(),
+            max_session_seconds: None,
+        }
+    }
 }
 
 /// One `app tag → model token` pair from `models.json`.
@@ -472,16 +577,28 @@ struct ModelWire {
     source: Option<Source>,
     #[serde(default)]
     tier: Option<Tier>,
-    /// Absent means "never verified", which is the honest default for a
-    /// catalogue entry nobody has run.
-    #[serde(default)]
-    verified: bool,
+    /// How far this app stands behind the entry (see [`SupportStatus`]).
+    ///
+    /// `#[serde(default = "default_status")]` rather than a plain `default`:
+    /// the fallback must be `Unverified`, not the enum's first variant, so a
+    /// catalogue written before this field existed keeps every entry offered.
+    ///
+    /// Deliberately **not** `#[serde(other)]`: unlike `source` / `role`, whose
+    /// values come from a third-party survey and must never take the catalogue
+    /// down, `status` is authored here. A typo has to fail loudly — silently
+    /// reading `"supoprted"` as unverified would keep a model we meant to
+    /// retire in the plan.
+    #[serde(default = "default_status")]
+    status: SupportStatus,
     #[serde(default)]
     licenses: Vec<LicenseWire>,
     #[serde(default)]
     requires: Vec<String>,
     #[serde(default)]
     language_tokens: Vec<LanguageTokenWire>,
+    /// v4: a hard per-session audio ceiling (see `ModelSpec`).
+    #[serde(default)]
+    max_session_seconds: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -550,7 +667,7 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
             speed: model.speed,
             source: model.source,
             tier: model.tier,
-            verified: model.verified,
+            status: model.status,
             licenses: model
                 .licenses
                 .into_iter()
@@ -568,6 +685,7 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
                     token: pair.token,
                 })
                 .collect(),
+            max_session_seconds: model.max_session_seconds,
         });
     }
 
@@ -836,6 +954,72 @@ mod tests {
         assert!(
             specs.iter().all(|spec| spec.engine.is_runnable()),
             "the committed file only lists models this build can run"
+        );
+    }
+
+    /// An entry that says nothing about `status` is **offered but unverified**.
+    ///
+    /// Both halves matter. `Unsupported` would empty every plan (the catalogue is
+    /// all-or-nothing); `Supported` would claim 124 entries nobody has run are
+    /// proven, which is the one thing the field exists to prevent.
+    #[test]
+    fn a_missing_status_means_offered_but_unverified() {
+        let specs = parse_inline(
+            r#"{"version":2,"models":[
+              {"id":"m","family":"sense_asr","display_name":"M","target_directory":"d",
+               "model_file":"m.gguf","files":[],"languages":["zh"],"license":"x",
+               "capabilities":{"timestamps":"none","diarization":"none","produces_text":true},
+               "roles":["asr"]}
+            ]}"#,
+        );
+
+        assert_eq!(
+            specs[0].status,
+            SupportStatus::Unverified,
+            "absent `status` must neither hide the model nor call it verified"
+        );
+        assert!(specs[0].status.is_offered());
+        assert!(!specs[0].status.is_verified());
+    }
+
+    /// The committed file must not offer v1 diarization, and must still offer the
+    /// model that replaced it. This is the measurement that drove the switch:
+    /// `sortformer_diar`'s graph is fixed at 120 s of audio.
+    #[test]
+    fn the_committed_catalogue_retires_v1_diarization_for_nemotron() {
+        let specs = committed_catalog();
+
+        for spec in specs
+            .iter()
+            .filter(|spec| spec.family == "sortformer_diar")
+        {
+            assert_eq!(
+                spec.status,
+                SupportStatus::Unsupported,
+                "{} is still offered, but its 120 s graph ceiling makes it unusable \
+                 for real recordings",
+                spec.id
+            );
+            assert_eq!(
+                spec.max_session_seconds,
+                Some(120.0),
+                "the ceiling is the reason it was retired, so it stays recorded"
+            );
+        }
+
+        let nemotron = specs
+            .iter()
+            .find(|spec| spec.id == "nemotron_3_diar_q8_0")
+            .expect("the replacement is in the catalogue");
+        assert!(nemotron.status.is_offered());
+        assert_eq!(
+            nemotron.max_session_seconds, None,
+            "Nemotron has no fixed position table, so it declares no ceiling"
+        );
+        assert_eq!(
+            nemotron.tier,
+            Some(Tier::Default),
+            "the default diar model is the one that works on long audio"
         );
     }
 
@@ -1320,10 +1504,11 @@ mod tests {
             speed: None,
             source: None,
             tier: None,
-            verified: false,
+            status: crate::engine::catalog::SupportStatus::Unverified,
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
+            max_session_seconds: None,
         };
 
         assert_eq!(map_language(&model, "es"), "es");

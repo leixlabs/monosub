@@ -135,12 +135,21 @@ function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemov
             <GlassBadge variant={model.installed ? 'success' : 'warning'} size="sm">
               {model.installed ? t('models.installed') : t('models.notInstalled')}
             </GlassBadge>
-            {/* "Loads" is not "works": a model can declare a family and still
-                fail on the CLI. Unverified entries stay downloadable and
-                selectable, so the label informs instead of blocking. */}
-            {!model.verified && (
+            {/* One badge per status, never two: `status` is a single axis, so
+                the row says "unverified" *or* "not supported", not both. An
+                unverified entry stays downloadable and selectable — the label
+                informs instead of blocking. A retired one stays listed so the
+                survey reads as one document, but nothing will ever select it;
+                saying so is the difference between "not recommended" and "not
+                offered". */}
+            {model.status === 'unverified' && (
               <GlassBadge variant="default" size="sm" title={t('models.unverifiedHint')}>
                 {t('models.unverified')}
+              </GlassBadge>
+            )}
+            {model.status === 'unsupported' && (
+              <GlassBadge variant="destructive" size="sm" title={t('models.unsupportedHint')}>
+                {t('models.unsupported')}
               </GlassBadge>
             )}
           </div>
@@ -158,7 +167,10 @@ function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemov
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {!model.installed && !isDownloading && (
+          {/* No download button for a retired entry: the backend refuses it
+              (`download_model` gates on `supported`), so offering the button
+              would only turn a dead model into a failed click. */}
+          {!model.installed && !isDownloading && model.status !== 'unsupported' && (
             <GlassButton variant="primary" size="sm" onClick={() => onDownload(model.id)}>
               <Download className="w-4 h-4" />
               {t('models.download')}
