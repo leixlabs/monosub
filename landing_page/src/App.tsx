@@ -27,19 +27,19 @@ function App() {
         <meta name="description" content={t.hero_subtitle_line1 + ' - ' + t.hero_subtitle_line2} />
         
         {/* Canonical */}
-        <link rel="canonical" href={`https://monosub.com/${lang}/`} />
+        <link rel="canonical" href={`https://monosub.leix.dev/${lang}/`} />
         
         {/* Hreflang tags — only the two shipped locales are advertised */}
-        <link rel="alternate" hrefLang="zh-CN" href="https://monosub.com/zh/" />
-        <link rel="alternate" hrefLang="zh" href="https://monosub.com/zh/" />
-        <link rel="alternate" hrefLang="en" href="https://monosub.com/en/" />
-        <link rel="alternate" hrefLang="x-default" href="https://monosub.com/en/" />
+        <link rel="alternate" hrefLang="zh-CN" href="https://monosub.leix.dev/zh/" />
+        <link rel="alternate" hrefLang="zh" href="https://monosub.leix.dev/zh/" />
+        <link rel="alternate" hrefLang="en" href="https://monosub.leix.dev/en/" />
+        <link rel="alternate" hrefLang="x-default" href="https://monosub.leix.dev/en/" />
         
         {/* Open Graph */}
         <meta property="og:title" content={t.page_title} />
         <meta property="og:description" content={t.hero_subtitle_line1} />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content={`https://monosub.com/${lang}/`} />
+        <meta property="og:url" content={`https://monosub.leix.dev/${lang}/`} />
         
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary_large_image" />

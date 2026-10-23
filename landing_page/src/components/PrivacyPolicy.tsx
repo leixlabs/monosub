@@ -22,19 +22,19 @@ export const PrivacyPolicy = () => {
         <meta name="description" content={content.meta_description} />
 
         {/* Canonical */}
-        <link rel="canonical" href={`https://monosub.com/${lang}/privacy`} />
+        <link rel="canonical" href={`https://monosub.leix.dev/${lang}/privacy`} />
 
         {/* Hreflang tags */}
-        <link rel="alternate" hrefLang="zh-CN" href="https://monosub.com/zh/privacy" />
-        <link rel="alternate" hrefLang="zh" href="https://monosub.com/zh/privacy" />
-        <link rel="alternate" hrefLang="en" href="https://monosub.com/en/privacy" />
-        <link rel="alternate" hrefLang="x-default" href="https://monosub.com/en/privacy" />
+        <link rel="alternate" hrefLang="zh-CN" href="https://monosub.leix.dev/zh/privacy" />
+        <link rel="alternate" hrefLang="zh" href="https://monosub.leix.dev/zh/privacy" />
+        <link rel="alternate" hrefLang="en" href="https://monosub.leix.dev/en/privacy" />
+        <link rel="alternate" hrefLang="x-default" href="https://monosub.leix.dev/en/privacy" />
 
         {/* Open Graph */}
         <meta property="og:title" content={content.meta_title} />
         <meta property="og:description" content={content.meta_description} />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content={`https://monosub.com/${lang}/privacy`} />
+        <meta property="og:url" content={`https://monosub.leix.dev/${lang}/privacy`} />
 
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary" />
