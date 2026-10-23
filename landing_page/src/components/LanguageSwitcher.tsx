@@ -1,16 +1,21 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { languageConfigs } from '../i18n';
 import { useLanguage } from '../hooks/useLanguage';
 
 export const LanguageSwitcher = () => {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { lang } = useParams();
   const { config } = useLanguage();
 
   const handleLanguageChange = (newLang: string) => {
-    navigate(`/${newLang}`);
+    // Keep the visitor on the same page (e.g. /privacy) when switching language.
+    const target = pathname.endsWith('/privacy')
+      ? `/${newLang}/privacy`
+      : `/${newLang}`;
+    navigate(target);
     setIsOpen(false);
     localStorage.setItem('monosub_language', newLang);
   };

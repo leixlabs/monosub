@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { createBrowserRouter, RouterProvider, Navigate, redirect } from 'react-router-dom';
 import App from './App';
+import PrivacyPolicy from './components/PrivacyPolicy';
 import { detectBrowserLanguage, DEFAULT_LANGUAGE, translations } from './i18n';
 import './styles/index.css';
 
@@ -18,6 +19,23 @@ const router = createBrowserRouter([
   {
     path: '/',
     element: <Navigate to={`/${detectBrowserLanguage()}`} replace />
+  },
+  {
+    path: '/privacy',
+    loader: () => {
+      throw redirect(`/${detectBrowserLanguage()}/privacy`);
+    }
+  },
+  {
+    path: '/:lang/privacy',
+    element: <PrivacyPolicy />,
+    loader: ({ params }) => {
+      const lang = params.lang!;
+      if (!validLangs.includes(lang)) {
+        throw redirect(`/${resolveLanguage(lang)}/privacy`);
+      }
+      return null;
+    }
   },
   {
     path: '/:lang',

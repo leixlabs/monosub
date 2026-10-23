@@ -1,7 +1,8 @@
+import { Link } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
 
 export const Footer = () => {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   return (
     <footer className="py-12 px-6 border-t border-dark-border">
@@ -13,9 +14,9 @@ export const Footer = () => {
             <a href="#" className="text-gray-400 hover:text-primary transition-colors">
               {t.footer_terms}
             </a>
-            <a href="#" className="text-gray-400 hover:text-primary transition-colors">
+            <Link to={`/${lang}/privacy`} className="text-gray-400 hover:text-primary transition-colors">
               {t.footer_privacy}
-            </a>
+            </Link>
             <a href="mailto:contact@monosub.com" className="text-gray-400 hover:text-primary transition-colors">
               {t.footer_contact}
             </a>
