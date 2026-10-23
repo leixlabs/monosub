@@ -82,6 +82,12 @@ export const PrivacyPolicy = () => {
                   ))}
                 </ul>
               )}
+              {section.afterList &&
+                section.afterList.map((paragraph) => (
+                  <p key={paragraph} className="text-gray-400 leading-relaxed mt-3">
+                    {paragraph}
+                  </p>
+                ))}
             </section>
           ))}
         </main>

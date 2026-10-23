@@ -17,7 +17,7 @@ export const Footer = () => {
             <Link to={`/${lang}/privacy`} className="text-gray-400 hover:text-primary transition-colors">
               {t.footer_privacy}
             </Link>
-            <a href="mailto:contact@monosub.com" className="text-gray-400 hover:text-primary transition-colors">
+            <a href="mailto:kamalei.zhang@gmail.com" className="text-gray-400 hover:text-primary transition-colors">
               {t.footer_contact}
             </a>
           </div>
