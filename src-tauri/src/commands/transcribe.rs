@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
 use crate::engine::catalog::{self, ModelSpec};
-use crate::engine::plan::{self, ModelPlan, StepKind};
+use crate::engine::plan::{self, ModelPlan, StageModels, StepKind};
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
 use crate::translate;
@@ -167,6 +167,17 @@ pub struct TranslationReport {
     pub skipped: Option<String>,
     /// Some cues kept their original text (a batch that would not parse).
     pub degraded: bool,
+    /// Cues that received translated text.
+    ///
+    /// `degraded` alone says "some lines are still in the source language" without
+    /// saying whether that is one line out of fifty or three hundred out of five
+    /// thousand. The row needs the second number to state the shortfall instead of
+    /// leaving the user to wonder how much of the file is untranslated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translated: Option<usize>,
+    /// Cues that kept their original text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_original: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -459,8 +470,17 @@ pub async fn start_transcription(
     // invent a model — that would be exactly the run-time re-solve this design
     // removed — so it is logged and the file runs without speaker labels.
     if !enable_diarization && plan.steps.iter().any(|step| step.kind == StepKind::Diarize) {
+        // Name the model being dropped, not just that something was: this line is
+        // read next to `model plan selected`, and without it the two look
+        // contradictory — `enable_diarization=false` above a plan whose `diar`
+        // field still named a model.
+        let dropped = plan
+            .stage_models()
+            .diar
+            .unwrap_or_else(|| StageModels::ABSENT.to_string());
         tracing::info!(
             task_id = %task_id,
+            dropped_diar = %dropped,
             "this file has speaker separation off; running the plan without its diarization steps"
         );
         plan.steps.retain(|step| {
@@ -470,8 +490,12 @@ pub async fn start_transcription(
     } else if enable_diarization
         && !plan.steps.iter().any(|step| step.kind == StepKind::Diarize)
     {
+        let stages = plan.stage_models();
         tracing::warn!(
             task_id = %task_id,
+            vad = %stages.vad,
+            asr = stages.asr.as_deref().unwrap_or(StageModels::ABSENT),
+            diar = stages.diar.as_deref().unwrap_or(StageModels::ABSENT),
             "speaker separation is on for this file, but the saved plan has no diarization step; \
              run without speaker labels (re-save the plan in Settings ▸ 模型 to add one)"
         );
@@ -529,10 +553,19 @@ pub async fn start_transcription(
         .find(|step| step.kind == StepKind::Vad && !step.model_id.is_empty())
         .map(|step| step.model_id.clone());
 
+    // `plan` is the shape key (`asr+diar+turns:nemotron`), which names the step
+    // shape plus the one model that makes it distinctive — so on its own it
+    // reads as "nemotron transcribes", when nemotron only supplies the speaker
+    // turns. The three stage fields are the unambiguous answer to the question
+    // a reader actually has: which model runs VAD, which transcribes, which
+    // separates speakers.
+    let stages = plan.stage_models();
     tracing::info!(
         task_id = %task_id,
         plan = %plan.id,
-        models = ?plan.model_ids,
+        vad = %stages.vad,
+        asr = stages.asr.as_deref().unwrap_or(StageModels::ABSENT),
+        diar = stages.diar.as_deref().unwrap_or(StageModels::ABSENT),
         "model plan selected"
     );
 
@@ -751,6 +784,11 @@ pub async fn transcribe_file(
     // filled inside the block so the post-process call below can borrow it.
     #[allow(unused_assignments)]
     let mut words: Vec<engine::words::Word> = Vec::new();
+    // The diarizer's turns, kept past the recognition block on purpose. Chunk
+    // labels are a coarse answer — one VAD window is up to 15 s and can span a
+    // speaker change — so the finished cues are re-attributed against these
+    // (see `diar::attribute_cues`). Empty when the plan has no diarization step.
+    let mut diar_turns: Vec<engine::diar::DiarTurn> = Vec::new();
     let chunks = {
         // Report the block *before* waiting for it, so a task parked behind the
         // concurrency limit says so instead of showing the previous step's
@@ -861,6 +899,10 @@ pub async fn transcribe_file(
                         {
                             Ok(turns) if !turns.is_empty() => {
                                 let attributed = engine::diar::attribute_turns(&chunks, &turns);
+                                // The turns outlive this block: step 4 re-checks
+                                // every cue against them, because one chunk can
+                                // hold more than one speaker.
+                                diar_turns = turns;
                                 let _ = std::fs::remove_file(&turns_path);
                                 attributed
                             }
@@ -907,8 +949,15 @@ pub async fn transcribe_file(
     // An empty chunk list means "no speech": still write valid empty files.
     //
     // Cue timing comes from `words` when the run aligned them, otherwise from the
-    // chunk windows; `subtitle::postprocess` owns that choice.
-    let segments = subtitle::postprocess(&chunks, &words, &PostProcessConfig::default());
+    // chunk windows; `subtitle::postprocess` owns that choice. The diarizer's
+    // turns go in with them so speaker labels are decided per **cue**, not per
+    // VAD chunk — see `diar::attribute_cues` for why a chunk is too coarse.
+    let segments = subtitle::postprocess(
+        &chunks,
+        &words,
+        &diar_turns,
+        &PostProcessConfig::default(),
+    );
     for (index, format) in params.formats.iter().enumerate() {
         let path = subtitle::output_path_for(&params.output, index, *format);
         subtitle::write(&segments, &path, *format).map_err(write_failure)?;
@@ -978,6 +1027,8 @@ pub async fn transcribe_file(
                 .collect(),
             skipped: translated.skipped.map(|reason| reason.as_str().to_string()),
             degraded: translated.degraded,
+            translated: Some(translated.translated),
+            kept_original: Some(translated.kept_original),
         });
     }
 
@@ -2915,7 +2966,7 @@ mod tests {
             Format::Json,
         ];
 
-        let segments = subtitle::postprocess(&[], &[], &PostProcessConfig::default());
+        let segments = subtitle::postprocess(&[], &[], &[], &PostProcessConfig::default());
         assert!(segments.is_empty());
 
         for (index, format) in formats.iter().enumerate() {

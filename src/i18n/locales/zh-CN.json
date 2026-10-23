@@ -46,6 +46,8 @@
     "openSubtitle": "打开字幕",
     "openTranslated": "译文",
     "translateDegraded": "部分未翻译",
+    "translateDegradedCount": "未翻译 {{kept}}/{{total}}",
+    "translateDegradedHint": "{{total}} 条字幕中有 {{kept}} 条保留了原文，因为翻译模型对这几条没有给出可用的结果。其余部分已经翻译；重新运行该文件会从头再翻译一次。",
     "translateSkipped": {
       "sameLanguage": "未翻译：原文已是 {{language}}",
       "noSegments": "未翻译：没有语音",

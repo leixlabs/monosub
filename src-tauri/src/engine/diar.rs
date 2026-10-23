@@ -23,6 +23,7 @@ use crate::paths::AppPaths;
 use crate::engine::catalog::{self, RunMode};
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::{EngineError, RawChunk};
+use crate::subtitle::Segment;
 
 /// Sample rate audiocpp reports sample offsets at; 16 kHz mono s16le input.
 pub const SAMPLE_RATE: u32 = 16_000;
@@ -147,10 +148,36 @@ fn overlap(a_start: f64, a_end: f64, b_start: f64, b_end: f64) -> f64 {
     (a_end.min(b_end) - a_start.max(b_start)).max(0.0)
 }
 
-/// Attribute each ASR segment to the speaker turn it overlaps most (design §6.4).
+/// The turn that covers the most of `[start_s, end_s)`, or `None` when nothing
+/// overlaps it.
 ///
-/// A segment with no overlap at all keeps whatever speaker it already had
+/// Strictly greater keeps the earliest turn on a tie, which matches the Python
+/// loop's `>` when iterating in order.
+fn best_turn<'a>(turns: &'a [DiarTurn], start_s: f64, end_s: f64) -> Option<&'a DiarTurn> {
+    let mut best: Option<(f64, &'a DiarTurn)> = None;
+    for turn in turns {
+        let score = overlap(start_s, end_s, turn.start_s, turn.end_s);
+        if score <= 0.0 {
+            continue;
+        }
+        if best.is_none_or(|(best_score, _)| score > best_score) {
+            best = Some((score, turn));
+        }
+    }
+    best.map(|(_, turn)| turn)
+}
+
+/// Attribute each ASR chunk to the speaker turn it overlaps most (design §6.4).
+///
+/// A chunk with no overlap at all keeps whatever speaker it already had
 /// (`None` from the VAD-sequence path), and single-speaker input hides labels.
+///
+/// This is the **coarse** pass. A chunk is a VAD window of up to
+/// [`crate::engine::vad::VAD_MAX_SECONDS`], so a window that spans a speaker
+/// change gives every cue in it the same label — measured on a 4-hour
+/// two-person interview, 20 % of the cues sat in a chunk containing both a
+/// question and its answer. [`attribute_cues`] refines this once the cues have
+/// been split, and is what the writer's labels actually come from.
 pub fn attribute_turns(segments: &[RawChunk], turns: &[DiarTurn]) -> Vec<RawChunk> {
     let Some(labels) = labels_for_turns(turns) else {
         // Zero or one distinct speaker: no labels anywhere.
@@ -168,25 +195,40 @@ pub fn attribute_turns(segments: &[RawChunk], turns: &[DiarTurn]) -> Vec<RawChun
         .iter()
         .cloned()
         .map(|mut chunk| {
-            let mut best: Option<(f64, &str)> = None;
-            for turn in turns {
-                let score = overlap(chunk.start_s, chunk.end_s, turn.start_s, turn.end_s);
-                if score <= 0.0 {
-                    continue;
-                }
-                // Strictly greater keeps the earliest turn on a tie, which
-                // matches the Python loop's `>` when iterating in order.
-                if best.is_none_or(|(best_score, _)| score > best_score) {
-                    best = Some((score, turn.speaker_id.as_str()));
-                }
-            }
-
-            if let Some((_, speaker_id)) = best {
-                chunk.speaker = labels.get(speaker_id).cloned();
+            if let Some(turn) = best_turn(turns, chunk.start_s, chunk.end_s) {
+                chunk.speaker = labels.get(&turn.speaker_id).cloned();
             }
             chunk
         })
         .collect()
+}
+
+/// Re-attribute finished cues to the turn they overlap most.
+///
+/// The refinement [`attribute_turns`] cannot do: a cue is one sentence
+/// (1–3 s) where a chunk is up to 15 s, so the same turns that are ambiguous
+/// across a whole window are decisive for a single line. This is why the
+/// subtitle's speaker labels follow the diarization, not the VAD segmentation.
+///
+/// A cue that overlaps no turn keeps the label it arrived with — that is the
+/// chunk-level answer, which is the best guess available for a cue the
+/// diarizer did not cover (it drops turns under [`MIN_TURN_SECONDS`]).
+///
+/// `labels` is [`labels_for_turns`]'s map, computed once by the caller: the
+/// numbering is first-appearance order over the whole file, so recomputing it
+/// per cue would renumber the speakers.
+pub fn attribute_cues(
+    cues: &mut [Segment],
+    turns: &[DiarTurn],
+    labels: &HashMap<String, String>,
+) {
+    for cue in cues.iter_mut() {
+        if let Some(turn) = best_turn(turns, cue.start, cue.end) {
+            if let Some(label) = labels.get(&turn.speaker_id) {
+                cue.speaker = Some(label.clone());
+            }
+        }
+    }
 }
 
 /// Run `--task diar` for `model_id` and return its speaker turns.
@@ -904,6 +946,71 @@ mod tests {
         let segments = vec![chunk(100.0, 101.0, "far away")];
         let attributed = attribute_turns(&segments, &turns);
         assert!(attributed[0].speaker.is_none());
+    }
+
+    fn cue(start: f64, end: f64, speaker: Option<&str>) -> Segment {
+        Segment {
+            start,
+            end,
+            text: "x".to_string(),
+            speaker: speaker.map(str::to_string),
+        }
+    }
+
+    /// The refinement: a chunk spanning a speaker change gives both sides one
+    /// label, and re-checking the *cues* recovers the change.
+    ///
+    /// Measured on a 4-hour two-person interview, this is exactly the shape that
+    /// mislabelled the host's question as the guest: cue 9 (guest, 39.5–44.1 s)
+    /// and cue 10 (host, 44.1–46.7 s) came out of one VAD window, so both read
+    /// `Speaker B`.
+    #[test]
+    fn cue_attribution_splits_a_chunk_that_spans_a_speaker_change() {
+        let turns = parse_turns(TURNS_JSON).unwrap();
+        let labels = labels_for_turns(&turns).expect("two speakers");
+        // One chunk 0.0–12.0, labelled by the chunk pass as the majority speaker.
+        let mut cues = vec![
+            cue(1.0, 3.0, Some("Speaker A")),
+            // Starts inside A's turn but is mostly inside B's: the cue pass must
+            // flip it even though its chunk said A.
+            cue(9.9, 12.0, Some("Speaker A")),
+        ];
+
+        attribute_cues(&mut cues, &turns, &labels);
+
+        assert_eq!(cues[0].speaker.as_deref(), Some("Speaker A"));
+        assert_eq!(
+            cues[1].speaker.as_deref(),
+            Some("Speaker B"),
+            "the cue's own span decides, not its chunk's"
+        );
+    }
+
+    /// A cue no turn covers keeps the label it arrived with: the diarizer drops
+    /// turns under `MIN_TURN_SECONDS`, and a gap is not evidence of a new
+    /// speaker. Clearing it would silently un-label a correct chunk answer.
+    #[test]
+    fn cue_attribution_keeps_the_chunk_label_without_overlap() {
+        let turns = parse_turns(TURNS_JSON).unwrap();
+        let labels = labels_for_turns(&turns).expect("two speakers");
+        let mut cues = vec![cue(500.0, 501.0, Some("Speaker B"))];
+
+        attribute_cues(&mut cues, &turns, &labels);
+
+        assert_eq!(cues[0].speaker.as_deref(), Some("Speaker B"));
+    }
+
+    /// A cue with no label at all and no overlapping turn stays unlabelled
+    /// rather than inventing one.
+    #[test]
+    fn cue_attribution_does_not_invent_a_label() {
+        let turns = parse_turns(TURNS_JSON).unwrap();
+        let labels = labels_for_turns(&turns).expect("two speakers");
+        let mut cues = vec![cue(500.0, 501.0, None)];
+
+        attribute_cues(&mut cues, &turns, &labels);
+
+        assert!(cues[0].speaker.is_none());
     }
 
     #[test]

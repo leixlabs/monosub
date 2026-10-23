@@ -338,6 +338,57 @@ pub struct ModelPlan {
     pub gaps: Vec<Gap>,
 }
 
+/// Which model runs each stage: `vad` / `asr` / `diar`.
+///
+/// The plan's [`id`](ModelPlan::id) is a *shape* key — it names the steps plus
+/// the one model that makes the shape distinctive (`asr+diar+turns:nemotron`),
+/// which reads as "nemotron transcribes" when nemotron only supplies speaker
+/// turns and a different model does the ASR. This is the question the id cannot
+/// answer: which model fills which stage.
+///
+/// The pure-Rust turn-attribution step is deliberately absent: it has no model
+/// and no CLI call, so there is nothing to name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageModels {
+    /// VAD family. `silero_vad` is the bundled default and not a catalogue id;
+    /// a `Vad` step only exists when the user pinned another model.
+    pub vad: String,
+    /// The model that transcribes. `None` only for the gap plan (no steps).
+    pub asr: Option<String>,
+    /// Speaker-turns model, `None` when the plan separates no speakers.
+    pub diar: Option<String>,
+}
+
+impl ModelPlan {
+    /// The stage → model answer. See [`StageModels`].
+    pub fn stage_models(&self) -> StageModels {
+        let model_of = |kind: StepKind| {
+            self.steps
+                .iter()
+                .find(|step| step.kind == kind && !step.model_id.is_empty())
+                .map(|step| step.model_id.clone())
+        };
+
+        StageModels {
+            // Silero always runs inside the ASR session unless a `Vad` step
+            // names another model (`model_overrides.vad`).
+            vad: model_of(StepKind::Vad)
+                .unwrap_or_else(|| crate::engine::vad::DEFAULT_FAMILY.to_string()),
+            asr: model_of(StepKind::Asr),
+            diar: model_of(StepKind::Diarize),
+        }
+    }
+}
+
+impl StageModels {
+    /// The value to log for a stage the plan does not run.
+    ///
+    /// Explicit rather than omitted: an absent `diar` field would read as "this
+    /// log line predates the field", which is exactly the ambiguity the model
+    /// status badges were changed to remove.
+    pub const ABSENT: &'static str = "none";
+}
+
 // --- §5.6 gaps -------------------------------------------------------------
 
 /// One unmet requirement, with the download suggestion the UI shows (design §5.6).
@@ -1700,6 +1751,83 @@ mod tests {
             vec!["sensevoice_small_q8".to_string()],
             "the retired model must not reach the install gate"
         );
+    }
+
+    /// The log line's stage fields: which model runs VAD, which transcribes,
+    /// which separates speakers.
+    ///
+    /// This is the answer to the plan id's ambiguity. `asr+diar+turns:nemotron`
+    /// names only the model that makes the shape distinctive, so it reads as
+    /// "nemotron transcribes" — the opposite of what runs, where a different
+    /// model does the ASR and nemotron only supplies speaker turns.
+    #[test]
+    fn stage_models_name_the_model_of_each_stage() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+        let req = Requirements {
+            diarization: true,
+            ..req()
+        };
+
+        let plan = &solve(&catalogue, &installed, &req)[0];
+
+        assert_eq!(plan.id, "asr+diar+turns:nemotron", "the terse shape key");
+        assert_eq!(
+            plan.stage_models(),
+            StageModels {
+                // No `Vad` step in any template: Silero always runs inside the
+                // ASR session, so its bundled family is the answer.
+                vad: "silero_vad".to_string(),
+                asr: Some("sensevoice_small_q8".to_string()),
+                diar: Some("nemotron_3_diar_q8_0".to_string()),
+            }
+        );
+    }
+
+    /// A pinned VAD model is a real `Vad` step, and must replace the bundled
+    /// default in the answer rather than sit beside it.
+    ///
+    /// Uses the committed catalogue: the fixture below has no `vad`-role model,
+    /// so a pin to one could only be tested against the real file.
+    #[test]
+    fn a_pinned_vad_model_replaces_the_bundled_default() {
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/resources/models.json"
+        ));
+        let real = crate::engine::catalog::load_catalog(path).expect("committed models.json");
+        let installed = all_installed();
+        let mut plans = solve(&real, &installed, &req());
+
+        let vad_id = real
+            .iter()
+            .find(|spec| spec.has_role(Role::Vad))
+            .expect("the catalogue offers a downloadable VAD")
+            .id
+            .clone();
+
+        let mut overrides = HashMap::new();
+        overrides.insert("vad".to_string(), vad_id.clone());
+        apply_model_overrides(&mut plans, &overrides, &real);
+
+        assert_eq!(
+            plans[0].stage_models().vad,
+            vad_id,
+            "a pinned VAD model must be the one reported, not the bundled default"
+        );
+    }
+
+    /// Speaker separation off: `diar` is explicitly `none`, never a stale id and
+    /// never silently absent.
+    #[test]
+    fn stage_models_of_a_plain_asr_plan_report_no_diar() {
+        let catalogue = catalogue();
+        let installed = all_installed();
+
+        let plan = &solve(&catalogue, &installed, &req())[0];
+
+        assert_eq!(plan.stage_models().asr, Some("sensevoice_small_q8".to_string()));
+        assert_eq!(plan.stage_models().diar, None);
     }
 
     #[test]

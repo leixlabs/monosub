@@ -472,6 +472,23 @@ Rules that follow from this:
   requires `general.architecture = audiocpp` plus `audiocpp.model_spec.json`.
 - The `[Speaker A]: ` prefix in `subtitle/writer.rs` is fed by `RawChunk.speaker`;
   `subtitle/postprocess.rs` must not merge across differing speakers.
+- **Speaker labels are decided per cue, not per VAD chunk.** `diar::attribute_turns`
+  labels a whole chunk, and a chunk is a VAD window of up to
+  `VAD_MAX_SECONDS` (15 s) — so a window that spans a speaker change gives both
+  sides one label. Measured on a 4-hour two-person interview: 535 of 552 speaker
+  changes did land on a chunk boundary, but **20 % of the cues sat in a chunk
+  containing both a question and its answer**, which is how the host's
+  「这对于其他模型公司很难吗？」 came out as the guest's `Speaker B`. So
+  `diar::attribute_cues` re-checks every finished cue against the same turns,
+  where a cue (one sentence, 1–3 s) makes the overlap decisive.
+  `subtitle::postprocess` therefore takes the turns and applies them **after**
+  the cues exist but **before** `merge_short` — merging is speaker-aware, so a cue
+  still carrying the coarse chunk label would be fused with its neighbour first
+  and the diarizer's boundary would be lost. A cue that overlaps no turn keeps
+  the chunk-level answer (the diarizer drops turns under `MIN_TURN_SECONDS`, and
+  a gap is not evidence of a new speaker). This is the design's "以 diar 为准",
+  and it is why the turns travel out of the recognition block in
+  `commands/transcribe.rs` instead of dying with the chunk labels.
 - **The catalogue is all-or-nothing, so its enums are open.** `load_catalog` fails
   the whole file on one bad value, which would take every working model down. The
   survey introduced `speed: "slow"` (7–14B translation models), third-party
@@ -621,6 +638,24 @@ URL import has no queue row to toggle before the job starts, so it still reads t
   therefore always *complete* in cue count, even when some cues are untranslated. The
   single-cue rung also rejects two measured non-answers as failures rather than shipping
   them: a reply identical to the source, and the prompt's own instruction coming back.
+- **The count is per window, not per answer.** `run_batch` counts only the numbered lines
+  whose index falls inside `[start+1, end]`. The prompt's own worked example
+  (`1. First.` / `2. Second.`) is numbered too, and the model sometimes restates it before
+  its real lines: for a window starting at 1 those two numbers collide with real cue numbers
+  and collapse in the parse map, so the file's first batch always passed, while every later
+  window saw them as two extra distinct indices. Measured on a 4884-cue file, a complete
+  two-cue answer read as `expected 2 numbered cue(s), got 4` and was walked down the retry
+  ladder to a single cue — and the single-cue rung rejects a source echo, which is what the
+  model tends to return for exactly those short tail fragments. That chain, not the model
+  alone, is why 302 cues shipped in the source language and the row said 部分未翻译.
+  Counting only the window changes no output (an out-of-window index never maps to a cue);
+  it only stops discarding complete answers. A batch answered in a foreign numbering still
+  counts 0 and still retries.
+- **"Partly untranslated" carries its own number.** `TranslationReport` also carries
+  `translated` / `kept_original`, and the row's badge reads `未翻译 3/4884` with a tooltip
+  explaining the shortfall. `degraded` is one boolean for both "one stray line" and "a third
+  of the file", and the pipeline already computed the counts — hiding them made the state
+  unanswerable at a glance.
 - **`models.json` schema for a translate entry**: `roles: ["translate"]`,
   `engine: "llamacpp"` (absent means `audiocpp`, so every recognition entry is unchanged),
   and `prompt_template` naming the prompt wording (`hy_mt`, or `generic`/`chatml`/
@@ -892,7 +927,7 @@ plan; `translate` entries are grouped separately by `role` in the UI.
 | Event | Payload | Purpose |
 |-------|---------|---------|
 | `transcribe_progress` | `{task_id, progress, overall?, status, step?, total_time?}` | Progress + step updates |
-| `transcribe_complete` | `{task_id, total_time?, translation?}` | Finished; all formats written. `translation` = `{written[], skipped?, degraded}` and is present only when the run had a translation plan — it is how the row says "translated to English" or *why* no `<stem>.<lang>.<ext>` appeared (`skipped: sameLanguage` is the common, correct case) |
+| `transcribe_complete` | `{task_id, total_time?, translation?}` | Finished; all formats written. `translation` = `{written[], skipped?, degraded, translated?, kept_original?}` and is present only when the run had a translation plan — it is how the row says "translated to English" or *why* no `<stem>.<lang>.<ext>` appeared (`skipped: sameLanguage` is the common, correct case), and the counts let a degraded row state the shortfall (`未翻译 3/4884`) instead of a bare "partly" |
 | `transcribe_error` | `{task_id, status}` | Failed; `status` is user-showable |
 | `model_download_progress` | `{id, downloaded, total}` | Throttled to ≥200 ms |
 | `model_download_complete` | `{id}` | Model ready |

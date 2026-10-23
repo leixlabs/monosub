@@ -538,7 +538,7 @@ mod tests {
     /// The estimated-timing pipeline is the default these tests exercise; word
     /// grouping has its own tests below.
     fn run_pipeline(chunks: &[crate::engine::RawChunk], config: &PostProcessConfig) -> Vec<Segment> {
-        crate::subtitle::postprocess(chunks, &[], config)
+        crate::subtitle::postprocess(chunks, &[], &[], config)
     }
 
 
@@ -852,8 +852,7 @@ mod tests {
 
     /// The composer must propagate a chunk's label into every cue it produces.
     #[test]
-    fn postprocess_propagates_chunk_speaker_to_segments() {
-        let chunks = vec![
+    fn postprocess_propagates_chunk_speaker_to_segments() {        let chunks = vec![
             RawChunk {
                 start_s: 0.0,
                 end_s: 2.0,
@@ -869,7 +868,7 @@ mod tests {
                 language: None,
             },
         ];
-        let segments = compose(&chunks, &[], &config());
+        let segments = compose(&chunks, &[], &[], &config());
 
         assert!(!segments.is_empty());
         assert!(
@@ -877,6 +876,58 @@ mod tests {
                 .iter()
                 .any(|segment| segment.speaker.as_deref() == Some("Speaker B")),
             "the labelled chunk's cues must carry its speaker: {segments:?}"
+        );
+    }
+
+    /// A chunk that spans a speaker change must not label both sides the same,
+    /// and the two sides must not be merged into one line afterwards.
+    ///
+    /// This is the measured shape that mislabelled a real 4-hour interview: one
+    /// VAD window (15 s ceiling) held the guest's sentence and the host's
+    /// follow-up question, so both carried one label. Attribution therefore runs
+    /// per **cue**, and it has to run **before** `merge_short` — merging is
+    /// speaker-aware, so a cue still carrying the coarse chunk label would be
+    /// fused with its neighbour first, and the boundary the diarizer found would
+    /// be gone by the time a label was applied.
+    ///
+    /// Both cues are one character long on purpose: that is what makes
+    /// `merge_short` want to fuse them, so the test fails if attribution is
+    /// applied after the merge (it would be one cue, labelled `Speaker A`).
+    #[test]
+    fn a_chunk_spanning_a_speaker_change_is_split_by_the_turns() {
+        // One chunk 0–3 s, labelled by the chunk pass as the majority speaker.
+        let chunks = vec![RawChunk {
+            start_s: 0.0,
+            end_s: 3.0,
+            text: "好。嗯。".to_string(),
+            speaker: Some("Speaker A".to_string()),
+            language: None,
+        }];
+        // The diarizer heard the change at 1.5 s, which is exactly where the
+        // proportional split puts the boundary between the two sentences.
+        let turns = vec![
+            crate::engine::diar::DiarTurn {
+                start_s: 0.0,
+                end_s: 1.5,
+                speaker_id: "S01".to_string(),
+                text: None,
+            },
+            crate::engine::diar::DiarTurn {
+                start_s: 1.5,
+                end_s: 3.0,
+                speaker_id: "S02".to_string(),
+                text: None,
+            },
+        ];
+
+        let segments = compose(&chunks, &[], &turns, &config());
+
+        let speakers: Vec<Option<&str>> =
+            segments.iter().map(|s| s.speaker.as_deref()).collect();
+        assert_eq!(
+            speakers,
+            vec![Some("Speaker A"), Some("Speaker B")],
+            "each cue follows its own turn, and the merge must not fuse across them: {segments:?}"
         );
     }
 

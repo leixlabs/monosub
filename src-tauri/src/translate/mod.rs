@@ -335,7 +335,28 @@ async fn run_batch(
     }
 
     let parsed = parse::parse_translations(&answer, start + 1);
-    if parsed.len() != cues.len() {
+
+    // Only lines numbered INSIDE this window can be answers to it.
+    //
+    // The prompt carries a worked example (`1. First.` / `2. Second.`), and the
+    // model sometimes restates it before its real lines. For a window starting at
+    // 1 those example numbers collide with real cue numbers and collapse in the
+    // map, so the first batch of a file always passed; for every later window they
+    // are two extra distinct indices. Measured on a 4884-cue file: a two-cue
+    // window answered with the example plus its two real lines reported
+    // `expected 2 numbered cue(s), got 4` — a *complete* answer, sent down the
+    // half-size ladder and split until each cue stood alone. That ladder is why
+    // 302 cues were eventually kept in the source language: the tail fragments
+    // that reach the single-cue rung are exactly the ones the model tends to echo
+    // back unchanged, which that rung rejects.
+    //
+    // Nothing is ever written from an out-of-window index (the loop below only
+    // reads `cues`), so counting only the window changes no output — only whether
+    // a complete answer is recognised as complete. The count is also what catches
+    // a whole batch answered in a foreign numbering: those indices are all out of
+    // window, so `answered` is 0 and the retry still fires.
+    let answered = parsed.range((start + 1)..=end).count();
+    if answered != cues.len() {
         return retry_at_half_size(
             completer,
             template,
@@ -347,9 +368,9 @@ async fn run_batch(
             texts,
             outcome,
             TranslateError::Parse(format!(
-                "expected {} numbered cue(s), got {}",
+                "expected {} numbered cue(s) in this batch, got {}",
                 cues.len(),
-                parsed.len()
+                answered
             )),
         )
         .await;
@@ -732,6 +753,62 @@ mod tests {
         }
         assert_eq!(outcome.translated, 4);
         assert!(mock.request_count() > 1, "the smaller retries must be real requests");
+    }
+
+    /// The model sometimes restates the prompt's worked example
+    /// (`1. First.` / `2. Second.`) before its real lines. A batched contract
+    /// must not count those two example lines as two extra cues.
+    ///
+    /// Measured on a 4884-cue file: `expected 2 numbered cue(s), got 4`. The two
+    /// example numbers only collide with the window when it starts at 1, which is
+    /// why the first batch of a file never failed and every later one could. A
+    /// complete answer was therefore sent down the half-size ladder to a single
+    /// cue, where it sometimes gave up and shipped a cue untranslated (302
+    /// kept-originals in that run).
+    ///
+    /// Only lines numbered inside the requested window are answers to it. An
+    /// out-of-window index never maps to a cue here (the loop below reads `cues`),
+    /// so counting only the window cannot change the transcript — it only stops
+    /// discarding complete answers.
+    #[tokio::test]
+    async fn example_echo_lines_are_ignored_in_the_count() {
+        let mock = MockServer::start(|body| {
+            let lines = numbered_lines(body);
+            // The second batch of a 22-cue file is cues 21–22.
+            if lines.first().is_some_and(|(index, _)| *index == 21) {
+                // The example pair first (numbers 1 and 2), then the real pair.
+                let real = lines
+                    .iter()
+                    .map(|(index, text)| format!("{index}. <{text}>"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return Reply::Body(format!("1. First.\n2. Second.\n{real}"));
+            }
+            Reply::Body(mock_answer(body))
+        });
+        let completer = RemoteCompleter::new(&mock);
+        let input = cues(22, "原文");
+
+        let (out, outcome) = translate_with(
+            &completer,
+            Some("hy_mt"),
+            &input,
+            Some("zh"),
+            "en",
+            &|_, _| {},
+        )
+        .await;
+
+        assert_eq!(mock.request_count(), 2, "one request per batch, no retries");
+        assert_eq!(outcome.retried_batches, 0, "a complete answer must not be retried");
+        assert_eq!(outcome.failed_batches, 0);
+        assert_eq!(outcome.kept_original, 0);
+        // The real lines win over the example lines for cues 21 and 22; the
+        // example's own numbers 1 and 2 must not leak into cues 1 and 2 either,
+        // which is what "only the window counts" buys.
+        assert_eq!(out[20].text, "<原文 20>");
+        assert_eq!(out[21].text, "<原文 21>");
+        assert_eq!(out[0].text, "<原文 0>");
     }
 
     /// A server error never panics and never loses a cue: the file comes back

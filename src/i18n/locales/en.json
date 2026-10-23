@@ -46,6 +46,8 @@
     "openSubtitle": "Open subtitle",
     "openTranslated": "Translated copy",
     "translateDegraded": "Partly untranslated",
+    "translateDegradedCount": "Untranslated {{kept}}/{{total}}",
+    "translateDegradedHint": "{{kept}} of {{total}} cues kept their original text, because the translation model did not return a usable answer for them. The rest of the file is translated; re-running the file translates it again from scratch.",
     "translateSkipped": {
       "sameLanguage": "Not translated: already {{language}}",
       "noSegments": "Not translated: no speech",

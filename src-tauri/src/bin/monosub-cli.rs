@@ -30,6 +30,7 @@ use std::process::ExitCode;
 use monosub::commands::transcribe::{
     transcribe_file, ProgressSink, StepSnapshot, TaskParams, TranslationReport,
 };
+use monosub::engine::plan::StageModels;
 use monosub::model_dir::{self, BackendSettings};
 use monosub::paths::AppPaths;
 use monosub::subtitle::Format;
@@ -312,6 +313,22 @@ async fn run_one(
     let translation = resolve_translation(paths, args, &resolved.language);
     if args.translate && translation.is_none() {
         eprintln!("monosub-cli: continuing without translation");
+    }
+
+    // Say which model runs each stage. The CLI has no per-run speaker switch, so
+    // the frozen plan executes as saved — and the plan's id alone is ambiguous:
+    // `asr+diar+turns:nemotron` names only the model that makes the shape
+    // distinctive (nemotron supplies the turns), not the ASR model that does the
+    // transcription. Human output only: `--json`'s field set is experimental and
+    // a script reads the exit code and the output paths.
+    if !args.json && !args.quiet {
+        let stages = plan.stage_models();
+        eprintln!(
+            "  plan     vad={}  asr={}  diar={}",
+            stages.vad,
+            stages.asr.as_deref().unwrap_or(StageModels::ABSENT),
+            stages.diar.as_deref().unwrap_or(StageModels::ABSENT),
+        );
     }
 
     let params = TaskParams {

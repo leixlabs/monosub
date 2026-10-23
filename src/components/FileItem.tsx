@@ -449,11 +449,26 @@ export function FileItem({ file }: FileItemProps) {
             )}
             {/* A partial translation: the file exists, but some cues are still
                 in the source language. Saying nothing would present it as a
-                clean translation. */}
+                clean translation. The badge carries the count when the backend
+                reports one, because "partly" alone cannot distinguish one stray
+                line from a third of the file. */}
             {file.translationDegraded && (
-              <GlassBadge variant="warning" size="sm" data-testid="translation-degraded">
-                {t('fileItem.translateDegraded')}
-              </GlassBadge>
+              <GlassTooltip
+                content={t('fileItem.translateDegradedHint', {
+                  kept: file.translationKeptOriginal ?? '?',
+                  total: file.translationTotalCues ?? '?',
+                })}
+                side="top"
+              >
+                <GlassBadge variant="warning" size="sm" data-testid="translation-degraded">
+                  {file.translationKeptOriginal !== undefined && file.translationTotalCues
+                    ? t('fileItem.translateDegradedCount', {
+                        kept: file.translationKeptOriginal,
+                        total: file.translationTotalCues,
+                      })
+                    : t('fileItem.translateDegraded')}
+                </GlassBadge>
+              </GlassTooltip>
             )}
             {file.totalTime !== undefined && (
               <span className="text-xs text-text-tertiary dark:text-gray-500">

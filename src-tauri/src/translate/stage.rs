@@ -217,6 +217,15 @@ pub struct StageOutcome {
     pub written: Vec<PathBuf>,
     /// True when the run degraded (some cues kept their original text).
     pub degraded: bool,
+    /// Cues that received translated text.
+    ///
+    /// Carried out of the stage so a *degraded* run can say how large the shortfall
+    /// is: "partly untranslated" on a 4884-cue file could mean one line or three
+    /// hundred, and only the second is worth the user's attention. `degraded`
+    /// alone is a boolean that hides a number the pipeline already computed.
+    pub translated: usize,
+    /// Cues that kept their original text.
+    pub kept_original: usize,
     /// Set when the stage decided there was nothing to do and wrote nothing.
     ///
     /// This is **not** a failure: `SameLanguage` means a translated file would be
@@ -290,6 +299,8 @@ pub async fn translate_and_write(
             skipped: None,
             written: Vec::new(),
             degraded: outcome.degraded(),
+            translated: outcome.translated,
+            kept_original: outcome.kept_original,
         };
     }
 
@@ -307,6 +318,8 @@ pub async fn translate_and_write(
         skipped: None,
         written,
         degraded: outcome.degraded(),
+        translated: outcome.translated,
+        kept_original: outcome.kept_original,
     }
 }
 

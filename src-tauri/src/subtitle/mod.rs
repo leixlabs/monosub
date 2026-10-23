@@ -8,6 +8,7 @@
 pub mod postprocess;
 pub mod writer;
 
+use crate::engine::diar::DiarTurn;
 use crate::engine::words::Word;
 use crate::engine::RawChunk;
 
@@ -75,20 +76,42 @@ impl Default for PostProcessConfig {
 ///   count ([`postprocess::distribute_times`]), which is all a model without
 ///   word timing can support.
 ///
+/// `turns` are the diarizer's speaker turns, empty when the plan has no
+/// diarization step. They are applied **after** the cues exist and **before**
+/// [`postprocess::merge_short`], and both halves of that ordering matter:
+///
+/// - After, because a chunk label is a coarse answer. A chunk is a VAD window of
+///   up to 15 s and can span a speaker change, so every cue in it would inherit
+///   one speaker. Measured on a 4-hour two-person interview: 535 of 552 speaker
+///   changes landed on a chunk boundary, but 20 % of the cues sat in a chunk
+///   holding both a question and its answer — which is how the host's question
+///   came out labelled as the guest. A cue is one sentence, so the same turns
+///   are decisive for it.
+/// - Before, because merging is speaker-aware: two short cues from different
+///   speakers must not be fused into one line that then carries a single label.
+///
 /// Both paths end in the same merge + constraint pass, so cue shape
 /// (`min_duration`, `max_chars`, non-overlap) is defined once.
 pub fn postprocess(
     chunks: &[RawChunk],
     words: &[Word],
+    turns: &[DiarTurn],
     config: &PostProcessConfig,
 ) -> Vec<Segment> {
+    // Computed once: the numbering is first-appearance order over the whole
+    // file, so recomputing per cue would renumber the speakers.
+    let labels = crate::engine::diar::labels_for_turns(turns);
+
     // Speaker labels are per chunk on the estimated path and per run on the
     // aligned one. A word-aligned run with diarization is not offered yet, so
     // the aligned path takes the single label it was given; that is a documented
     // limitation, not an oversight (see docs/tech-spec/word-timestamps-poc.md).
     if !words.is_empty() {
         let speaker = chunks.first().and_then(|chunk| chunk.speaker.as_deref());
-        let cues = postprocess::group_words_into_cues(words, speaker, config);
+        let mut cues = postprocess::group_words_into_cues(words, speaker, config);
+        if let Some(labels) = labels.as_ref() {
+            crate::engine::diar::attribute_cues(&mut cues, turns, labels);
+        }
         let merged = postprocess::merge_short(cues, config);
         return postprocess::enforce_constraints(merged, config);
     }
@@ -116,6 +139,10 @@ pub fn postprocess(
             chunk.speaker.as_deref(),
             config,
         ));
+    }
+
+    if let Some(labels) = labels.as_ref() {
+        crate::engine::diar::attribute_cues(&mut segments, turns, labels);
     }
 
     let merged = postprocess::merge_short(segments, config);

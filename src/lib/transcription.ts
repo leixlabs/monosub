@@ -191,6 +191,8 @@ export const startTranscriptionTask = async (taskId: string) => {
     translatedPaths: undefined,
     translationSkipped: undefined,
     translationDegraded: undefined,
+    translationKeptOriginal: undefined,
+    translationTotalCues: undefined,
     // A new attempt starts from a clean slate: a stale `missingModelId` left by an
     // earlier missing-model failure would otherwise make an unrelated failure look
     // like another missing model.

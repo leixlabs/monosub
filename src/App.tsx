@@ -47,6 +47,10 @@ interface TranslationReportPayload {
   skipped?: string;
   /** Some cues kept their original text. */
   degraded: boolean;
+  /** Cues that received translated text; absent on an older backend. */
+  translated?: number;
+  /** Cues that kept their original text; absent on an older backend. */
+  kept_original?: number;
 }
 
 interface TranscribeProgressPayload {
@@ -236,6 +240,14 @@ function App() {
         translatedPaths: translation?.written.length ? translation.written : undefined,
         translationSkipped: translation?.skipped,
         translationDegraded: translation?.degraded || undefined,
+        // How many cues the shortfall covers. `degraded` alone cannot tell one
+        // stray line from a third of the file, and the row's wording needs the
+        // difference.
+        translationKeptOriginal: translation?.kept_original,
+        translationTotalCues:
+          translation?.translated !== undefined && translation?.kept_original !== undefined
+            ? translation.translated + translation.kept_original
+            : undefined,
       });
       setIsProcessing(false);
       setCurrentTaskId(null);

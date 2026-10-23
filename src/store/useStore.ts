@@ -170,6 +170,15 @@ export interface VideoFile {
    */
   translationDegraded?: boolean
   /**
+   * How many cues kept their original text, and the run's cue total.
+   *
+   * The badge says "部分未翻译" and then answers "how much": one line out of
+   * fifty and three hundred out of five thousand are the same boolean and very
+   * different problems. Both are absent when an older backend sends no counts.
+   */
+  translationKeptOriginal?: number
+  translationTotalCues?: number
+  /**
    * Per-file speaker separation. Diarization is a property of the recording,
    * not of the app: a single-narrator file can skip it, which also avoids
    * loading the diar / passthrough model at all (much faster).
