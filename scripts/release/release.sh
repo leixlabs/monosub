@@ -2,17 +2,14 @@
 
 # MonoSub Release Script
 # 用于构建和发布 MonoSub 到 GitHub Releases
-
-# Usage:
-#   ./scripts/release/release.sh                    # 默认构建 Lite 版本并发布
-#   ./scripts/release/release.sh --type=full        # 构建 Full 版本并发布
-#   ./scripts/release/release.sh --skip-package     # 跳过构建，仅发布已有文件
 #
-# 环境变量:
-#   APPLE_ID              # Apple ID for notarization
-#   APPLE_PASSWORD        # App-specific password for notarization
-#   APPLE_TEAM_ID         # Apple Team ID for notarization
-#   APPLE_SIGNING_IDENTITY # Code signing identity
+# Usage:
+#   ./scripts/release/release.sh                    # 构建并发布
+#   ./scripts/release/release.sh --skip-package     # 跳过构建，仅发布 dist/ 里已有的 DMG
+#
+# 分发签名：本机没有 Apple Developer 账号，产物是 ad-hoc 签名（见
+# scripts/release/sign-app.sh 与 tauri.conf.json 的 bundle.macOS）。
+# 不要设置 APPLE_SIGNING_IDENTITY / APPLE_ID，否则会复用本机证书或尝试公证而失败。
 
 # Configuration
 APP_NAME="monosub"
@@ -116,9 +113,22 @@ $GIT_CHANGES
 
 | File | Description |
 |------|-------------|
-| *.dmg | macOS Universal Installer |
+| *.dmg | macOS installer (Apple Silicon) |
 
 See attached files below for installation.
+
+## macOS first launch
+
+This build is **ad-hoc signed** (no Apple Developer ID, not notarized). macOS will
+refuse the first launch with "cannot be opened because the developer cannot be
+verified". To run it:
+
+1. Open the .dmg and drag MonoSub to Applications.
+2. Launch it once; when the warning appears, click **Done**.
+3. Go to **System Settings → Privacy & Security**, scroll down, and click
+   **Open Anyway** next to MonoSub.
+
+This is required once per machine. It is not a sign of a broken download.
 
 ---
 
@@ -132,7 +142,6 @@ echo "==============================================="
 
 # Parse arguments
 SKIP_PACKAGE=false
-BUILD_TYPE="lite"
 for arg in "$@"; do
     case $arg in
         --skip-package)
@@ -140,7 +149,7 @@ for arg in "$@"; do
             shift
             ;;
         --type=*)
-            BUILD_TYPE="${arg#*=}"
+            echo "Warning: --type 已废弃并被忽略（v2 起只有一种构建）。"
             shift
             ;;
     esac
@@ -162,9 +171,23 @@ echo "Base Version: $BASE_VERSION"
 CURRENT_COMMIT=$(get_current_commit_hash)
 echo "Current Commit: $CURRENT_COMMIT"
 
-# Full version tag
-VERSION="v${BASE_VERSION}-${CURRENT_COMMIT}"
+# The tag must match the version baked into the .app (CFBundleShortVersionString),
+# because the app's own update check compares its CARGO_PKG_VERSION against this
+# tag. `v2.0.0-<sha>` with a 2.0.1 app makes "Check for Updates" report an update
+# forever, and a SHA suffix can never equal a plain semver. Tag = v<version>.
+VERSION="v${BASE_VERSION}"
 echo "Release Version: $VERSION"
+
+# The version bump happens exactly once per release, at the END of this script,
+# after the tag has been published. build-macos-app.sh deliberately does NOT bump
+# (it used to, which made the DMG name one patch ahead of the tag). So the build
+# below and the tag both use the version currently in tauri.conf.json.
+if [ "$SKIP_PACKAGE" = false ]; then
+    if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+        echo "Warning: working tree is dirty. The release will be tagged $VERSION"
+        echo "         but the commit contains uncommitted changes."
+    fi
+fi
 
 # Get last release commit hash from release repo
 echo "Checking last release from $RELEASE_REPO..."
@@ -178,15 +201,7 @@ fi
 # Run build-macos-app.sh to build and create installers if not skipping
 if [ "$SKIP_PACKAGE" = false ]; then
     echo "Running build-macos-app.sh to build and package..."
-    
-    if [ -n "$BUILD_TYPE" ]; then
-        echo "指定构建类型: $BUILD_TYPE"
-        ./scripts/build/build-macos-app.sh $BUILD_TYPE
-    else
-        echo "使用默认构建类型"
-        ./scripts/build/build-macos-app.sh
-    fi
-    
+    ./scripts/build/build-macos-app.sh
     if [ $? -ne 0 ]; then
         echo "Error: build-macos-app.sh failed. Aborting release."
         exit 1

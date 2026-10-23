@@ -40,6 +40,8 @@
       "resources/**/*"
     ],
     "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false,
       "dmg": {
         "windowSize": {
           "width": 660,
