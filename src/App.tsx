@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { isPermissionGranted, requestPermission, sendNotification, onAction } from '@tauri-apps/plugin-notification';
 import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { resolveResource } from '@tauri-apps/api/path';
 import { useTranslation } from 'react-i18next';
@@ -27,12 +28,35 @@ interface StepInfoPayload {
   current_step: number;
   total_steps: number;
   step_name: string;
+  /** `vad` / `asr` / `diar` inside the recognition step; absent elsewhere. */
+  phase?: string;
   step_elapsed: number;
   total_elapsed: number;
 }
 
+/**
+ * What the translation stage did, carried on `transcribe_complete`.
+ *
+ * Present only when the run had a translation plan. `skipped` is a reason id, not
+ * prose: the row maps it to a sentence through `translation.skip.<reason>`.
+ */
+interface TranslationReportPayload {
+  /** `<stem>.<lang>.<ext>` paths written; empty when nothing was written. */
+  written: string[];
+  /** `sameLanguage` / `noSegments` when the stage decided there was nothing to do. */
+  skipped?: string;
+  /** Some cues kept their original text. */
+  degraded: boolean;
+}
+
 interface TranscribeProgressPayload {
   task_id: string;
+  /**
+   * `true` when the task is dispatched but blocked behind the concurrency
+   * limit. It has not started work, so the row must not show a step or a
+   * spinner-as-progress.
+   */
+  waiting?: boolean;
   /** Progress within the current step, 0…100. */
   progress: number;
   /** Progress across the whole run, 0…100; absent on non-step events. */
@@ -40,6 +64,8 @@ interface TranscribeProgressPayload {
   status: string;
   step?: StepInfoPayload;
   total_time?: number;
+  /** On `transcribe_complete` only; absent when the run never translated. */
+  translation?: TranslationReportPayload;
 }
 
 let _notificationIconPath: string | undefined;
@@ -127,6 +153,23 @@ function App() {
   // (url-import-design §5.9).
   useEffect(() => ensureUrlImportListeners(), []);
 
+  // Mirror the queue's concurrency into the Rust semaphore.
+  //
+  // Two consumers, one number: the frontend decides how many tasks to dispatch,
+  // and the backend decides how many may hold the GPU. Setting only one of them
+  // is how the app ended up dispatching 3 while running 1. Sent on mount (so the
+  // backend starts from the persisted value rather than its own default) and on
+  // every change.
+  const concurrency = useStore((state) => state.settings.concurrency);
+  useEffect(() => {
+    if (!('__TAURI_INTERNALS__' in window)) return;
+    void invoke('set_transcription_concurrency', { capacity: concurrency }).catch((error) => {
+      // A stale backend (an older build without the command) must not break the
+      // UI: the queue still works, it just keeps the backend's default.
+      reportFrontendError(error, { context: 'set_transcription_concurrency' });
+    });
+  }, [concurrency]);
+
   // Sync tray menu labels with current language. The progress rows are pushed by
   // `startTraySync` below and are kept by the Rust side, so a language change
   // never clears them (`commands/tray.rs`).
@@ -145,11 +188,15 @@ function App() {
   useEffect(() => {
     // Listen to transcription progress events
     const progressUnlisten = listen<TranscribeProgressPayload>('transcribe_progress', (event) => {
-      const { task_id, step } = event.payload;
-      console.log('[transcribe_progress]', { task_id, step });
+      const { task_id, step, waiting } = event.payload;
+      console.log('[transcribe_progress]', { task_id, step, waiting });
 
       const updates: Partial<import('./store/useStore').VideoFile> = {
         status: 'processing',
+        // A waiting task has no step to show and has not started: keeping the
+        // previous `stepProgress` would leave the last run's step name on a row
+        // that is only parked in the semaphore queue.
+        waiting: waiting || undefined,
         // `overall`, not `progress`: the latter restarts at 0 for every step,
         // so a bar driven by it would jump backwards four times per file. The
         // tray percentage and the row's bar both read this one field.
@@ -157,10 +204,14 @@ function App() {
       };
 
       if (step) {
+        // A step implies admission, so a later `waiting` event can never carry
+        // one; this is belt-and-braces for an out-of-order delivery.
+        updates.waiting = undefined;
         updates.stepProgress = {
           currentStep: step.current_step,
           totalSteps: step.total_steps,
           stepName: step.step_name,
+          phase: step.phase,
           stepElapsed: step.step_elapsed,
           totalElapsed: step.total_elapsed,
         };
@@ -171,13 +222,20 @@ function App() {
 
     // Listen to transcription completion events
     const completeUnlisten = listen<TranscribeProgressPayload>('transcribe_complete', (event) => {
-      const { task_id, total_time } = event.payload;
-      console.log('[transcribe_complete]', { task_id, total_time });
+      const { task_id, total_time, translation } = event.payload;
+      console.log('[transcribe_complete]', { task_id, total_time, translation });
       updateFile(task_id, {
         status: 'completed',
         progress: 100,
         stepProgress: undefined,
+        waiting: undefined,
         totalTime: total_time,
+        // The run's translation outcome, so the row can say "translated to
+        // English" — or why there is no translated file at all. Absent when the
+        // run never asked for translation.
+        translatedPaths: translation?.written.length ? translation.written : undefined,
+        translationSkipped: translation?.skipped,
+        translationDegraded: translation?.degraded || undefined,
       });
       setIsProcessing(false);
       setCurrentTaskId(null);

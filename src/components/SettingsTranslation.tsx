@@ -17,10 +17,18 @@ import {
 /**
  * Settings ▸ Translation (translation-design §7).
  *
- * Translation is an enhancement: when it is off, nothing here reaches the
- * engine and the run behaves exactly as before. When it is on, a missing
- * translation model is reported *before* recognition starts, so this pane also
- * has to make the model downloadable.
+ * Translation is an enhancement: when a run does not ask for it, nothing here
+ * reaches the engine and the run behaves exactly as before. When it is asked
+ * for, a missing translation model is reported *before* recognition starts, so
+ * this pane also has to make the model downloadable.
+ *
+ * The three controls here are not the same kind of setting:
+ *
+ * * the switch is the **default** for a newly queued file — whether a given run
+ *   translates is asked in the task area (queue toolbar + each row), where the
+ *   user can still change it;
+ * * the target language and the model are **configure-once**: they are
+ *   properties of the setup, so they are set here and never asked again.
  *
  * The download state machine lives in `Settings` (one set of listeners, one
  * `downloadingId`), so this component receives the models and the actions as
@@ -141,7 +149,10 @@ export function SettingsTranslation({
             onChange={(value) => updateSettings({ translateTargetLanguage: value })}
             options={targetOptions}
             className="w-[220px]"
-            disabled={!settings.translateEnabled}
+            // Not gated on the default switch: the target is configure-once, and
+            // a user who wants to pick it before turning anything on must be
+            // able to. The switch above only decides what a *new file* starts
+            // with (see `AppSettings.translateEnabled`).
           />
         </div>
 
@@ -154,9 +165,8 @@ export function SettingsTranslation({
             onChange={(value) => updateSettings({ translationModelId: value })}
             options={modelOptions}
             className="w-[220px]"
-            disabled={!settings.translateEnabled}
-            // 40 translation models in the catalogue: same reason as the plan's
-            // override pickers.
+            // Same reason as the target picker: a configure-once choice must not
+            // be blocked by the default-on switch.
             searchable
             testId="translation-model"
           />

@@ -64,8 +64,9 @@ const createQueuedFile = (path: string): VideoFile => ({
   thumbnail: THUMBNAIL_PLACEHOLDER,
   status: 'pending',
   progress: 0,
-  // Seeded from the app default; the user can flip it per file afterwards.
+  // Seeded from the app defaults; the user can flip either per file afterwards.
   diarization: useStore.getState().settings.defaultDiarization,
+  translate: useStore.getState().settings.translateEnabled,
 });
 
 const enrichQueuedFile = (file: VideoFile, source: string): void => {

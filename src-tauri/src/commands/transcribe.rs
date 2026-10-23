@@ -30,8 +30,87 @@ pub struct StepInfo {
     pub current_step: u32,
     pub total_steps: u32,
     pub step_name: String,
+    /// Which part of the step is running (`vad` / `asr` / `diar`), or absent
+    /// outside the recognition step. The GUI renders it as a pill under the step
+    /// badge; a CLI ignores it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     pub step_elapsed: f64,
     pub total_elapsed: f64,
+}
+
+/// Process-wide limit on how many CUES/GPU stages may run at once.
+///
+/// This is the number that honours the user's Settings ▸ 并发数. It is a
+/// `RwLock<Arc<Semaphore>>` because a semaphore's capacity is fixed at creation:
+/// raising it in Settings swaps in a new semaphore; in-flight tasks keep the old
+/// one's permit (they are already running and must not be disturbed), and new
+/// tasks acquire from the one set since the last change.
+static TRANSCRIBE_LIMIT: std::sync::RwLock<Option<Arc<tokio::sync::Semaphore>>> =
+    std::sync::RwLock::new(None);
+
+/// The default concurrency, applied until the frontend sends its setting.
+const DEFAULT_TRANSCRIPTION_CONCURRENCY: usize = 1;
+/// The allowed range, clamped in [`set_transcription_concurrency`].
+const MIN_TRANSCRIPTION_CONCURRENCY: usize = 1;
+const MAX_TRANSCRIPTION_CONCURRENCY: usize = 3;
+
+/// The current limit, installing the default if nobody has set one yet.
+///
+/// Self-healing rather than `expect`-ing: `transcribe_file` is reachable from
+/// three entry points (the GUI command, the CLI, tests) and a missing install
+/// must not turn into a panic mid-run.
+fn transcribe_limit() -> Arc<tokio::sync::Semaphore> {
+    let mut guard = TRANSCRIBE_LIMIT.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard
+        .get_or_insert_with(|| {
+            Arc::new(tokio::sync::Semaphore::new(DEFAULT_TRANSCRIPTION_CONCURRENCY))
+        })
+        .clone()
+}
+
+/// Acquire a permit from the current transcription-concurrency semaphore.
+async fn transcribe_permit() -> tokio::sync::OwnedSemaphorePermit {
+    // Read the current shared handle, then acquire on it. A resize swaps the
+    // Arc for a new one, so a permit belongs to the semaphore that was in force
+    // when the handle was read — which is why acquiring is never over-subscribed:
+    // the permit counts against that same semaphore.
+    transcribe_limit()
+        .acquire_owned()
+        .await
+        .expect("the semaphore is never closed")
+}
+
+/// Set the number of recognition/translation stages that may run concurrently.
+///
+/// Called from the frontend when 并发数 in Settings changes. Clamped to
+/// [`MIN_TRANSCRIPTION_CONCURRENCY`..`MAX_TRANSCRIPTION_CONCURRENCY`] so a
+/// hand-edited or stale blob cannot pin zero (which would deadlock the queue) or
+/// a figure that guarantees GPU thrash.
+///
+/// Resizing replaces the semaphore rather than mutating it, because a
+/// `tokio::sync::Semaphore`'s capacity is fixed at creation. Stages already
+/// running hold permits from the *old* semaphore, so they finish undisturbed and
+/// their release cannot free a slot in the new one; only newly spawned tasks see
+/// the new figure. That is the semantics a user expects from lowering a limit:
+/// "no more than N from now on", not "kill what is running".
+#[tauri::command]
+pub fn set_transcription_concurrency(capacity: usize) -> Result<(), String> {
+    let capacity = capacity.clamp(MIN_TRANSCRIPTION_CONCURRENCY, MAX_TRANSCRIPTION_CONCURRENCY);
+    *TRANSCRIBE_LIMIT.write().unwrap() = Some(Arc::new(tokio::sync::Semaphore::new(capacity)));
+    tracing::info!(capacity = %capacity, "transcription concurrency set");
+    Ok(())
+}
+
+/// Install the default before the first task acquires, so [`transcribe_permit`]
+/// never sees `None`.
+///
+/// Public because both entry points must call it: the GUI from `main`, the CLI
+/// from its own `main`. Idempotent, so calling it twice costs a write lock.
+pub fn ensure_transcription_limit() {
+    // One line by design: `transcribe_limit` owns the install, so there is no
+    // second copy of the default to drift.
+    drop(transcribe_limit());
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -47,6 +126,47 @@ pub struct TranscribeProgress {
     pub step: Option<StepInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_time: Option<f64>,
+    /// What the translation stage did, carried on `transcribe_complete` only.
+    ///
+    /// Added because "translation was on and no translated file appeared" had no
+    /// answer anywhere in the UI. The stage can legitimately write nothing — the
+    /// source already being the target language is the common case — and the
+    /// only trace was a `tracing::info!` in a log file the user is not reading.
+    /// A *successful* translation was equally invisible: the row listed the
+    /// original subtitle and nothing else.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub translation: Option<TranslationReport>,
+    /// `true` on the one event that says "dispatched, but blocked behind the
+    /// concurrency limit". Absent on every other event.
+    ///
+    /// A flag rather than a fourth value of `status`: the frontend has to
+    /// *compare* this, and `status` is a free-form string whose other values are
+    /// error keys and sentences. `phase` set the precedent — a closed identifier
+    /// the UI can branch on, not prose it has to pattern-match.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<bool>,
+}
+
+/// What the translation stage did, as the UI needs to hear it.
+///
+/// The IPC shape of [`crate::translate::stage::StageOutcome`]: that type is
+/// transport-free (it carries `PathBuf`s and a `SkipReason` enum), so the
+/// mapping happens here, at the command boundary, rather than teaching the
+/// stage about JSON.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TranslationReport {
+    /// Files written (`<stem>.<lang>.<ext>`). Empty when nothing was written.
+    pub written: Vec<String>,
+    /// Why nothing was written, when the stage decided there was nothing to do.
+    ///
+    /// A skip is **not** a failure: `sameLanguage` means the target already is
+    /// the source, and `noSegments` means the input was silent. Both legitimately
+    /// produce no file, which is exactly why the row has to say so instead of
+    /// leaving the user to wonder where their translation went.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
+    /// Some cues kept their original text (a batch that would not parse).
+    pub degraded: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -125,7 +245,6 @@ type TaskMap = Arc<Mutex<HashMap<String, TaskEntry>>>;
 lazy_static::lazy_static! {
     static ref TASKS: TaskMap = Arc::new(Mutex::new(HashMap::new()));
     static ref AUDIO_SEMAPHORE: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(2));
-    static ref TRANSCRIBE_SEMAPHORE: Arc<tokio::sync::Semaphore> = Arc::new(tokio::sync::Semaphore::new(1));
 }
 
 /// Everything one queued file needs, so the spawned task owns no borrows.
@@ -199,6 +318,9 @@ pub async fn start_transcription(
     app: AppHandle,
     request: TranscribeRequest,
 ) -> Result<String, String> {
+    // The CLI never calls this command, so the default has to be installed here
+    // (GUI path) and in `main` (CLI path); both are idempotent.
+    ensure_transcription_limit();
     let TranscribeRequest {
         id: task_id,
         path,
@@ -601,7 +723,10 @@ pub async fn transcribe_file(
     params: &TaskParams,
     sink: &mut dyn ProgressSink,
 ) -> Result<(), TaskFailure> {
-    let mut steps = Steps::new(params.translation.is_some());
+    let mut steps = Steps::new(
+        params.translation.is_some(),
+        params.plan.steps.iter().any(|step| step.kind == StepKind::Diarize),
+    );
     // Tracks whether the translation stage actually produced files, so the CLI
     // can report "subtitles written but translation failed" separately from a
     // clean success (docs/tech-spec/cli-design.md §5.3).
@@ -627,7 +752,14 @@ pub async fn transcribe_file(
     #[allow(unused_assignments)]
     let mut words: Vec<engine::words::Word> = Vec::new();
     let chunks = {
-        let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
+        // Report the block *before* waiting for it, so a task parked behind the
+        // concurrency limit says so instead of showing the previous step's
+        // "启动中…". `acquire` is FIFO, so the row flips to step 2 the moment a
+        // slot frees up — the two events are never out of order for one task.
+        if transcribe_limit().available_permits() == 0 {
+            sink.waiting(&params.task_id);
+        }
+        let _permit = transcribe_permit().await;
         steps.begin(sink, &params.task_id, 2);
         steps.begin(sink, &params.task_id, 3);
 
@@ -642,14 +774,14 @@ pub async fn transcribe_file(
         // so the mutable borrow lives behind a mutex. Reports are sequential, so
         // the lock is uncontended.
         let progress_sink = std::sync::Mutex::new(&mut *sink);
-        let on_progress = |done: usize, total: usize, message: &str| {
+        let on_progress = |done: usize, total: usize, phase: engine::ProgressPhase| {
             let percent = if total == 0 {
                 0.0
             } else {
                 done as f64 * 100.0 / total as f64
             };
             if let Ok(mut sink) = progress_sink.lock() {
-                steps.progress(*sink, &params.task_id, percent, message);
+                steps.progress(*sink, &params.task_id, percent, Some(phase));
             }
         };
 
@@ -723,6 +855,7 @@ pub async fn transcribe_file(
                             &turns_path,
                             &speech,
                             diar_mode,
+                            &on_progress,
                         )
                         .await
                         {
@@ -804,12 +937,19 @@ pub async fn transcribe_file(
     // Step 5 is the enhancement, never a precondition: the originals are on disk
     // before it starts, so any failure here still delivers them (design §2).
     //
-    // The TRANSCRIBE_SEMAPHORE is held across BOTH the recognition and the
+    // The concurrency semaphore is held across BOTH the recognition and the
     // translation stages (T4-7): llama.cpp and audio.cpp both want the GPU, and
-    // the semaphore is what stops two queued files from running one of each at
-    // the same time.
+    // one permit per file is what stops two queued files from running one of
+    // each at the same time. Its capacity is the user's 并发数 setting
+    // (`set_transcription_concurrency`).
+    let mut translation_report: Option<TranslationReport> = None;
     if let Some(translation) = params.translation.as_ref() {
-        let _permit = TRANSCRIBE_SEMAPHORE.acquire().await;
+        // Same report as above: with concurrency 1, a translating file waits here
+        // for whichever run currently holds the GPU.
+        if transcribe_limit().available_permits() == 0 {
+            sink.waiting(&params.task_id);
+        }
+        let _permit = transcribe_permit().await;
         steps.begin(sink, &params.task_id, 5);
         // The detected source is resolved from the RAW chunks (`T4-1` reads the
         // ASR's `<|zh|>` tag before cleaning), so `auto` is answered by the ASR
@@ -830,13 +970,26 @@ pub async fn transcribe_file(
         // legitimately write no translated file. Collapsing the two made
         // `--translate` on a silent clip report a failure.
         translation_written = translated.skipped.is_some() || !translated.written.is_empty();
+        translation_report = Some(TranslationReport {
+            written: translated
+                .written
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect(),
+            skipped: translated.skipped.map(|reason| reason.as_str().to_string()),
+            degraded: translated.degraded,
+        });
     }
 
     // Exactly one completion, after every format landed.
     params
         .completed
         .store(true, std::sync::atomic::Ordering::SeqCst);
-    sink.finished(&params.task_id, steps.total_seconds());
+    sink.finished(
+        &params.task_id,
+        steps.total_seconds(),
+        translation_report.as_ref(),
+    );
 
     if !translation_written {
         return Err(TaskFailure::new(
@@ -854,7 +1007,15 @@ pub async fn transcribe_file(
 /// the task completes normally (design §2). The work itself is the shared
 /// `translate::stage` function, which the URL import subtitle-hit path calls with
 /// exactly the same arguments (U1-13, url-import-design §5.6).
-pub async fn translate_and_write(
+///
+/// Private on purpose: this is the GUI/CLI *wiring* around that shared stage
+/// (it owns `Steps`, which is a rendering detail of this module), and the only
+/// caller is the translating branch of `transcribe_file` below. It was made
+/// `pub` during the `monosub-cli` split on the assumption that the CLI would
+/// call it directly; the CLI calls `transcribe_file` instead and the URL import
+/// calls `translate::stage` itself, so the visibility only produced
+/// `private_interfaces` (a `pub` fn taking a private `Steps`).
+async fn translate_and_write(
     paths: &crate::paths::AppPaths,
     params: &TaskParams,
     translation: &TranslationPlan,
@@ -873,7 +1034,7 @@ pub async fn translate_and_write(
             done as f64 * 100.0 / total as f64
         };
         if let Ok(mut sink) = sink.lock() {
-            steps.progress(*sink, &params.task_id, percent, "Translating");
+            steps.progress(*sink, &params.task_id, percent, None);
         }
     };
 
@@ -937,12 +1098,90 @@ struct Steps {
     /// `current/total` and a fixed 4 would show "5/4" on a translating run
     /// (translation-design §7).
     total: u32,
+    /// True when the plan runs diarization after recognition, which is the only
+    /// thing that can follow the ASR phase inside the same step.
+    diarizing: bool,
+}
+
+/// How the bar's 100 % is shared between the steps.
+///
+/// Equal weights were wrong for the two cheap steps: extracting a WAV and
+/// starting the model take a couple of seconds, yet each was worth a quarter of
+/// the run, so the bar sat at 0 % and then jumped to 25 % before any recognition
+/// had happened, and the last quarter arrived all at once while writing.
+///
+/// The numbers below are the measured shape of a normal run: transcription
+/// dominates, extraction and writing are near-instant, translation is a real
+/// stage but shorter than recognition. They are a *rendering* choice — the run
+/// reaches 100 % exactly when the last step does, whatever they are — so a
+/// machine that extracts unusually slowly is slow in the bar, not wrong about it.
+///
+/// A translating run renormalises these over 5 steps; see [`Steps::weights`].
+const STEP_WEIGHTS_WITHOUT_TRANSLATION: [f64; 4] = [
+    0.02, // 1. Extracting audio
+    0.03, // 2. Loading model
+    0.85, // 3. Transcribing (VAD + ASR + diarization)
+    0.10, // 4. Writing subtitle
+];
+
+const STEP_WEIGHTS_WITH_TRANSLATION: [f64; 5] = [
+    0.02, // 1. Extracting audio
+    0.03, // 2. Loading model
+    0.70, // 3. Transcribing
+    0.10, // 4. Writing subtitle
+    0.15, // 5. Translating
+];
+
+/// How the recognition step's own 100 % splits between its phases.
+///
+/// The phases run one after another inside one step, and each reports its own
+/// 0…100, so they have to be stitched or the badge's number runs backwards
+/// (ASR finishes at 100 %, then diarization starts at 0 %).
+///
+/// VAD is near-instant and decides everything downstream; the ASR is the bulk of
+/// the wall time; diarization is one whole-file CLI call and costs a noticeable
+/// fraction when the plan asks for it. Without diarization the ASR simply owns
+/// the rest.
+const PHASE_WEIGHTS_NO_DIAR: [f64; 2] = [0.05, 0.95];
+const PHASE_WEIGHTS_WITH_DIAR: [f64; 3] = [0.05, 0.65, 0.30];
+
+/// Where `phase` at `fraction` % sits within the recognition step, 0…100.
+///
+/// A pure function so the mapping is testable without a sink, and so the
+/// monotonicity it owes the user is pinned by a test rather than by inspection.
+fn phase_progress_within_step(
+    phase: engine::ProgressPhase,
+    fraction: f64,
+    diarizing: bool,
+) -> f64 {
+    use engine::ProgressPhase as P;
+    let fraction = (fraction / 100.0).clamp(0.0, 1.0);
+
+    // Index and weight of the running phase, in pipeline order.
+    let (index, weights): (usize, &[f64]) = match (phase, diarizing) {
+        (P::Vad, false) => (0, &PHASE_WEIGHTS_NO_DIAR),
+        (P::Asr, false) => (1, &PHASE_WEIGHTS_NO_DIAR),
+        (P::Vad, true) => (0, &PHASE_WEIGHTS_WITH_DIAR),
+        (P::Asr, true) => (1, &PHASE_WEIGHTS_WITH_DIAR),
+        (P::Diar, true) => (2, &PHASE_WEIGHTS_WITH_DIAR),
+        // A diar phase on a plan that did not ask for one cannot happen; if it
+        // does, treat it as the tail of the step rather than panic.
+        (P::Diar, false) => (1, &PHASE_WEIGHTS_NO_DIAR),
+    };
+
+    let finished: f64 = weights.iter().take(index).sum();
+    let own = weights.get(index).copied().unwrap_or(0.0);
+    ((finished + own * fraction) * 100.0).clamp(0.0, 100.0)
 }
 
 impl Steps {
     /// `translating` decides the total up front, so the very first step event
     /// already carries the right denominator.
-    fn new(translating: bool) -> Self {
+    ///
+    /// `diarizing` is only consulted to split the recognition step's own
+    /// percentage between its phases, so a plan without speaker separation never
+    /// shows a diarization slice it will not use.
+    fn new(translating: bool, diarizing: bool) -> Self {
         let now = Instant::now();
         Self {
             start: now,
@@ -953,6 +1192,7 @@ impl Steps {
             } else {
                 STEPS_WITHOUT_TRANSLATION
             },
+            diarizing,
         }
     }
 
@@ -967,12 +1207,54 @@ impl Steps {
         self.emit(sink, task_id, 0.0, step_name(step));
     }
 
-    /// In-step update; `status` carries the engine's progress message.
-    fn progress(&self, sink: &mut dyn ProgressSink, task_id: &str, progress: f64, status: &str) {
-        self.emit(sink, task_id, progress, status);
+    /// In-step update; `phase` names which part of the step is running.
+    ///
+    /// Takes `&self` because the engine's `ProgressFn` is a shared closure
+    /// (`Fn`, not `FnMut`): the phase travels on the snapshot rather than being
+    /// remembered here, which keeps that closure callable from several places
+    /// in the pipeline.
+    ///
+    /// `progress` is the phase's own fraction and is mapped onto the *step's*
+    /// share, because the recognition step runs several phases one after another
+    /// and each restarts at 0. Reporting the raw figure would show the badge
+    /// going 100 % (ASR finished) → 0 % (diarization starting) → 100 %, i.e. a
+    /// number that runs backwards inside one step. The mapping is what makes
+    /// "· 42 %" mean "42 % of this step", whatever phase is running.
+    ///
+    /// `phase` is `None` for a step that has no sub-phases of its own —
+    /// translation reports its own percentage and nothing finer.
+    fn progress(
+        &self,
+        sink: &mut dyn ProgressSink,
+        task_id: &str,
+        progress: f64,
+        phase: Option<engine::ProgressPhase>,
+    ) {
+        let step_progress = match phase {
+            Some(phase) => phase_progress_within_step(phase, progress, self.diarizing),
+            None => progress,
+        };
+        self.emit_with_phase(
+            sink,
+            task_id,
+            step_progress,
+            step_name(self.current),
+            phase,
+        );
     }
 
     fn emit(&self, sink: &mut dyn ProgressSink, task_id: &str, progress: f64, status: &str) {
+        self.emit_with_phase(sink, task_id, progress, status, None);
+    }
+
+    fn emit_with_phase(
+        &self,
+        sink: &mut dyn ProgressSink,
+        task_id: &str,
+        progress: f64,
+        status: &str,
+        phase: Option<engine::ProgressPhase>,
+    ) {
         sink.step(&StepSnapshot {
             task_id: task_id.to_string(),
             progress,
@@ -982,34 +1264,48 @@ impl Steps {
             total_steps: self.total,
             // Never taken from `status`: the i18n keys depend on it.
             step_name: step_name(self.current),
+            phase,
             step_elapsed: self.step_start.elapsed().as_secs_f64(),
             total_elapsed: self.start.elapsed().as_secs_f64(),
         });
+    }
+
+    /// The share of the bar each step is worth, in step order.
+    fn weights(&self) -> &'static [f64] {
+        if self.total == STEPS_WITH_TRANSLATION {
+            &STEP_WEIGHTS_WITH_TRANSLATION
+        } else {
+            &STEP_WEIGHTS_WITHOUT_TRANSLATION
+        }
     }
 
     /// This run's percentage, across every step.
     ///
     /// `progress` is per **step** and restarts at 0 whenever a new step begins, so
     /// a bar driven by it alone jumps back to zero four times in one file. The
-    /// whole-run figure weights every step equally and takes the current step's
-    /// own fraction as its partial credit:
+    /// whole-run figure sums the weight of every finished step plus the current
+    /// step's own fraction of its weight:
     ///
     /// ```text
-    /// overall = (current - 1 + progress/100) / total * 100
+    /// overall = (Σ finished weights + current_weight * progress/100) * 100
     /// ```
     ///
-    /// Equal weights are a deliberate choice, not an approximation: step 3
-    /// (transcription) dominates wall time, and pretending to know the split in
-    /// advance would be a fabricated number. The bar moves monotonically and
-    /// reaches 100 exactly when the last step does, which is what a progress bar
-    /// owes the user.
+    /// The weights are unequal on purpose — see
+    /// [`STEP_WEIGHTS_WITHOUT_TRANSLATION`]. Equal weights made extracting a WAV
+    /// and starting the model worth a quarter of the run each, so the bar jumped
+    /// to 50 % before any recognition had happened and then sat still for the
+    /// rest of it. The bar still moves monotonically and reaches 100 exactly when
+    /// the last step does, which is what a progress bar owes the user.
     fn overall(&self, progress: f64) -> f64 {
-        if self.total == 0 {
+        let weights = self.weights();
+        if self.total == 0 || weights.is_empty() {
             return 0.0;
         }
-        let step = self.current.saturating_sub(1) as f64;
+        let current = self.current.saturating_sub(1) as usize;
+        let finished: f64 = weights.iter().take(current).sum();
+        let own = weights.get(current).copied().unwrap_or(0.0);
         let fraction = (progress / 100.0).clamp(0.0, 1.0);
-        ((step + fraction) / self.total as f64 * 100.0).clamp(0.0, 100.0)
+        ((finished + own * fraction) * 100.0).clamp(0.0, 100.0)
     }
 
     fn total_seconds(&self) -> f64 {
@@ -1032,6 +1328,10 @@ pub struct StepSnapshot {
     pub current_step: u32,
     pub total_steps: u32,
     pub step_name: &'static str,
+    /// The recognition sub-phase, when step 3 is reporting one. `None` for every
+    /// other step and for a run that never entered the VAD/ASR pipeline (a
+    /// subtitle hit, or an all-silent input).
+    pub phase: Option<engine::ProgressPhase>,
     pub step_elapsed: f64,
     pub total_elapsed: f64,
 }
@@ -1047,8 +1347,28 @@ pub trait ProgressSink: Send + Sync {
     fn step(&mut self, snapshot: &StepSnapshot);
     /// The run entered the queue (before audio extraction).
     fn queued(&mut self, task_id: &str);
+    /// The run is dispatched but has not been admitted to the GPU yet.
+    ///
+    /// Distinct from `queued` on purpose: `queued` means "this task exists",
+    /// `waiting` means "it exists and is blocked behind the concurrency limit".
+    /// Without it the row showed "启动中…" with a spinner while the task sat in
+    /// the semaphore queue, i.e. it claimed to be working when it was only
+    /// waiting — and the default concurrency is 1, so that is the normal state
+    /// for every file after the first.
+    fn waiting(&mut self, task_id: &str);
     /// Every requested file was written; `total_seconds` is wall time.
-    fn finished(&mut self, task_id: &str, total_seconds: f64);
+    ///
+    /// `translation` is `Some` only when this run had a translation plan, and it
+    /// reports what that stage actually did — including "skipped, because the
+    /// source already is the target language". The CLI ignores it (its stable
+    /// contract is the exit code); the GUI shows it on the finished row, which is
+    /// the only way a user learns why no `<stem>.<lang>.<ext>` file appeared.
+    fn finished(
+        &mut self,
+        task_id: &str,
+        total_seconds: f64,
+        translation: Option<&TranslationReport>,
+    );
 }
 
 /// The GUI's sink: turns snapshots into the frozen `transcribe_progress` event.
@@ -1069,10 +1389,14 @@ impl ProgressSink for EventSink<'_> {
                     current_step: snapshot.current_step,
                     total_steps: snapshot.total_steps,
                     step_name: snapshot.step_name.to_string(),
+                    phase: snapshot.phase.map(|phase| phase.as_str().to_string()),
                     step_elapsed: snapshot.step_elapsed,
                     total_elapsed: snapshot.total_elapsed,
                 }),
                 total_time: None,
+                // Only `transcribe_complete` reports translation.
+                translation: None,
+                waiting: None,
             },
         );
     }
@@ -1081,7 +1405,16 @@ impl ProgressSink for EventSink<'_> {
         emit_queued(self.app, task_id);
     }
 
-    fn finished(&mut self, task_id: &str, total_seconds: f64) {
+    fn waiting(&mut self, task_id: &str) {
+        emit_waiting(self.app, task_id);
+    }
+
+    fn finished(
+        &mut self,
+        task_id: &str,
+        total_seconds: f64,
+        translation: Option<&TranslationReport>,
+    ) {
         let _ = self.app.emit(
             "transcribe_complete",
             TranscribeProgress {
@@ -1091,6 +1424,8 @@ impl ProgressSink for EventSink<'_> {
                 status: "completed".to_string(),
                 step: None,
                 total_time: Some(total_seconds),
+                translation: translation.cloned(),
+                waiting: None,
             },
         );
     }
@@ -1113,6 +1448,29 @@ fn emit_queued(app: &AppHandle, task_id: &str) {
             status: "Pending in queue...".to_string(),
             step: None,
             total_time: None,
+            translation: None,
+            waiting: None,
+        },
+    );
+}
+
+/// "Dispatched, but not admitted yet."
+///
+/// Carries `overall: 0` rather than omitting it: the row is a position in the
+/// run (the start), not an error or a queue notice, and the bar it draws should
+/// read 0 % instead of falling back to a stale figure from a previous attempt.
+fn emit_waiting(app: &AppHandle, task_id: &str) {
+    let _ = app.emit(
+        "transcribe_progress",
+        TranscribeProgress {
+            task_id: task_id.to_string(),
+            progress: 0.0,
+            overall: Some(0.0),
+            status: "Waiting for a free slot".to_string(),
+            step: None,
+            total_time: None,
+            translation: None,
+            waiting: Some(true),
         },
     );
 }
@@ -1129,6 +1487,8 @@ fn emit_error(app: &AppHandle, task_id: &str, status: &str) {
             status: status.to_string(),
             step: None,
             total_time: None,
+            translation: None,
+            waiting: None,
         },
     );
 }
@@ -1503,12 +1863,12 @@ mod tests {
     /// two-hour file was being transcribed.
     #[test]
     fn overall_progress_is_monotonic_across_steps() {
-        let steps = Steps::new(false);
+        let steps = Steps::new(false, false);
         assert_eq!(steps.total, 4);
 
         let mut seen = Vec::new();
         for step in 1..=4u32 {
-            let mut steps = Steps::new(false);
+            let mut steps = Steps::new(false, false);
             steps.current = step;
             for fraction in [0.0, 25.0, 50.0, 100.0] {
                 seen.push(steps.overall(fraction));
@@ -1521,32 +1881,122 @@ mod tests {
         );
         assert_eq!(seen.first(), Some(&0.0));
         assert_eq!(seen.last(), Some(&100.0), "the last step must reach 100");
-        // Step 3 at 50 % is halfway through a 4-step run.
-        let mut steps = Steps::new(false);
-        steps.current = 3;
-        assert_eq!(steps.overall(50.0), 62.5);
     }
 
-    /// A translating run has five steps, so the same per-step fraction is worth
-    /// less. The denominator comes from `Steps::new`, not a constant.
+    /// The two cheap steps must not own half the bar.
+    ///
+    /// Regression: with equal weights, extracting a WAV and starting the model
+    /// were worth 25 % each, so the bar jumped to 50 % before a single word had
+    /// been recognised and then sat still for the rest of the run.
     #[test]
-    fn a_translating_run_spreads_the_same_work_over_five_steps() {
-        let mut plain = Steps::new(false);
-        plain.current = 4;
-        let mut translating = Steps::new(true);
-        translating.current = 4;
+    fn extraction_and_model_loading_barely_move_the_bar() {
+        let mut steps = Steps::new(false, false);
 
+        steps.current = 1;
+        let after_extract = steps.overall(100.0);
+        steps.current = 2;
+        let after_load = steps.overall(100.0);
+        steps.current = 3;
+        let before_transcribe = steps.overall(0.0);
+
+        assert_eq!(after_extract, 2.0);
+        assert_eq!(after_load, 5.0);
+        assert_eq!(
+            before_transcribe, 5.0,
+            "entering transcription must not jump the bar"
+        );
+        assert!(
+            after_load < 10.0,
+            "two seconds of work cannot be worth a tenth of the run: {after_load}"
+        );
+    }
+
+    /// Each table sums to 1, so the last step's 100 % is the run's 100 %.
+    #[test]
+    fn every_weight_table_covers_the_whole_bar() {
+        let plain: f64 = STEP_WEIGHTS_WITHOUT_TRANSLATION.iter().sum();
+        let translating: f64 = STEP_WEIGHTS_WITH_TRANSLATION.iter().sum();
+        assert!((plain - 1.0).abs() < 1e-9, "{plain}");
+        assert!((translating - 1.0).abs() < 1e-9, "{translating}");
+        assert_eq!(STEP_WEIGHTS_WITHOUT_TRANSLATION.len(), 4);
+        assert_eq!(STEP_WEIGHTS_WITH_TRANSLATION.len(), 5);
+    }
+
+    /// A translating run has five steps and its own weights, so writing the
+    /// subtitles no longer finishes the run.
+    #[test]
+    fn a_translating_run_has_further_to_go_after_writing() {
+        let mut plain = Steps::new(false, false);
+        plain.current = 4;
         assert_eq!(plain.overall(100.0), 100.0);
-        assert_eq!(translating.overall(100.0), 80.0);
+
+        let mut translating = Steps::new(true, false);
+        translating.current = 4;
+        let after_writing = translating.overall(100.0);
+        assert_eq!(after_writing, 85.0);
+        translating.current = 5;
+        assert_eq!(translating.overall(100.0), 100.0);
+        assert!(
+            after_writing < 100.0,
+            "the translation step is still ahead"
+        );
     }
 
     /// An out-of-range fraction is clamped rather than producing 120 % or -5 %.
     #[test]
     fn overall_progress_clamps_out_of_range_input() {
-        let mut steps = Steps::new(false);
+        let mut steps = Steps::new(false, false);
         steps.current = 2;
-        assert_eq!(steps.overall(-10.0), 25.0);
-        assert_eq!(steps.overall(250.0), 50.0);
+        // Steps 1 + 2 are worth 0.02 + 0.03, so the clamp pins the bar to that.
+        assert_eq!(steps.overall(-10.0), 2.0);
+        assert_eq!(steps.overall(250.0), 5.0);
+    }
+
+    /// The badge's percentage must not run backwards inside the recognition
+    /// step. Its phases each report their own 0…100, so without the mapping the
+    /// badge would read 100 % (ASR finished) and then 0 % (diarization starting).
+    #[test]
+    fn phase_progress_never_regresses_inside_the_recognition_step() {
+        use engine::ProgressPhase as P;
+
+        for diarizing in [false, true] {
+            let phases: &[P] = if diarizing {
+                &[P::Vad, P::Asr, P::Diar]
+            } else {
+                &[P::Vad, P::Asr]
+            };
+            let mut seen = Vec::new();
+            for phase in phases {
+                for fraction in [0.0, 25.0, 50.0, 100.0] {
+                    seen.push(phase_progress_within_step(*phase, fraction, diarizing));
+                }
+            }
+            assert!(
+                seen.windows(2).all(|pair| pair[0] <= pair[1]),
+                "diarizing={diarizing}: {seen:?}"
+            );
+            assert_eq!(seen.first(), Some(&0.0));
+            assert_eq!(seen.last(), Some(&100.0));
+        }
+    }
+
+    /// Without diarization the ASR owns the whole tail, so finishing it is
+    /// finishing the step; with diarization it stops at 70 %.
+    #[test]
+    fn the_asr_phase_leaves_room_only_for_diarization() {
+        use engine::ProgressPhase as P;
+        assert_eq!(phase_progress_within_step(P::Asr, 100.0, false), 100.0);
+        assert_eq!(phase_progress_within_step(P::Asr, 100.0, true), 70.0);
+        assert_eq!(phase_progress_within_step(P::Diar, 100.0, true), 100.0);
+    }
+
+    /// The phase tables cover the step, like the step tables cover the run.
+    #[test]
+    fn every_phase_weight_table_covers_the_step() {
+        let no_diar: f64 = PHASE_WEIGHTS_NO_DIAR.iter().sum();
+        let diar: f64 = PHASE_WEIGHTS_WITH_DIAR.iter().sum();
+        assert!((no_diar - 1.0).abs() < 1e-9, "{no_diar}");
+        assert!((diar - 1.0).abs() < 1e-9, "{diar}");
     }
 
 
@@ -2597,22 +3047,30 @@ mod tests {
             fn queued(&mut self, _task_id: &str) {
                 self.events.lock().unwrap().push("queued".to_string());
             }
-            fn finished(&mut self, _task_id: &str, _seconds: f64) {
+            fn waiting(&mut self, _task_id: &str) {
+                self.events.lock().unwrap().push("waiting".to_string());
+            }
+            fn finished(
+                &mut self,
+                _task_id: &str,
+                _seconds: f64,
+                _translation: Option<&TranslationReport>,
+            ) {
                 self.events.lock().unwrap().push("finished".to_string());
             }
         }
 
         let events = Arc::new(Mutex::new(Vec::new()));
         let mut sink = Recorder { events: events.clone() };
-        let mut steps = Steps::new(false);
+        let mut steps = Steps::new(false, false);
 
         sink.queued("t");
         steps.begin(&mut sink, "t", 1);
         steps.begin(&mut sink, "t", 2);
         steps.begin(&mut sink, "t", 3);
-        steps.progress(&mut sink, "t", 42.0, "Transcribing");
+        steps.progress(&mut sink, "t", 42.0, Some(engine::ProgressPhase::Asr));
         steps.begin(&mut sink, "t", 4);
-        sink.finished("t", 1.0);
+        sink.finished("t", 1.0, None);
 
         let logged = events.lock().unwrap().clone();
         assert_eq!(logged[0], "queued");
@@ -2672,8 +3130,8 @@ mod tests {
     /// keeps reporting 4 exactly as before.
     #[test]
     fn step_total_is_dynamic() {
-        assert_eq!(Steps::new(false).total, STEPS_WITHOUT_TRANSLATION);
-        assert_eq!(Steps::new(true).total, STEPS_WITH_TRANSLATION);
+        assert_eq!(Steps::new(false, false).total, STEPS_WITHOUT_TRANSLATION);
+        assert_eq!(Steps::new(true, false).total, STEPS_WITH_TRANSLATION);
     }
 
     #[test]

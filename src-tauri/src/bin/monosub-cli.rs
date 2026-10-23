@@ -27,7 +27,9 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use monosub::commands::transcribe::{transcribe_file, ProgressSink, StepSnapshot, TaskParams};
+use monosub::commands::transcribe::{
+    transcribe_file, ProgressSink, StepSnapshot, TaskParams, TranslationReport,
+};
 use monosub::model_dir::{self, BackendSettings};
 use monosub::paths::AppPaths;
 use monosub::subtitle::Format;
@@ -569,7 +571,21 @@ impl ProgressSink for Sink {
         }
     }
 
-    fn finished(&mut self, task_id: &str, total_seconds: f64) {
+    fn waiting(&mut self, _task_id: &str) {
+        // The CLI processes inputs in order and never runs two at once, so there
+        // is no slot to wait for. Printing a line here would invent a state the
+        // CLI cannot be in.
+    }
+
+    fn finished(
+        &mut self,
+        task_id: &str,
+        total_seconds: f64,
+        _translation: Option<&TranslationReport>,
+    ) {
+        // The translation report is the GUI's: the CLI's stable contract is the
+        // exit code plus the output paths, and a `--json` consumer that wanted
+        // the detail would be reading an experimental field set anyway.
         if let Sink::Json { input, .. } = self {
             println!(
                 "{{\"event\":\"done\",\"input\":{},\"task\":{},\"elapsed\":{total_seconds:.1}}}",

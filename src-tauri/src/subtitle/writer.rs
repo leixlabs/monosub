@@ -402,6 +402,13 @@ mod tests {
         }
     }
 
+    /// The JSON format's golden bytes.
+    ///
+    /// The `#[test]` was lost when the word sidecar landed above this function
+    /// (`21c57ca`): without it the body is dead code that never runs, so the
+    /// JSON writer had no golden check at all and the only symptom was a
+    /// `dead_code` warning.
+    #[test]
     fn render_json_matches_golden() {
         assert_eq!(render_json(&fixture_segments()), GOLDEN_JSON);
     }

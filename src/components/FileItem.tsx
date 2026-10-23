@@ -1,4 +1,4 @@
-import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users, Info } from 'lucide-react';
+import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users, Info, AudioLines, Cpu, FileText, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
@@ -13,6 +13,7 @@ import { GlassBadge, glassBadgeVariants } from '@/components/ui/glass-badge';
 import { GlassProgress } from '@/components/ui/glass-progress';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import { ErrorDetailsDialog } from '@/components/ErrorDetailsDialog';
+import { GlassTooltip } from '@/components/ui/glass-tooltip';
 import { MissingModelPrompt } from '@/components/MissingModelPrompt';
 import {
   MODEL_DOWNLOAD_COMPLETE_EVENT,
@@ -28,12 +29,69 @@ interface FileItemProps {
   file: VideoFile;
 }
 
+/**
+ * The icon that names what a step *does*, next to its label.
+ *
+ * Only the four steps the pipeline actually runs get one; the set is keyed by
+ * the frozen step name (`STEP_NAMES` in `commands/transcribe.rs`), so a step
+ * renamed there shows the spinner instead of silently picking up the wrong
+ * icon. `Transcribing` deliberately has no icon of its own — it is the default
+ * long-running case and the spinner already says so.
+ */
+function StepIcon({ step }: { step: string }) {
+  const className = 'w-3 h-3';
+  switch (step) {
+    case 'Extracting audio':
+      return <AudioLines className={className} aria-hidden="true" />;
+    case 'Loading model':
+      return <Cpu className={className} aria-hidden="true" />;
+    case 'Writing subtitle':
+      return <FileText className={className} aria-hidden="true" />;
+    case 'Translating':
+      return <Languages className={className} aria-hidden="true" />;
+    // `Transcribing` intentionally falls through: it is the long-running case,
+    // and the spinner beside the badge already says exactly that.
+    default:
+      return null;
+  }
+}
+
+/**
+ * The written subtitle's file name, as a button that opens it.
+ *
+ * A `<button>`, not a `<span onClick>`: it is an action, so it needs keyboard
+ * focus and a role a screen reader can announce. The name is the base name only
+ * (the row is narrow, and the directory is the same as the source in the common
+ * case); the full path is the tooltip, which is also what tells the user where a
+ * custom output folder put it.
+ */
+function SubtitleLink({ path, onOpen, label }: { path: string; onOpen: () => void; label: string }) {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  // `GlassTooltip`, not `title=`: the app runs in a WKWebView, which does not
+  // render native tooltips — the full path would be invisible.
+  return (
+    <GlassTooltip content={`${label}: ${path}`} side="top">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`${label}: ${path}`}
+        data-testid="open-subtitle"
+        className="max-w-[220px] truncate text-xs text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded"
+      >
+        {name}
+      </button>
+    </GlassTooltip>
+  );
+}
+
 export function FileItem({ file }: FileItemProps) {
   const { t } = useTranslation();
   const removeFile = useStore((state) => state.removeFile);
   const isProcessing = useStore((state) => state.isProcessing);
+  const isBatchProcessing = useStore((state) => state.isBatchProcessing);
   const settings = useStore((state) => state.settings);
   const setFileDiarization = useStore((state) => state.setFileDiarization);
+  const setFileTranslate = useStore((state) => state.setFileTranslate);
 
   // Live elapsed time counter
   const [liveElapsed, setLiveElapsed] = useState(0);
@@ -93,6 +151,27 @@ export function FileItem({ file }: FileItemProps) {
       await invoke('open_in_finder', { path: file.path });
     } catch (error) {
       console.error('[open_in_finder] Failed:', error);
+    }
+  };
+
+  /**
+   * Open a written subtitle with the system's default app.
+   *
+   * `open_file`, not `open_in_finder`: the user asked to read the subtitle, and
+   * revealing it in Finder leaves them one more double-click away. The path is
+   * whatever the run actually wrote (`subtitlePath` for a completed file,
+   * `skippedOutputPath` for a skipped one), so a custom output folder and a
+   * non-primary format both open the right file.
+   *
+   * A failure is logged, not shown: the row has no error slot for a file the
+   * backend already reported as written, and the path is still visible in the
+   * label for the user to act on themselves.
+   */
+  const handleOpenSubtitle = async (path: string) => {
+    try {
+      await invoke('open_file', { path });
+    } catch (error) {
+      console.error('[open_file] Failed:', error);
     }
   };
 
@@ -234,42 +313,74 @@ export function FileItem({ file }: FileItemProps) {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
+  /**
+   * The label inside the badge.
+   *
+   * Inside the recognition step the *phase* names what is running and the step
+   * name would only repeat it — "转录中 / 识别中" says 转录 twice. Everywhere else
+   * there is no phase, so the step name is the only label there is.
+   */
+  const badgeLabel = (() => {
+    const step = file.stepProgress;
+    if (!step) return '';
+    const key = step.stepName.toLowerCase().replace(/\s+/g, '_');
+    const phase = step.phase;
+    if (phase && key === 'transcribing') {
+      return t(`steps.phase.${phase}`, phase);
+    }
+    return t(`steps.${key}`, step.stepName);
+  })();
+
   const getStatusBadge = () => {
     switch (file.status) {
       case 'pending':
+        // Two different kinds of "not started yet", and they must not read the
+        // same. `isBatchProcessing` means the queue is running, so this row is
+        // behind the concurrency limit and will start on its own; without it,
+        // nothing is running and the row is waiting for the user to press 开始.
+        // Calling the first one "等待处理" reads as "waiting for you", which is
+        // the wrong instruction.
         return (
           <GlassBadge variant="default" size="sm">
-            {t('fileItem.pending')}
+            {isBatchProcessing ? t('fileItem.queued') : t('fileItem.pending')}
           </GlassBadge>
         );
       case 'processing':
+        // Dispatched but parked in the backend's semaphore queue. No step has
+        // begun, so there is no percentage to show and the spinner would be a
+        // lie — a static "排队中" is the honest state.
+        if (file.waiting) {
+          return (
+            <GlassBadge variant="default" size="sm" className="gap-1.5">
+              <Clock className="w-3.5 h-3.5" />
+              {t('fileItem.waitingForSlot')}
+            </GlassBadge>
+          );
+        }
         return (
           <div className="flex items-center gap-3">
             {file.stepProgress ? (
               <>
-                {/* Step indicator */}
-                <div
-                  className="flex items-center gap-2"
-                  // A bare "3/5" reads as a percentage, a retry count or a file
-                  // counter. The visible text names what it counts, and the
-                  // tooltip adds the step heading it belongs to.
-                  title={t('fileItem.stepOfTotalHint', {
-                    current: file.stepProgress.currentStep,
-                    total: file.stepProgress.totalSteps,
-                    step: t(`steps.${file.stepProgress.stepName.toLowerCase().replace(/\s+/g, '_')}`, file.stepProgress.stepName),
-                  })}
-                >
-                  <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
-                  <span className="text-xs font-medium text-text-secondary dark:text-gray-400 whitespace-nowrap">
-                    {t('fileItem.stepOfTotal', {
-                      current: file.stepProgress.currentStep,
-                      total: file.stepProgress.totalSteps,
-                    })}
-                  </span>
-                </div>
-                {/* Step name */}
-                <GlassBadge variant="primary" size="sm">
-                  {t(`steps.${file.stepProgress.stepName.toLowerCase().replace(/\s+/g, '_')}`, file.stepProgress.stepName)}
+                {/* One badge, two facts: what is running and how far along the
+                    whole run is. The percentage is the run-wide figure — the
+                    same one the bar below draws — because printing the step's
+                    own fraction next to the run's was two numbers for one
+                    question. The step name is dropped inside the recognition
+                    step, where the phase name already says it ("转录中 / 识别中"
+                    would say 转录 twice).
+                    The spinner stays alongside because it is the one thing that
+                    moves on its own — the percentage only arrives with an
+                    event. */}
+                <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
+                <GlassBadge variant="primary" size="sm" className="gap-1.5">
+                  <StepIcon step={file.stepProgress.stepName} />
+                  <span>{badgeLabel}</span>
+                  {file.progress !== undefined && (
+                    <>
+                      <span aria-hidden="true" className="opacity-50">·</span>
+                      <span className="tabular-nums">{Math.round(file.progress)}%</span>
+                    </>
+                  )}
                 </GlassBadge>
                 {/* Elapsed time */}
                 <div className="flex items-center gap-1 text-xs text-text-tertiary dark:text-gray-500">
@@ -287,11 +398,63 @@ export function FileItem({ file }: FileItemProps) {
         );
       case 'completed':
         return (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <GlassBadge variant="success" size="sm">
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               {t('fileItem.completed')}
             </GlassBadge>
+            {/* The subtitle itself, clickable. This is the one thing a finished
+                row can offer that the row does not already show: the file is on
+                disk, and opening it is what "done" invites. `open_file` (not
+                reveal) because the intent is to read it. */}
+            {file.subtitlePath && (
+              <SubtitleLink
+                path={file.subtitlePath}
+                onOpen={() => void handleOpenSubtitle(file.subtitlePath!)}
+                label={t('fileItem.openSubtitle')}
+              />
+            )}
+            {/* The translated copy, when there is one. Before this the row
+                listed only the original, so a successful translation was
+                invisible — the user had to go looking in Finder to find out
+                whether it had worked. */}
+            {file.translatedPaths?.[0] && (
+              <SubtitleLink
+                path={file.translatedPaths[0]}
+                onOpen={() => void handleOpenSubtitle(file.translatedPaths![0])}
+                label={t('fileItem.openTranslated')}
+              />
+            )}
+            {/* Why there is no translated file, when translation was on. The
+                stage refuses to write a duplicate (source already equals the
+                target) and writes nothing for a silent input; both are correct
+                outcomes that looked identical to a bug. */}
+            {!file.translatedPaths?.length && file.translationSkipped && (
+              <GlassTooltip
+                content={t('fileItem.translateSkippedHint', {
+                  language: settings.translateTargetLanguage,
+                })}
+                side="top"
+              >
+                <span
+                  className="text-xs text-text-tertiary dark:text-gray-500"
+                  data-testid="translation-skipped"
+                >
+                  {t(`fileItem.translateSkipped.${file.translationSkipped}`, {
+                    defaultValue: t('fileItem.translateSkipped.unknown'),
+                    language: settings.translateTargetLanguage,
+                  })}
+                </span>
+              </GlassTooltip>
+            )}
+            {/* A partial translation: the file exists, but some cues are still
+                in the source language. Saying nothing would present it as a
+                clean translation. */}
+            {file.translationDegraded && (
+              <GlassBadge variant="warning" size="sm" data-testid="translation-degraded">
+                {t('fileItem.translateDegraded')}
+              </GlassBadge>
+            )}
             {file.totalTime !== undefined && (
               <span className="text-xs text-text-tertiary dark:text-gray-500">
                 {formatElapsedTime(file.totalTime)}
@@ -308,14 +471,16 @@ export function FileItem({ file }: FileItemProps) {
             </GlassBadge>
             {/* Which file caused the skip. Without it "已跳过" reads as
                 "nothing to do here", when the real answer may be "your subtitle
-                is already in the custom output folder, in .vtt". */}
+                is already in the custom output folder, in .vtt". It is also
+                clickable: the subtitle exists, so opening it is the useful
+                action — and it is the only way to check it is the one you
+                wanted. */}
             {file.skippedOutputPath && (
-              <span
-                className="text-xs text-text-tertiary dark:text-gray-500 truncate"
-                title={file.skippedOutputPath}
-              >
-                {file.skippedOutputPath.split(/[\\/]/).pop()}
-              </span>
+              <SubtitleLink
+                path={file.skippedOutputPath}
+                onOpen={() => void handleOpenSubtitle(file.skippedOutputPath!)}
+                label={t('fileItem.openSubtitle')}
+              />
             )}
           </div>
         );
@@ -331,11 +496,8 @@ export function FileItem({ file }: FileItemProps) {
               title={file.error || t('fileItem.error')}
               data-testid="file-error-badge"
               className={cn(
-                // No `size`: `GlassBadge` forwards only `variant` to the cva call,
-                // so the row's other badges render at its `md` default. Matching
-                // that keeps this badge the same size it has always been.
-                glassBadgeVariants({ variant: 'destructive' }),
-                'cursor-pointer hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60',
+                glassBadgeVariants({ variant: 'destructive', size: 'sm' }),
+                'cursor-pointer hover:bg-red-500/20 dark:hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60',
               )}
             >
               <AlertCircle className="w-3.5 h-3.5 mr-1" />
@@ -382,9 +544,11 @@ export function FileItem({ file }: FileItemProps) {
       className={`animate-fade-in ${file.status === 'processing' ? '' : 'hover:-translate-y-1 transition-transform duration-200'
         }`}
     >
-      <div className="flex gap-4 p-4 w-full h-full">
-        {/* Thumbnail */}
-        <div className="w-[140px] h-[80px] rounded-lg bg-bg-secondary dark:bg-zinc-800 flex-shrink-0 overflow-hidden relative group">
+      <div className="flex gap-3 p-3 w-full h-full">
+        {/* Thumbnail. 128×72 (16:9) rather than 140×80: the row is mostly text
+            and actions, and the taller preview was setting the row's height for
+            a picture nobody reads at that size. */}
+        <div className="w-[128px] h-[72px] rounded-lg bg-bg-secondary dark:bg-zinc-800 flex-shrink-0 overflow-hidden relative group">
           {file.thumbnail ? (
             <img
               src={file.thumbnail}
@@ -403,7 +567,7 @@ export function FileItem({ file }: FileItemProps) {
         </div>
 
         {/* Details */}
-        <div className="flex-1 flex flex-col justify-between min-w-0 py-0.5">
+        <div className="flex-1 flex flex-col justify-between min-w-0">
           <div>
             <h3 className="text-sm font-medium text-text-primary dark:text-white truncate mb-1">
               {file.name}
@@ -429,11 +593,28 @@ export function FileItem({ file }: FileItemProps) {
                       className="scale-[0.7] origin-left"
                     />
                   </span>
+                  {/* Translation, per file and for the same reason: it is a
+                      per-run decision. The target language and model come from
+                      Settings and are not repeated here — only whether *this*
+                      file gets a translated copy. */}
+                  <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
+                  <span className="flex items-center gap-1.5">
+                    <Languages className="w-3 h-3" />
+                    {t('fileItem.translate')}
+                    <GlassSwitch
+                      checked={file.translate}
+                      onCheckedChange={(checked) => setFileTranslate(file.id, checked)}
+                      aria-label={t('fileItem.translate')}
+                      title={t('fileItem.translateHint')}
+                      data-testid={`file-translate-${file.id}`}
+                      className="scale-[0.7] origin-left"
+                    />
+                  </span>
                 </>
               )}
             </div>
           </div>
-          <div className="mt-2 space-y-1.5">
+          <div className="mt-1.5 space-y-1.5">
             {getStatusBadge()}
             {/* URL imports only: the platform had a subtitle behind a login, so
                 this file is being recognised only because cookies are not set up
@@ -460,23 +641,24 @@ export function FileItem({ file }: FileItemProps) {
                 })}
               </p>
             )}
-            {/* Whole-run progress. The step badges above say *what* is running;
-                this says *how far along* it is, and it only appears while the
-                row is processing, because a finished row has nothing left to
-                track. `file.progress` is the run-wide figure (App.tsx maps
-                `overall` onto it), so it never jumps back to 0 on a step change. */}
-            {file.status === 'processing' && file.progress !== undefined && (
-              <div className="space-y-1" data-testid="file-progress">
+            {/* Whole-run progress. The badge above says *what* is running and
+                carries the same percentage; this draws it. `file.progress` is
+                the run-wide figure (App.tsx maps `overall` onto it), so it never
+                jumps back to 0 on a step change. It only appears while the row
+                is processing, because a finished row has nothing left to track.
+                The number is not repeated underneath — one figure, one place to
+                read it. */}
+            {/* Not while waiting for a slot: a 0 % bar sitting still reads as
+                "stuck", and there is genuinely nothing to draw — the task has
+                not been admitted yet. The badge says so in words instead. */}
+            {file.status === 'processing' && !file.waiting && file.progress !== undefined && (
+              <div data-testid="file-progress">
                 <GlassProgress
                   value={Math.min(100, Math.max(0, file.progress))}
-                  aria-label={t('fileItem.stepOfTotal', {
-                    current: file.stepProgress?.currentStep ?? 1,
-                    total: file.stepProgress?.totalSteps ?? 1,
+                  aria-label={t('fileItem.progress', {
+                    percent: Math.round(file.progress),
                   })}
                 />
-                <p className="text-xxs text-text-tertiary dark:text-gray-500 text-right tabular-nums">
-                  {Math.round(file.progress)}%
-                </p>
               </div>
             )}
           </div>
@@ -489,7 +671,12 @@ export function FileItem({ file }: FileItemProps) {
               variant="primary"
               size="sm"
               onClick={() => void handleStart()}
-              disabled={isProcessing}
+              // Deliberately not disabled while another file runs: the app
+              // supports 3 concurrent tasks (`MAX_CONCURRENT_TASKS`), and a new
+              // start is queued until a slot frees. Gating the button on the
+              // global `isProcessing` made every row un-startable as soon as one
+              // task was running — measured: "没有办法开始，并发 3 个也是能点击开始的，
+              // 开始任务之后自动排队就好了".
               className="w-full"
             >
               <Play className="w-4 h-4" />

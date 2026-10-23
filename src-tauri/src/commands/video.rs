@@ -515,6 +515,15 @@ const MEDIA_EXTENSIONS: &[&str] = &[
 ];
 
 /// Resolve a list of paths, recursively expanding directories into media file paths
+///
+/// The `_audio.wav` / `_thumb.jpg` exclusions apply **only to directory scans**.
+/// They exist so the app does not queue its own cache artefacts: the WAV it
+/// writes next to the source, and the thumbnail it writes beside that. Applied to
+/// a path the user handed over directly, they were wrong — a file named
+/// `EP494_audio.wav` is a perfectly ordinary audio input, and picking it did
+/// nothing at all (measured: choosing it in the file dialog added no row, with no
+/// message). "The user explicitly chose this file" outranks "this looks like our
+/// cache", so an explicit path is only checked for being a media file.
 #[tauri::command]
 pub async fn resolve_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
     let media_set: std::collections::HashSet<&str> = MEDIA_EXTENSIONS.iter().copied().collect();
@@ -533,20 +542,26 @@ pub async fn resolve_paths(paths: Vec<String>) -> Result<Vec<String>, String> {
     Ok(result)
 }
 
+/// Whether a path has a supported media extension.
+///
+/// Deliberately extension-only: the cache-name exclusions live in
+/// [`is_cache_artefact`], which only directory scans consult.
 fn is_media_file(path: &Path, media_set: &std::collections::HashSet<&str>) -> bool {
-    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-        if file_name.starts_with('.')
-            || file_name.ends_with("_audio.wav")
-            || file_name.ends_with("_thumb.jpg")
-        {
-            return false;
-        }
-    }
-
     path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| media_set.contains(ext.to_lowercase().as_str()))
         .unwrap_or(false)
+}
+
+/// Files this app writes next to a source: the extracted WAV and the thumbnail.
+///
+/// Never a *reason* to refuse a path the user picked explicitly — only a reason
+/// to leave one out of a directory expansion, where it would duplicate a row the
+/// source file already has.
+fn is_cache_artefact(file_name: &str) -> bool {
+    file_name.starts_with('.')
+        || file_name.ends_with("_audio.wav")
+        || file_name.ends_with("_thumb.jpg")
 }
 
 fn collect_media_files(
@@ -565,12 +580,9 @@ fn collect_media_files(
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // Skip hidden files/directories and cache files
+        // Skip hidden files/directories and this app's own cache artefacts.
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-            if file_name.starts_with('.')
-                || file_name.ends_with("_audio.wav")
-                || file_name.ends_with("_thumb.jpg")
-            {
+            if is_cache_artefact(file_name) {
                 continue;
             }
         }
@@ -650,9 +662,51 @@ pub async fn open_in_finder(path: String) -> Result<(), String> {
         .inspect(|()| tracing::debug!(path = %path, "Opened in file manager"))
 }
 
+/// Open a written subtitle with the system's default application.
+///
+/// Distinct from [`open_in_finder`] on purpose: the row already says the file
+/// exists, so the useful next action is *reading* it, not locating it in Finder.
+/// Only existing files are accepted — the caller passes a path it just received
+/// from a completed run, and a stale row would otherwise hand the OS a path that
+/// opens nothing (or, on macOS, an error dialog from the default app).
+#[tauri::command]
+pub async fn open_file(path: String) -> Result<(), String> {
+    tracing::info!(path = %path, "Opening file with its default app");
+    let file_path = Path::new(&path);
+
+    if !file_path.is_file() {
+        tracing::error!(path = %path, "File does not exist");
+        return Err("File does not exist".to_string());
+    }
+
+    super::opener::open_file(file_path)
+        .await
+        .inspect_err(|error| {
+            tracing::error!(path = %path, error = %error, "Failed to open file");
+        })
+        .inspect(|()| tracing::debug!(path = %path, "Opened file"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::first_existing_file;
+    use super::{first_existing_file, is_cache_artefact, is_media_file, MEDIA_EXTENSIONS};
+
+    #[test]
+    fn an_explicitly_picked_cache_named_wav_is_still_a_media_file() {
+        // Measured: `EP494_audio.wav` could not be added at all. The exclusion
+        // for this app's own extracted WAV must not reach a path the user handed
+        // over, or a legitimate recording with that name is silently dropped.
+        let media: std::collections::HashSet<&str> = MEDIA_EXTENSIONS.iter().copied().collect();
+        assert!(is_media_file(
+            std::path::Path::new("/Users/x/Movies/EP494_audio.wav"),
+            &media
+        ));
+        // The exclusion still applies where it is correct: a directory scan.
+        assert!(is_cache_artefact("EP494_audio.wav"));
+        assert!(is_cache_artefact("EP494_mp4_thumb.jpg"));
+        assert!(is_cache_artefact(".DS_Store"));
+        assert!(!is_cache_artefact("EP494.wav"));
+    }
 
     #[test]
     fn missing_paths_are_not_a_hit() {

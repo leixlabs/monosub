@@ -48,6 +48,12 @@ const formatPercent = (value: number) =>
 
 /** One row for a processing file: its name, step label and step counter. */
 const statusRow = (file: VideoFile): string => {
+  if (file.waiting) {
+    // Parked behind the concurrency limit. Saying "启动中…" here would claim
+    // work that has not begun; the menu's whole job is to answer "what is the
+    // app doing?" honestly, and the answer is "waiting its turn".
+    return t('tray.waitingRow', { name: file.name });
+  }
   if (!file.stepProgress) {
     // A file that has not reported a step yet still gets a row: an empty menu
     // while a run is definitely happening is the case this feature exists for.
@@ -93,11 +99,14 @@ export const buildStatusRows = (files: VideoFile[]): string[] => {
  * runs cannot each claim it.
  */
 export const buildTitle = (files: VideoFile[]): string | undefined => {
-  const processing = files.filter((file) => file.status === 'processing');
-  if (processing.length === 0) return undefined;
+  // Only files that are actually admitted: averaging in the ones waiting for a
+  // slot drags the figure toward 0 and makes a single running task look like it
+  // is at half speed. If every task is waiting, there is no figure to show.
+  const running = files.filter((file) => file.status === 'processing' && !file.waiting);
+  if (running.length === 0) return undefined;
 
-  const total = processing.reduce((sum, file) => sum + (file.progress ?? 0), 0);
-  return formatPercent(total / processing.length);
+  const total = running.reduce((sum, file) => sum + (file.progress ?? 0), 0);
+  return formatPercent(total / running.length);
 };
 
 /** What the menu should currently show, derived from the file queue alone. */

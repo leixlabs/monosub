@@ -35,20 +35,37 @@
     "open": "打开",
     "delete": "删除",
     "starting": "启动中...",
-    "stepOfTotal": "第 {{current}}/{{total}} 步",
-    "stepOfTotalHint": "第 {{current}}/{{total}} 步 · {{step}}",
+    "progress": "进度 {{percent}}%",
     "skipped": "已跳过",
     "multiSpeaker": "多人",
     "multiSpeakerHint": "为此文件识别并标注说话人（较慢）",
     "showErrorDetails": "查看「{{name}}」的完整错误",
-    "errorUnknown": "该文件处理失败，但没有记录下错误信息。"
+    "errorUnknown": "该文件处理失败，但没有记录下错误信息。",
+    "translate": "翻译",
+    "translateHint": "为此文件额外生成一份译文；目标语言和模型在设置中统一选择",
+    "openSubtitle": "打开字幕",
+    "openTranslated": "译文",
+    "translateDegraded": "部分未翻译",
+    "translateSkipped": {
+      "sameLanguage": "未翻译：原文已是 {{language}}",
+      "noSegments": "未翻译：没有语音",
+      "unknown": "未翻译"
+    },
+    "translateSkippedHint": "没有生成译文文件。识别到的原文语种就是目标语言，再写一份只会重复原文件。可在「设置 ▸ 翻译」中更换目标语言。",
+    "queued": "排队中",
+    "waitingForSlot": "等待空位"
   },
   "steps": {
     "extracting_audio": "提取音频",
     "loading_model": "加载模型",
     "transcribing": "转录中",
     "writing_subtitle": "生成字幕",
-    "translating": "翻译中"
+    "translating": "翻译中",
+    "phase": {
+      "vad": "检测语音",
+      "asr": "识别中",
+      "diar": "分离说话人"
+    }
   },
   "bottomBar": {
     "saveLocation": "保存位置",
@@ -61,7 +78,9 @@
     "english": "EN",
     "multiSpeaker": "多人识别",
     "stop": "停止",
-    "translationTarget": "翻译为:"
+    "translationTarget": "翻译为:",
+    "translate": "翻译",
+    "translateHint": "为队列中所有待处理文件开启或关闭翻译"
   },
   "settings": {
     "title": "设置",
@@ -73,7 +92,9 @@
     "processing": {
       "title": "处理设置",
       "skipExisting": "跳过已有字幕",
-      "skipExistingDesc": "输出目录中已有该视频的字幕文件时，跳过处理"
+      "skipExistingDesc": "输出目录中已有该视频的字幕文件时，跳过处理",
+      "concurrency": "并发任务数",
+      "concurrencyDesc": "同时处理几个文件。所有阶段共用同一块 GPU，同时跑更多文件不一定更快。"
     },
     "notifications": {
       "title": "通知设置",
@@ -104,8 +125,8 @@
     },
     "translate": {
       "title": "翻译",
-      "enable": "翻译字幕",
-      "enableDesc": "识别完成后，用本地翻译模型把每条字幕翻译成目标语言",
+      "enable": "默认翻译新文件",
+      "enableDesc": "新加入队列的文件默认开启翻译；每个文件仍可在任务列表里单独开关",
       "targetLanguage": "目标语言",
       "model": "翻译模型",
       "modelDefault": "自动（目录默认）",
@@ -141,7 +162,8 @@
     "quit": "退出",
     "statusRow": "{{name}} — {{step}}（{{current}}/{{total}}）",
     "queueRow": "队列中还有 {{count}} 个",
-    "startingRow": "{{name}} — 启动中…"
+    "startingRow": "{{name}} — 启动中…",
+    "waitingRow": "{{name}} — 等待空位"
   },
   "language": {
     "auto": "自动检测",
@@ -217,15 +239,15 @@
     "rescanHint": "重新从磁盘读取安装状态（手动拷入模型后可用）",
     "recognitionTitle": "识别模型",
     "translationTitle": "翻译模型",
+    "supported": "已支持",
+    "supportedHint": "已在本机完整跑通并确认可用",
     "unverified": "未验证",
     "unverifiedHint": "尚未完整实测，可能无法正常工作",
     "unsupported": "不支持",
     "unsupportedHint": "当前版本的 MonoSub 不再提供该模型。它保留在清单中仅为完整性；方案求解不会选中它，也无法下载。",
     "runMode": "运行模式",
     "modes": {
-      "offline": "离线",
       "streaming": "流式",
-      "offlineHint": "整段音频一次处理。长音频会被切成互相重叠的窗口，每个窗口的说话人从零重新编号，再按重叠时长投票拼接——这是猜测，不是身份。",
       "streamingHint": "音频分块输入、状态在块之间延续：峰值内存更低；会话从不重启，所以说话人标记始终一致。"
     }
   },

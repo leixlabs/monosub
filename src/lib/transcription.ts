@@ -50,8 +50,11 @@ export const processQueueBatch = () => {
   const pendingFiles = currentFiles.filter((f) => f.status === 'pending');
   const processingFiles = currentFiles.filter((f) => f.status === 'processing');
 
-  const MAX_CONCURRENT_TASKS = 3;
-  const availableSlots = Math.max(0, MAX_CONCURRENT_TASKS - processingFiles.length);
+  // The user's 并发数 (Settings ▸ 文件). The backend semaphore is sized from the
+  // same number (`set_transcription_concurrency`), so dispatching more than it
+  // would only park rows at 0 % inside the backend.
+  const maxConcurrentTasks = state.settings.concurrency;
+  const availableSlots = Math.max(0, maxConcurrentTasks - processingFiles.length);
 
   if (availableSlots > 0 && pendingFiles.length > 0 && !isQueueProcessing) {
     isQueueProcessing = true;
@@ -176,6 +179,18 @@ export const startTranscriptionTask = async (taskId: string) => {
     status: 'processing',
     progress: 0,
     error: undefined,
+    // The primary output path, kept on the row so a finished file can offer
+    // "open the subtitle" without recomputing it from settings that may have
+    // changed since (the output format is a live setting). `output_path` below
+    // is the same string — this copy is for the UI, not for the request.
+    subtitlePath: outputPath,
+    // A previous attempt's translation outcome belongs to that attempt: leaving
+    // it here would show the old language's file on a row that has not
+    // translated yet, and a stale skip reason would explain a file that is
+    // about to be written.
+    translatedPaths: undefined,
+    translationSkipped: undefined,
+    translationDegraded: undefined,
     // A new attempt starts from a clean slate: a stale `missingModelId` left by an
     // earlier missing-model failure would otherwise make an unrelated failure look
     // like another missing model.
@@ -205,7 +220,12 @@ export const startTranscriptionTask = async (taskId: string) => {
         // Translation (translation-design §7). All optional server-side: an
         // empty `translation_model` means "use the catalogue default", and a
         // disabled run translates nothing.
-        translate_enabled: state.settings.translateEnabled,
+        //
+        // `translate_enabled` is the FILE's toggle, not `settings`': the target
+        // language and model are configure-once (Settings), but whether this
+        // run translates is asked in the task area. Reading the setting here
+        // would silently ignore the row's switch.
+        translate_enabled: file.translate,
         target_language: state.settings.translateTargetLanguage,
         translation_model: state.settings.translationModelId,
       },

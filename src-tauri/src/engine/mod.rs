@@ -139,7 +139,40 @@ fn resolve_vad_model(
     })
 }
 
-/// Progress callback payload: `(done, total, message)`.
+/// Which part of the recognition stage is running.
+///
+/// A frozen set, because the GUI names each one: `FileItem` renders the active
+/// phase as a pill under the step badge, so a new variant is a new i18n key and
+/// renaming one blanks that pill. The order is the order the pipeline runs them.
+///
+/// This used to be a free-form `&str` message ("Detecting speech",
+/// "Segmenting audio", …). Two things made that the wrong shape: the GUI needed
+/// to *compare* the value rather than print it, and prose comparisons are what
+/// the rest of this codebase refuses to do. The message was also never shown —
+/// the CLI prints `step_name`, and the GUI reads the step, not `status`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProgressPhase {
+    /// Silero VAD: finding the speech spans (including the slice that follows,
+    /// which is near-instant and has no percentage of its own).
+    Vad,
+    /// The ASR model reading each chunk.
+    Asr,
+    /// Speaker diarization over the whole file.
+    Diar,
+}
+
+impl ProgressPhase {
+    /// Stable identifier for the event payload and the i18n key.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProgressPhase::Vad => "vad",
+            ProgressPhase::Asr => "asr",
+            ProgressPhase::Diar => "diar",
+        }
+    }
+}
+
+/// Progress callback payload: `(done, total, phase)`.
 ///
 /// Both numbers are **weighted units**, not item counts: the ASR stage reports
 /// the sample length of the audio it has finished rather than the number of VAD
@@ -147,7 +180,11 @@ fn resolve_vad_model(
 /// chunks made the bar jump in unpredictable steps — the VAD segmentation
 /// already knows each chunk's real length, so using it costs nothing and is
 /// what makes the percentage track the work.
-pub type ProgressFn<'a> = dyn Fn(usize, usize, &str) + Send + Sync + 'a;
+///
+/// `done`/`total` are **within one phase**. Mapping them onto the run's single
+/// bar is the caller's job (`commands::transcribe::Steps`), because only it knows
+/// how the phases are weighted against each other.
+pub type ProgressFn<'a> = dyn Fn(usize, usize, ProgressPhase) + Send + Sync + 'a;
 
 /// audio.cpp task for ASR. The `family` always comes from the selected model's
 /// `ModelSpec`, never from a constant here: a GGUF embeds its own family and
@@ -279,7 +316,7 @@ async fn transcribe_estimated(
     })?;
 
     // Step 2: VAD. Cheap (no model load) and decides everything downstream.
-    on_progress(0, 0, "Detecting speech");
+    on_progress(0, 0, ProgressPhase::Vad);
     let vad_model = resolve_vad_model(paths, opts.vad_model_id.as_deref())?;
     tracing::info!(task_id = %task_id, family = %vad_model.family, "VAD stage starting");
     let chunks = vad::detect(paths, wav_path, dir, &vad_model).await?;
@@ -288,7 +325,7 @@ async fn transcribe_estimated(
     // the caller writes an empty subtitle.
     if chunks.is_empty() {
         tracing::info!(task_id = %task_id, "VAD found no speech; writing an empty subtitle");
-        on_progress(0, 0, "No speech detected");
+        on_progress(0, 0, ProgressPhase::Vad);
         return Ok(Vec::new());
     }
 
@@ -310,7 +347,7 @@ async fn transcribe_estimated(
 
     // Step 3a: slice the 16 kHz mono WAV at the sample offsets VAD reported.
     let audio = wav::read(wav_path)?;
-    on_progress(0, total_units, "Segmenting audio");
+    on_progress(0, total_units, ProgressPhase::Asr);
     for chunk in &chunks {
         let out_path = wav::chunk_path(dir, chunk.index);
         wav::slice(&audio, chunk.start_sample, chunk.end_sample, &out_path)?;
@@ -366,7 +403,7 @@ async fn transcribe_estimated(
             .iter()
             .map(|chunk| weights.get(&chunk.index).copied().unwrap_or(0))
             .sum::<usize>();
-        on_progress(done, total_units, "Transcribing");
+        on_progress(done, total_units, ProgressPhase::Asr);
     }
 
     // Step 4 is `subtitle::postprocess`. A chunk whose model emitted real
@@ -455,9 +492,9 @@ async fn transcribe_batch(
     // monotonic floor across both attempts makes that impossible.
     let floor = std::sync::atomic::AtomicUsize::new(done_before);
     // Same 3-arg shape as `ProgressFn`, so `run_sequence` stays unchanged.
-    let report = |done: usize, total: usize, message: &str| {
+    let report = |done: usize, total: usize, phase: ProgressPhase| {
         if should_report(&floor, done, total) {
-            on_progress(done.min(total), total, message);
+            on_progress(done.min(total), total, phase);
         }
     };
 
@@ -485,7 +522,7 @@ async fn transcribe_batch(
             );
             // Announce only if the notice itself would not move progress back.
             if floor.load(std::sync::atomic::Ordering::SeqCst) <= done_before {
-                on_progress(done_before, total_units, "Metal unavailable, retrying on CPU");
+                on_progress(done_before, total_units, ProgressPhase::Asr);
             }
             run_sequence(
                 paths,
@@ -565,7 +602,7 @@ async fn run_sequence(
         audio: None,
         backend,
         mode: RunMode::Offline,
-        args: asr_args(requests_path, &text_out, &segments_out, vad_dir, family),
+        args: asr_args(requests_path, &text_out, &segments_out, vad_dir, family, model_file),
     };
 
     // Ids are `c0000`-style, so the CLI's `safe_output_name` leaves them alone.
@@ -609,7 +646,7 @@ async fn run_sequence(
                         let done = (done_before + done_units).min(total_units);
                         if done != last_reported_done {
                             last_reported_done = done;
-                            on_progress(done, total_units, "Transcribing");
+                            on_progress(done, total_units, ProgressPhase::Asr);
                         }
                     }
                 } else {
@@ -752,6 +789,7 @@ fn asr_args(
     segments_out: &std::path::Path,
     vad_dir: &std::path::Path,
     family: &str,
+    model_file: &std::path::Path,
 ) -> Vec<String> {
     let mut args = vec![
         "--request-sequence".to_string(),
@@ -769,7 +807,7 @@ fn asr_args(
         segments_out.to_string_lossy().into_owned(),
     ];
 
-    if family_takes_vad_model_path(family) {
+    if spec::sends_vad_model_path(family, Some(model_file)) {
         args.push("--session-option".to_string());
         args.push(format!("{}.vad_model_path={}", family, vad_dir.to_string_lossy()));
     }
@@ -778,15 +816,6 @@ fn asr_args(
     args.push(thread_count().to_string());
     args.push("--metrics".to_string());
     args
-}
-
-/// Families whose spec declares a `vad_model_path` session option.
-///
-/// A family without it is not the same as "no VAD": the option is opt-in and
-/// passing it under an unknown family/key would be ignored at best. Verified
-/// against `audiocpp_cli --list-loaders --json` for v0.9.1.
-fn family_takes_vad_model_path(family: &str) -> bool {
-    matches!(family, "sense_asr" | "fun_asr_nano")
 }
 
 /// Write `requests.json` for one batch.
@@ -1065,12 +1094,15 @@ mod tests {
     #[test]
     fn sequence_args_never_pass_request_option() {
         // PoC §4.1: `--request-option` + `--request-sequence` is rejected.
+        // A path that does not exist is "cannot inspect" → the family list
+        // answers, which is the historic behaviour this test pins.
         let args = asr_args(
             std::path::Path::new("/w/requests.json"),
             std::path::Path::new("/w/out/seg.txt"),
             std::path::Path::new("/w/out/segs.json"),
             std::path::Path::new("/res/models/silero_vad"),
             "sense_asr",
+            std::path::Path::new("/models/sense.gguf"),
         );
 
         assert!(args.iter().any(|a| a == "--request-sequence"));
@@ -1096,6 +1128,7 @@ mod tests {
             std::path::Path::new("/w/out/segs.json"),
             std::path::Path::new("/res/models/silero_vad"),
             "qwen3_asr",
+            std::path::Path::new("/models/qwen.gguf"),
         );
         assert!(
             !qwen.iter().any(|a| a.contains("vad_model_path")),
@@ -1104,6 +1137,32 @@ mod tests {
         // The sequence/text plumbing must survive regardless of family.
         assert!(qwen.iter().any(|a| a == "--request-sequence"));
         assert!(qwen.iter().any(|a| a == "--metrics"));
+    }
+
+    /// Regression, measured: the shipped Fun-ASR-Nano 2512 GGUF declares exactly
+    /// one session option (`weight_type`), so `fun_asr_nano.vad_model_path` is an
+    /// unknown key and the CLI fails the whole run:
+    ///
+    /// ```text
+    /// audiocpp_cli failed: unknown Fun-ASR-Nano session option: fun_asr_nano.vad_model_path
+    /// ```
+    ///
+    /// The answer therefore comes from the model's own spec, not from a family
+    /// list — and a family list that says otherwise is wrong for this model.
+    #[test]
+    fn a_family_that_declares_no_vad_path_is_never_sent_one() {
+        let dir = std::env::temp_dir().join(format!("monosub-vadopt-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fun_path = dir.join("fun.gguf");
+        std::fs::write(
+            &fun_path,
+            spec::test_support::gguf_with_spec(
+                r#"{"family":"fun_asr_nano","options":{
+                    "request":[{"name":"language"}],
+                    "session":[{"name":"weight_type"}]}}"#,
+            ),
+        )
+        .unwrap();
 
         let fun = asr_args(
             std::path::Path::new("/w/requests.json"),
@@ -1111,13 +1170,42 @@ mod tests {
             std::path::Path::new("/w/out/segs.json"),
             std::path::Path::new("/res/models/silero_vad"),
             "fun_asr_nano",
+            &fun_path,
         );
         assert!(
-            fun.iter()
-                .any(|a| a == "fun_asr_nano.vad_model_path=/res/models/silero_vad"),
-            "fun_asr_nano does declare it, under its own prefix; got {fun:?}"
+            !fun.iter().any(|a| a.contains("vad_model_path")),
+            "the model's own spec does not declare it, so it must not be sent; got {fun:?}"
         );
-        assert!(!fun.iter().any(|a| a.starts_with("sense_asr.")));
+
+        // And the same family *is* sent one when a build does declare it, so the
+        // rule is the spec rather than the family name.
+        let declaring = dir.join("declaring.gguf");
+        std::fs::write(
+            &declaring,
+            spec::test_support::gguf_with_spec(
+                r#"{"family":"fun_asr_nano","options":{
+                    "request":[{"name":"language"}],
+                    "session":[{"name":"vad_model_path"}]}}"#,
+            ),
+        )
+        .unwrap();
+        let declared = asr_args(
+            std::path::Path::new("/w/requests.json"),
+            std::path::Path::new("/w/out/seg.txt"),
+            std::path::Path::new("/w/out/segs.json"),
+            std::path::Path::new("/res/models/silero_vad"),
+            "fun_asr_nano",
+            &declaring,
+        );
+        assert!(
+            declared
+                .iter()
+                .any(|a| a == "fun_asr_nano.vad_model_path=/res/models/silero_vad"),
+            "{declared:?}"
+        );
+        assert!(!declared.iter().any(|a| a.starts_with("sense_asr.")));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

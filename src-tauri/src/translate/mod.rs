@@ -64,6 +64,21 @@ pub enum SkipReason {
     NoSegments,
 }
 
+impl SkipReason {
+    /// The IPC spelling, for the report the GUI shows.
+    ///
+    /// Same reasoning as `engine::ProgressPhase::as_str()`: the frontend needs to
+    /// *compare* this value to decide which sentence to show, and comparing
+    /// prose is exactly what this codebase refuses to do. One closed set of
+    /// identifiers serves as both the payload value and the i18n key suffix.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SkipReason::SameLanguage => "sameLanguage",
+            SkipReason::NoSegments => "noSegments",
+        }
+    }
+}
+
 /// What a translation stage actually did.
 ///
 /// Translation is an enhancement (§2), so this is a report rather than a

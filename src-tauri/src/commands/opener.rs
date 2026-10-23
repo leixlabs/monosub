@@ -16,6 +16,10 @@
 //!   (`open -R <file>`); a directory is opened, because revealing a directory
 //!   only selects it inside its parent, which is not what "show me this folder"
 //!   means.
+//! * [`open_file`] — "open this file with its default app". A third intent, not
+//!   a variant of reveal: the user asked to *read* the subtitle, and revealing it
+//!   in Finder leaves them one double-click away from that. macOS gets
+//!   `open <file>`, Windows `start`, Linux `xdg-open`.
 //!
 //! The three defects this fixes, all of them measured:
 //!
@@ -41,6 +45,15 @@ use tokio::process::Command;
 enum OpenerTarget {
     Directory,
     File,
+}
+
+/// The three user intents, which map to different argv on every platform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenerAction {
+    /// Open the target itself (a directory, or a file with its default app).
+    Open,
+    /// Locate a file inside its parent window.
+    Reveal,
 }
 
 /// Whether a non-zero exit status means the open failed.
@@ -69,25 +82,33 @@ fn classify(path: &Path) -> OpenerTarget {
 }
 
 #[cfg(target_os = "macos")]
-fn platform_argv(target: OpenerTarget, path: &str) -> (String, Vec<String>) {
+fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (String, Vec<String>) {
     let program = "open".to_string();
-    match target {
+    match (action, target) {
         // `open <dir>`: the window's target becomes the directory.
-        OpenerTarget::Directory => (program, vec![path.to_string()]),
+        // `open <file>`: the file's default app opens it.
+        (OpenerAction::Open, _) => (program, vec![path.to_string()]),
         // `open -R <file>`: the parent window opens with the file selected.
-        OpenerTarget::File => (program, vec!["-R".to_string(), path.to_string()]),
+        // A directory is still opened, not revealed (see `classify`).
+        (OpenerAction::Reveal, OpenerTarget::File) => {
+            (program, vec!["-R".to_string(), path.to_string()])
+        }
+        (OpenerAction::Reveal, OpenerTarget::Directory) => (program, vec![path.to_string()]),
     }
 }
 
 #[cfg(target_os = "linux")]
-fn platform_argv(target: OpenerTarget, path: &str) -> (String, Vec<String>) {
+fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (String, Vec<String>) {
     let program = "xdg-open".to_string();
-    match target {
-        OpenerTarget::Directory => (program, vec![path.to_string()]),
+    match (action, target) {
+        // `xdg-open <dir>` and `xdg-open <file>` both do the obvious thing: a
+        // directory opens a file manager, a file opens its default app.
+        (OpenerAction::Open, _) => (program, vec![path.to_string()]),
+        (OpenerAction::Reveal, OpenerTarget::Directory) => (program, vec![path.to_string()]),
         // No file manager takes "select this" portably, so open the containing
         // directory. A relative bare name has no parent to open; the file
         // itself is the only target left.
-        OpenerTarget::File => {
+        (OpenerAction::Reveal, OpenerTarget::File) => {
             let parent = Path::new(path)
                 .parent()
                 .filter(|parent| !parent.as_os_str().is_empty())
@@ -99,21 +120,34 @@ fn platform_argv(target: OpenerTarget, path: &str) -> (String, Vec<String>) {
 }
 
 #[cfg(target_os = "windows")]
-fn platform_argv(target: OpenerTarget, path: &str) -> (String, Vec<String>) {
+fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (String, Vec<String>) {
     let program = "explorer".to_string();
-    match target {
-        OpenerTarget::Directory => (program, vec![path.to_string()]),
+    match action {
+        // `start "" <path>`: `start` treats a quoted first argument as the
+        // window title, so the empty title keeps the path from being eaten.
+        (OpenerAction::Open, OpenerTarget::File) => {
+            ("cmd".to_string(), vec![
+                "/C".to_string(),
+                "start".to_string(),
+                String::new(),
+                path.to_string(),
+            ])
+        }
+        (OpenerAction::Open, OpenerTarget::Directory) => (program, vec![path.to_string()]),
+        (OpenerAction::Reveal, OpenerTarget::Directory) => (program, vec![path.to_string()]),
         // `/select,<file>` is one token, not two: explorer parses the path out
         // of the same argument.
-        OpenerTarget::File => (program, vec![format!("/select,{path}")]),
+        (OpenerAction::Reveal, OpenerTarget::File) => {
+            (program, vec![format!("/select,{path}")])
+        }
     }
 }
 
 /// The program and arguments for one open, without running anything.
-fn opener_argv(target: OpenerTarget, path: &Path) -> (String, Vec<String>) {
+fn opener_argv(action: OpenerAction, target: OpenerTarget, path: &Path) -> (String, Vec<String>) {
     // Paths reach this module from IPC (already UTF-8) or from Tauri's path
     // resolvers, so the lossy conversion has nothing to lose.
-    platform_argv(target, &path.to_string_lossy())
+    platform_argv(action, target, &path.to_string_lossy())
 }
 
 /// `exit 1`, or the signal description when a code is unavailable.
@@ -125,8 +159,8 @@ fn describe_status(status: &std::process::ExitStatus) -> String {
 }
 
 /// Run one open and turn a failure into something a user can read.
-async fn run(target: OpenerTarget, path: &Path) -> Result<(), String> {
-    let (program, args) = opener_argv(target, path);
+async fn run(action: OpenerAction, target: OpenerTarget, path: &Path) -> Result<(), String> {
+    let (program, args) = opener_argv(action, target, path);
 
     let output = Command::new(&program)
         .args(&args)
@@ -157,13 +191,23 @@ async fn run(target: OpenerTarget, path: &Path) -> Result<(), String> {
 /// that somehow is not one is still opened rather than silently revealed in
 /// some other folder.
 pub(crate) async fn open_directory(dir: &Path) -> Result<(), String> {
-    run(OpenerTarget::Directory, dir).await
+    run(OpenerAction::Open, OpenerTarget::Directory, dir).await
 }
 
 /// Locate `path` in the system file manager: a file is revealed, a directory is
 /// opened.
 pub(crate) async fn reveal_in_file_manager(path: &Path) -> Result<(), String> {
-    run(classify(path), path).await
+    run(OpenerAction::Reveal, classify(path), path).await
+}
+
+/// Open a file with its default application.
+///
+/// A file is the only sensible target here — the caller has a concrete path it
+/// wants *read*, not located — so this does not `classify`: a directory passed
+/// by mistake opens as a directory, which is still the closest thing to what
+/// was asked for.
+pub(crate) async fn open_file(path: &Path) -> Result<(), String> {
+    run(OpenerAction::Open, OpenerTarget::File, path).await
 }
 
 #[cfg(test)]
@@ -187,7 +231,7 @@ mod tests {
     #[test]
     fn an_existing_directory_is_opened_rather_than_revealed() {
         let dir = temp_entry("existing-dir", true);
-        let (_, args) = opener_argv(OpenerTarget::Directory, &dir);
+        let (_, args) = opener_argv(OpenerAction::Open, OpenerTarget::Directory, &dir);
 
         // Revealing a directory selects it inside its parent — measured: Finder
         // lands on the parent with the folder selected. Opening it makes the
@@ -204,7 +248,7 @@ mod tests {
     fn a_file_is_revealed_inside_its_parent_directory() {
         let file = temp_entry("existing-file.txt", false);
         let file_str = file.to_string_lossy().to_string();
-        let (_, args) = opener_argv(OpenerTarget::File, &file);
+        let (_, args) = opener_argv(OpenerAction::Reveal, OpenerTarget::File, &file);
 
         #[cfg(target_os = "macos")]
         assert_eq!(args, vec!["-R".to_string(), file_str]);
@@ -251,11 +295,11 @@ mod tests {
         let expected = path.to_string_lossy().to_string();
 
         // "Open it": every platform passes the path itself, verbatim, once.
-        let (_, args) = opener_argv(OpenerTarget::Directory, &path);
+        let (_, args) = opener_argv(OpenerAction::Open, OpenerTarget::Directory, &path);
         assert_eq!(args, vec![expected.clone()]);
 
         // "Reveal it": the path still rides inside exactly one argument.
-        let (_, args) = opener_argv(OpenerTarget::File, &path);
+        let (_, args) = opener_argv(OpenerAction::Reveal, OpenerTarget::File, &path);
 
         #[cfg(target_os = "macos")]
         assert_eq!(args, vec!["-R".to_string(), expected]);
@@ -274,8 +318,44 @@ mod tests {
     #[test]
     fn a_bare_file_name_on_linux_falls_back_to_opening_the_file() {
         // No parent directory to open, so the file itself is the only target.
-        let (_, args) = opener_argv(OpenerTarget::File, Path::new("clip.mp3"));
+        let (_, args) = opener_argv(OpenerAction::Reveal, OpenerTarget::File, Path::new("clip.mp3"));
         assert_eq!(args, vec!["clip.mp3".to_string()]);
+    }
+
+    #[test]
+    fn a_file_is_opened_with_its_default_app() {
+        // The third intent: "open this subtitle" is not "reveal it in Finder".
+        // Revealing leaves the user one double-click away from reading the file
+        // they just asked to read.
+        let file = temp_entry("open-with-app.txt", false);
+        let file_str = file.to_string_lossy().to_string();
+        let (program, args) = opener_argv(OpenerAction::Open, OpenerTarget::File, &file);
+
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(program, "open");
+            assert_eq!(args, vec![file_str]);
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // `start` eats its first quoted argument as a window title, so the
+            // empty title must be present and must precede the path.
+            assert_eq!(program, "cmd");
+            assert_eq!(args, vec!["/C", "start", "", file_str.as_str()]);
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            assert_eq!(program, "xdg-open");
+            assert_eq!(args, vec![file_str]);
+        }
+
+        // The reveal branch must stay distinct — same path, different argv.
+        let (_, reveal_args) = opener_argv(OpenerAction::Reveal, OpenerTarget::File, &file);
+        assert_ne!(reveal_args, args);
+
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]
@@ -298,7 +378,7 @@ mod tests {
         let error = open_directory(&missing)
             .await
             .expect_err("a missing directory must not report success");
-        let (program, _) = opener_argv(OpenerTarget::Directory, &missing);
+        let (program, _) = opener_argv(OpenerAction::Open, OpenerTarget::Directory, &missing);
         assert!(
             error.starts_with(&program),
             "the error must name the tool that failed: {error}"

@@ -256,6 +256,56 @@ pub fn declared_request_options(gguf_path: &Path) -> Result<Option<Vec<String>>,
     Ok(declared_options(gguf_path)?.map(|declared| declared.request))
 }
 
+/// Whether an ASR call may pass `--session-option {family}.vad_model_path=…`.
+///
+/// This one has its own resolver rather than a field on [`SessionOptions`]
+/// because its fallback differs: the historic answer was a hardcoded family list
+/// (`sense_asr` / `fun_asr_nano`), and that list was **wrong** — measured on the
+/// shipped Fun-ASR-Nano 2512 GGUF:
+///
+/// ```text
+/// audiocpp_cli failed: unknown Fun-ASR-Nano session option: fun_asr_nano.vad_model_path
+/// ```
+///
+/// Its embedded spec declares exactly one session option (`weight_type`). A
+/// family-level table cannot express that, and the option fails the whole run
+/// rather than being ignored, so the model's own spec answers first:
+///
+/// 1. the embedded spec declares `vad_model_path` → send it (`sense_asr`);
+/// 2. the embedded spec is a full one that does **not** declare it → omit it
+///    (`fun_asr_nano`, `moss_transcribe_diarize`);
+/// 3. minimal/unreadable/absent → the family list below, which is the historic
+///    behaviour for a model that cannot be inspected.
+pub fn sends_vad_model_path(family: &str, model_path: Option<&Path>) -> bool {
+    if let Some(path) = model_path {
+        match declared_options(path) {
+            Ok(Some(declared)) if !declared.session.is_empty() => {
+                return declared.session.iter().any(|name| name == "vad_model_path");
+            }
+            // Minimal spec: no session options listed at all, so fall through
+            // instead of concluding "accepts nothing".
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    family = %family,
+                    path = %path.display(),
+                    error = %error,
+                    "could not read the embedded model spec; using the family list for vad_model_path"
+                );
+            }
+        }
+    }
+
+    VAD_MODEL_PATH_FAMILIES.contains(&family)
+}
+
+/// Families known to declare `vad_model_path` when their GGUF cannot say so.
+///
+/// `sense_asr` is the only one. `fun_asr_nano` used to be listed here and is
+/// **not**: its 2512 GGUF declares no such option, and sending it failed the run
+/// outright (see [`sends_vad_model_path`]).
+const VAD_MODEL_PATH_FAMILIES: &[&str] = &["sense_asr"];
+
 /// Every option name a GGUF's embedded spec declares, both kinds.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeclaredOptions {
@@ -456,6 +506,32 @@ fn skip_value<R: Read + Seek>(reader: &mut R, value_type: u32) -> Result<(), Str
     }
 }
 
+/// GGUF builders for tests in other modules.
+///
+/// `engine::mod`'s argv tests have to exercise the "what does the *model* say"
+/// branch, which means writing a real header rather than passing a family name —
+/// that is the whole point of the fix those tests pin.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::{GGUF_MAGIC, SPEC_KEY};
+
+    /// A v3 GGUF header whose only metadata entry is the embedded spec.
+    pub fn gguf_with_spec(spec_json: &str) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&GGUF_MAGIC);
+        out.extend_from_slice(&3u32.to_le_bytes());
+        out.extend_from_slice(&0u64.to_le_bytes()); // tensor count
+        out.extend_from_slice(&1u64.to_le_bytes()); // one KV pair
+
+        out.extend_from_slice(&(SPEC_KEY.len() as u64).to_le_bytes());
+        out.extend_from_slice(SPEC_KEY.as_bytes());
+        out.extend_from_slice(&8u32.to_le_bytes()); // string
+        out.extend_from_slice(&(spec_json.len() as u64).to_le_bytes());
+        out.extend_from_slice(spec_json.as_bytes());
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,6 +693,49 @@ mod tests {
 
         let declared = options_of(bytes).expect("spec present");
         assert_eq!(declared.request, vec!["language", "audio_chunk_mode"]);
+    }
+
+    /// Measured on the shipped Fun-ASR-Nano 2512 GGUF: it declares exactly one
+    /// session option (`weight_type`), so a `vad_model_path` sent by family name
+    /// fails the whole run.
+    ///
+    /// ```text
+    /// audiocpp_cli failed: unknown Fun-ASR-Nano session option: fun_asr_nano.vad_model_path
+    /// ```
+    #[test]
+    fn a_declared_session_option_list_decides_whether_the_vad_path_is_sent() {
+        let fun = r#"{"family":"fun_asr_nano","options":{
+            "request":[{"name":"language"}],
+            "session":[{"name":"weight_type"}]}}"#;
+        let dir = std::env::temp_dir().join(format!("monosub-vad-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fun.gguf");
+        std::fs::write(&path, gguf_with(&[(SPEC_KEY.to_string(), Some(fun.to_string()))])).unwrap();
+
+        assert!(
+            !sends_vad_model_path("fun_asr_nano", Some(&path)),
+            "the model's own spec wins over the family list"
+        );
+
+        // `sense_asr` does declare it, so it keeps getting one.
+        let sense = r#"{"family":"sense_asr","options":{
+            "request":[{"name":"language"}],
+            "session":[{"name":"vad_model_path"}]}}"#;
+        let sense_path = dir.join("sense.gguf");
+        std::fs::write(
+            &sense_path,
+            gguf_with(&[(SPEC_KEY.to_string(), Some(sense.to_string()))]),
+        )
+        .unwrap();
+        assert!(sends_vad_model_path("sense_asr", Some(&sense_path)));
+
+        // A minimal spec says nothing, so the family list answers — and
+        // `fun_asr_nano` is no longer on it.
+        assert!(sends_vad_model_path("sense_asr", None));
+        assert!(!sends_vad_model_path("fun_asr_nano", None));
+        assert!(!sends_vad_model_path("qwen3_asr", None));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

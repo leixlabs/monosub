@@ -11,6 +11,12 @@ export function BottomBar() {
   const customStoragePath = useStore((state) => state.customStoragePath);
   const setCustomStoragePath = useStore((state) => state.setCustomStoragePath);
   const settings = useStore((state) => state.settings);
+  const files = useStore((state) => state.files);
+  // Whether *anything in the queue* will be translated. The per-file switch is
+  // the decision; this is just its summary.
+  const anyTranslateQueued = files.some(
+    (file) => file.translate && (file.status === 'pending' || file.status === 'processing'),
+  );
 
   const handleSelectCustomPath = async () => {
     try {
@@ -115,9 +121,13 @@ export function BottomBar() {
         <span className="text-xs text-text-tertiary dark:text-gray-500">
           {t('bottomBar.language')} <span className="text-text-secondary dark:text-gray-300 font-medium">{getLanguageLabel()}</span>
         </span>
-        {/* Only shown while translation is on: the chip is the visible signal
-            that a `<stem>.<lang>.<ext>` file will also be written. */}
-        {settings.translateEnabled && (
+        {/* Only shown while at least one queued file will be translated: the
+            chip is the visible signal that a `<stem>.<lang>.<ext>` file will
+            also be written. It reads the QUEUE, not `settings.translateEnabled`
+            — that field is only the default a new file starts from, and showing
+            the chip while every row's switch is off would promise a file nobody
+            is going to write. */}
+        {anyTranslateQueued && (
           <>
             <span className="mx-2 w-px h-3 bg-divider dark:bg-zinc-700" />
             <span className="text-xs text-text-tertiary dark:text-gray-500 flex items-center gap-1">

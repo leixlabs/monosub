@@ -220,6 +220,7 @@ pub async fn detect_turns(
     out_path: &Path,
     speech: &[(f64, f64)],
     mode: RunMode,
+    on_progress: &crate::engine::ProgressFn<'_>,
 ) -> Result<Vec<DiarTurn>, EngineError> {
     let model_file = catalog::model_path(paths, model_id)?.ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
@@ -237,6 +238,13 @@ pub async fn detect_turns(
 
     let duration_s = wav_duration_seconds(wav_path);
     let session_len = (duration_s.ceil() + 1.0).max(1.0);
+
+    // One diarization call has no intermediate output — the CLI writes
+    // `--turns-out` only when it finishes — so the honest report is "started"
+    // and "finished", in audio seconds. A fabricated curve would be a number
+    // nobody measured; a 0 % → 100 % step is what actually happened.
+    let units = (duration_s.max(0.0) * 1000.0) as usize;
+    on_progress(0, units, crate::engine::ProgressPhase::Diar);
 
     let run = DiarRun {
         paths,
@@ -258,11 +266,18 @@ pub async fn detect_turns(
     // session and reintroduce the per-window speaker numbering that streaming
     // exists to avoid.
     let ceiling = spec.max_session_seconds;
-    if mode.is_streaming() || ceiling.is_none_or(|max| duration_s <= max) {
-        return detect_turns_once(&run, out_path, session_len).await;
+    let turns = if mode.is_streaming() || ceiling.is_none_or(|max| duration_s <= max) {
+        detect_turns_once(&run, out_path, session_len).await
+    } else {
+        diarize_long(&run, duration_s, ceiling.unwrap_or(duration_s)).await
+    };
+    // Only a successful run reaches 100 %: a failure is not "diarization done",
+    // and the caller treats it as an enhancement that was skipped, not as work
+    // the bar should count.
+    if turns.is_ok() {
+        on_progress(units, units, crate::engine::ProgressPhase::Diar);
     }
-
-    diarize_long(&run, duration_s, ceiling.unwrap_or(duration_s)).await
+    turns
 }
 
 /// Everything one diarization run needs, so the two paths can share it without
@@ -1250,6 +1265,7 @@ mod tests {
             // Offline on purpose: this test is about the *windowing* path, which
             // a streaming session never takes.
             RunMode::Offline,
+            &|_, _, _| {},
         )
         .await
         .expect("a file over the session ceiling must still diarize");

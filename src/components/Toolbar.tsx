@@ -8,6 +8,7 @@ import { processQueueBatch } from '@/lib/transcription';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { BatchDiarizationToggle } from '@/components/BatchDiarizationToggle';
+import { BatchTranslationToggle } from '@/components/BatchTranslationToggle';
 
 interface ToolbarProps {
   onImportUrl: () => void;
@@ -159,6 +160,7 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
 
       <div className="flex items-center gap-3">
         <BatchDiarizationToggle />
+        <BatchTranslationToggle />
 
         {files.length > 0 && (pendingCount > 0 || isBatchProcessing) && (
           <GlassButton

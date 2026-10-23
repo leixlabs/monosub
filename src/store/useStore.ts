@@ -90,6 +90,15 @@ export interface StepProgress {
   currentStep: number
   totalSteps: number
   stepName: string
+  /**
+   * Which part of the recognition step is running: `vad` / `asr` / `diar`.
+   *
+   * Only the recognition step has sub-phases worth naming — it is the one that
+   * takes minutes, and "转录中" alone cannot distinguish "finding the speech"
+   * from "reading it" from "separating the speakers". Absent on every other
+   * step, and on a backend old enough not to send it.
+   */
+  phase?: string
   stepElapsed: number  // seconds elapsed for current step
   totalElapsed: number // total seconds elapsed since start
 }
@@ -103,6 +112,16 @@ export interface VideoFile {
   thumbnail?: string
   status: VideoStatus
   progress: number
+  /**
+   * Dispatched to the backend, but blocked behind the concurrency limit.
+   *
+   * Distinct from `status: 'pending'`, which means "not dispatched yet". Both
+   * are "not working", and telling them apart is the whole point: with the
+   * default concurrency of 1, every file after the first sits here for most of
+   * its wait, and the row used to call that "启动中…" — a spinner claiming work
+   * that had not begun.
+   */
+  waiting?: boolean
   stepProgress?: StepProgress
   totalTime?: number  // total processing time in seconds (set on completion)
   error?: string
@@ -114,7 +133,42 @@ export interface VideoFile {
    * another format than the primary one, so it is worth naming.
    */
   skippedOutputPath?: string
+  /**
+   * The primary subtitle path this row's run wrote, set when the request is
+   * sent.
+   *
+   * Stored rather than recomputed: the output *format* is a live setting, so a
+   * row that recomputed its path after the user switched `srt` → `vtt` would
+   * point at a file that run never wrote. Used by the row's "open subtitle"
+   * action; the other formats in the same run share its stem.
+   */
   subtitlePath?: string
+  /**
+   * Translated files this run wrote (`<stem>.<lang>.<ext>`), from the
+   * `transcribe_complete` report.
+   *
+   * Empty/absent when the run translated nothing — which is why the two fields
+   * below exist. A finished row with translation on and no file to show is
+   * otherwise indistinguishable from a bug.
+   */
+  translatedPaths?: string[]
+  /**
+   * Why the translation stage wrote nothing: `sameLanguage` or `noSegments`.
+   *
+   * Not an error. `sameLanguage` is the common one — the ASR detected a source
+   * equal to the configured target, so a translated file would be a duplicate
+   * under a name promising a language it does not contain. The row says so
+   * instead of silently omitting the file (measured: "开启了翻译的情况下，并没有
+   * 生成翻译文件" was exactly this case, with the reason only in the log).
+   */
+  translationSkipped?: string
+  /**
+   * Some cues kept their original text because a batch would not parse.
+   *
+   * The translated file still exists; the row marks it so a reader knows part of
+   * it is untranslated rather than mistaking it for a clean translation.
+   */
+  translationDegraded?: boolean
   /**
    * Per-file speaker separation. Diarization is a property of the recording,
    * not of the app: a single-narrator file can skip it, which also avoids
@@ -122,6 +176,17 @@ export interface VideoFile {
    * Seeded from `settings.defaultDiarization` when the file is queued.
    */
   diarization: boolean
+  /**
+   * Per-file translation toggle. Seeded from `settings.translateEnabled` when
+   * the file is queued.
+   *
+   * The mirror of `diarization`: which files get a translated copy is a
+   * per-run decision, so it belongs next to the file rather than only in
+   * Settings. `settings.translateEnabled` is the default it starts from;
+   * `translateTargetLanguage` and `translationModelId` stay app-wide, because
+   * "translate into English with model X" does not change from file to file.
+   */
+  translate: boolean
   /**
    * URL imports only: the output directory for this file's subtitles.
    *
@@ -210,7 +275,22 @@ export interface AppSettings {
   // Translation (v4; translation-design §7). Translation is an enhancement: it
   // is off by default, and a run that never enables it behaves exactly as it
   // did before the feature existed.
-  /** Whether recognition is followed by a translation pass. */
+  //
+  // The three fields below are NOT all the same kind of setting:
+  //
+  // * `translateTargetLanguage` and `translationModelId` are **configure-once**
+  //   choices — which language and which model are properties of the user's
+  //   setup, not of one run, so they live only in Settings.
+  // * `translateEnabled` is the **default** for a new run. The switch that
+  //   actually decides whether a file is translated sits in the task area
+  //   (queue toolbar + each row), because that is where the question is asked
+  //   and where the user can still change their mind. A Settings-only switch
+  //   made the app translate files the user had not asked about in that moment.
+  /**
+   * Default for "translate this run". Seeds each newly queued file's own toggle
+   * (see `VideoFile.translate`); the task area can change it per file and for
+   * the whole queue, exactly like speaker separation.
+   */
   translateEnabled: boolean
   /** Language the subtitles are translated into (never `auto`). */
   translateTargetLanguage: TranslateTargetLanguage
@@ -239,6 +319,22 @@ export interface AppSettings {
    * reasons deserves a way to stop it without any other consequence.
    */
   clipboardWatchEnabled: boolean
+
+  /**
+   * How many files may be transcribed at once (1–3).
+   *
+   * Two things read it, and they must agree: the frontend queue uses it as the
+   * number of tasks it dispatches, and the backend semaphore is sized from it
+   * (`set_transcription_concurrency`). Before this existed the queue dispatched
+   * 3 while the Rust semaphore admitted 1, so the setting would have been a
+   * lie — the extra tasks simply waited in the backend with a 0 % row.
+   *
+   * Defaults to 1: every stage is Metal work on one GPU, so running several is
+   * a throughput *trade*, not a free win, and a user who has not asked for it
+   * should not get it. 3 is the ceiling because the old hard-coded figure was 3
+   * and more than that on one GPU makes every task slower.
+   */
+  concurrency: number
 }
 
 const OUTPUT_LANGUAGES: OutputLanguage[] = ['auto', 'en', 'zh', 'es', 'ja', 'de', 'fr', 'pt', 'zh-tw', 'ko']
@@ -281,6 +377,7 @@ const defaultSettings: AppSettings = {
   bilibiliCookiesBrowser: '',
   preferLocalRecognition: false,
   clipboardWatchEnabled: true,
+  concurrency: 1,
 }
 
 const MODEL_OVERRIDE_SLOTS: ModelOverrideSlot[] = ['asr', 'vad', 'align', 'diar']
@@ -293,6 +390,15 @@ const isLanguageProfile = (value: unknown): value is LanguageProfile =>
 
 const isMemoryBudget = (value: unknown): value is MemoryBudget =>
   typeof value === 'string' && (MEMORY_BUDGETS as string[]).includes(value)
+
+/** The range the concurrency setting accepts; mirrors the Rust clamp. */
+export const MIN_CONCURRENCY = 1
+export const MAX_CONCURRENCY = 3
+
+const clampConcurrency = (value: unknown): number => {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : MIN_CONCURRENCY
+  return Math.min(MAX_CONCURRENCY, Math.max(MIN_CONCURRENCY, n))
+}
 
 /**
  * Map a v5 `speedPreference` onto the v6 显存占用.
@@ -350,6 +456,10 @@ interface AppState {
   setFileDiarization: (id: string, enabled: boolean) => void
   /** Apply `settings.defaultDiarization` to every pending file. */
   applyDiarizationToAll: (enabled: boolean) => void
+  /** Toggle translation for one queued file. */
+  setFileTranslate: (id: string, enabled: boolean) => void
+  /** Apply one translation value to every pending file. */
+  applyTranslateToAll: (enabled: boolean) => void
 
   // Processing settings
   storageMode: StorageMode
@@ -409,7 +519,8 @@ type PersistedAppState = Pick<
 // v3–v5 only ADD, so an upgraded blob keeps every preference the user set; v6 is
 // the one step that retires a field, and it migrates the value instead of
 // dropping it (see `memoryBudgetFromSpeed`).
-const PERSIST_VERSION = 6
+// v7 added `settings.concurrency`; v6 and older keep every field they had.
+const PERSIST_VERSION = 7
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -445,6 +556,10 @@ const normalizeSettings = (value: unknown): AppSettings => {
     bilibiliCookiesBrowser: isCookiesBrowser(persisted.bilibiliCookiesBrowser) ? persisted.bilibiliCookiesBrowser : defaultSettings.bilibiliCookiesBrowser,
     preferLocalRecognition: typeof persisted.preferLocalRecognition === 'boolean' ? persisted.preferLocalRecognition : defaultSettings.preferLocalRecognition,
     clipboardWatchEnabled: typeof persisted.clipboardWatchEnabled === 'boolean' ? persisted.clipboardWatchEnabled : defaultSettings.clipboardWatchEnabled,
+    // v7 added this. Clamped rather than trusted: the Rust side clamps too, and
+    // a blob saying 0 would otherwise stall the queue at a level the backend
+    // silently raised to 1.
+    concurrency: clampConcurrency(persisted.concurrency),
   }
 }
 
@@ -495,6 +610,13 @@ export const useStore = create<AppState>()(
       applyDiarizationToAll: (enabled) => set((state) => ({
         // Only pending files: a finished or in-flight run must not change.
         files: state.files.map(f => f.status === 'pending' ? { ...f, diarization: enabled } : f)
+      })),
+      setFileTranslate: (id, enabled) => set((state) => ({
+        files: state.files.map(f => f.id === id ? { ...f, translate: enabled } : f)
+      })),
+      applyTranslateToAll: (enabled) => set((state) => ({
+        // Pending only, for the same reason as `applyDiarizationToAll`.
+        files: state.files.map(f => f.status === 'pending' ? { ...f, translate: enabled } : f)
       })),
 
       // Settings

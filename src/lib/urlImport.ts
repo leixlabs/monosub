@@ -320,6 +320,9 @@ export const startUrlImport = async (url: string): Promise<string> => {
         output_dir: resolveUrlImportOutputDir(),
         skip_existing: state.settings.skipExistingSubtitle,
         cookies_browser: state.settings.bilibiliCookiesBrowser || null,
+        // The URL-import dialog has no per-run switch (there is no queue row to
+        // toggle before the job starts), so it takes the app-wide default. The
+        // target and model are configure-once, as everywhere else.
         translate_enabled: state.settings.translateEnabled,
         target_language: state.settings.translateTargetLanguage,
         translation_model: state.settings.translationModelId,

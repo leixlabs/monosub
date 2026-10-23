@@ -33,7 +33,7 @@ use crate::paths::AppPaths;
 use crate::engine::catalog::{self, RunMode};
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::words::{self, Word};
-use crate::engine::{EngineError, ProgressFn, RawChunk};
+use crate::engine::{EngineError, ProgressFn, ProgressPhase, RawChunk};
 
 /// audio.cpp task/family for the word-aligned ASR.
 const TASK: &str = "asr";
@@ -176,7 +176,7 @@ pub async fn run_aligned(
         EngineError::Io(format!("create {}: {}", request.work_dir.display(), e))
     })?;
 
-    on_progress(0, 0, "Loading model");
+    on_progress(0, 0, ProgressPhase::Asr);
 
     let invocation = CliInvocation {
         task: TASK.to_string(),
@@ -188,7 +188,7 @@ pub async fn run_aligned(
         args: aligned_args(&out, &request.aligner, &request.vad_dir, request.language),
     };
 
-    on_progress(0, 0, "Transcribing");
+    on_progress(0, 0, ProgressPhase::Asr);
     spawn(Some(paths), invocation, |_| {}).await?;
 
     let text = std::fs::read_to_string(&out.text).unwrap_or_default();
@@ -219,7 +219,7 @@ pub async fn run_aligned(
         }
     };
 
-    on_progress(words.len(), words.len(), "Transcribing");
+    on_progress(words.len(), words.len(), ProgressPhase::Asr);
 
     Ok(AlignedTranscript {
         text: text.trim().to_string(),

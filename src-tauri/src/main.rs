@@ -13,6 +13,10 @@ fn main() {
 
     tracing::info!("MonoSub application starting...");
 
+    // The concurrency limit must exist before the first task acquires it; the
+    // frontend re-sends the user's setting on mount, which resizes this one.
+    monosub::commands::transcribe::ensure_transcription_limit();
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
@@ -52,7 +56,9 @@ fn main() {
             generate_thumbnail,
             start_transcription,
             cancel_transcription,
+            set_transcription_concurrency,
             open_in_finder,
+            open_file,
             find_existing_path,
             resolve_paths,
             open_external_url,
@@ -64,7 +70,6 @@ fn main() {
             monosub::site::read_clipboard_video,
             list_models,
             resolve_model_plan,
-            set_model_mode,
             save_translation_settings,
             log_directory,
             open_logs_dir,

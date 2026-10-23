@@ -35,20 +35,37 @@
     "open": "Open",
     "delete": "Delete",
     "starting": "Starting...",
-    "stepOfTotal": "Step {{current}} of {{total}}",
-    "stepOfTotalHint": "Step {{current}} of {{total}}: {{step}}",
+    "progress": "Progress {{percent}}%",
     "skipped": "Skipped",
     "multiSpeaker": "Speakers",
     "multiSpeakerHint": "Detect and label speakers for this file (slower)",
     "showErrorDetails": "Show the full error for “{{name}}”",
-    "errorUnknown": "This file failed, but no error message was recorded."
+    "errorUnknown": "This file failed, but no error message was recorded.",
+    "translate": "Translate",
+    "translateHint": "Also write a translated copy for this file; the target language and model are set once in Settings",
+    "openSubtitle": "Open subtitle",
+    "openTranslated": "Translated copy",
+    "translateDegraded": "Partly untranslated",
+    "translateSkipped": {
+      "sameLanguage": "Not translated: already {{language}}",
+      "noSegments": "Not translated: no speech",
+      "unknown": "Not translated"
+    },
+    "translateSkippedHint": "No translated file was written. The source was detected as {{language}}, which is already the target language, so a copy would only duplicate the original. Change the target language in Settings ▸ Translation.",
+    "queued": "Queued",
+    "waitingForSlot": "Waiting for a free slot"
   },
   "steps": {
     "extracting_audio": "Extracting audio",
     "loading_model": "Loading model",
     "transcribing": "Transcribing",
     "writing_subtitle": "Writing subtitle",
-    "translating": "Translating"
+    "translating": "Translating",
+    "phase": {
+      "vad": "Detecting speech",
+      "asr": "Recognising",
+      "diar": "Separating speakers"
+    }
   },
   "bottomBar": {
     "saveLocation": "Save to",
@@ -61,7 +78,9 @@
     "english": "English",
     "multiSpeaker": "Multi-speaker",
     "stop": "Stop",
-    "translationTarget": "Translate to:"
+    "translationTarget": "Translate to:",
+    "translate": "Translate",
+    "translateHint": "Turn translation on or off for every pending file"
   },
   "settings": {
     "title": "Settings",
@@ -73,7 +92,9 @@
     "processing": {
       "title": "Processing",
       "skipExisting": "Skip Existing Subtitles",
-      "skipExistingDesc": "If a subtitle file for this video is already in the output folder, skip it"
+      "skipExistingDesc": "If a subtitle file for this video is already in the output folder, skip it",
+      "concurrency": "Concurrent Files",
+      "concurrencyDesc": "How many files are processed at once. All stages share one GPU, so more files at once does not necessarily mean more done per hour."
     },
     "notifications": {
       "title": "Notifications",
@@ -104,8 +125,8 @@
     },
     "translate": {
       "title": "Translation",
-      "enable": "Translate Subtitles",
-      "enableDesc": "After recognition, translate every cue with a local translation model",
+      "enable": "Translate New Files by Default",
+      "enableDesc": "Newly queued files start with translation on; each file still has its own switch in the queue",
       "targetLanguage": "Target Language",
       "model": "Translation Model",
       "modelDefault": "Automatic (catalogue default)",
@@ -162,15 +183,15 @@
     "rescanHint": "Re-read install state from disk (use after copying models in by hand)",
     "recognitionTitle": "Recognition models",
     "translationTitle": "Translation models",
+    "supported": "Supported",
+    "supportedHint": "Run end to end here and known to work",
     "unverified": "Unverified",
     "unverifiedHint": "Not yet run end to end; it may not work",
     "unsupported": "Not supported",
     "unsupportedHint": "This version of MonoSub does not offer this model. It is listed for completeness; the planner never selects it and it cannot be downloaded.",
     "runMode": "Run mode",
     "modes": {
-      "offline": "Offline",
       "streaming": "Streaming",
-      "offlineHint": "One pass over the whole file. Long audio is split into overlapping windows whose speakers are re-numbered per window, then stitched by overlap — which is a vote, not an identity.",
       "streamingHint": "Audio is fed in chunks with state carried across them: lower peak memory, and speaker labels stay consistent because the session is never restarted."
     }
   },
@@ -222,7 +243,8 @@
     "quit": "Quit",
     "statusRow": "{{name}} — {{step}} ({{current}}/{{total}})",
     "queueRow": "{{count}} more queued",
-    "startingRow": "{{name}} — starting…"
+    "startingRow": "{{name}} — starting…",
+    "waitingRow": "{{name}} — waiting for a free slot"
   },
   "language": {
     "auto": "Auto Detect",

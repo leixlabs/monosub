@@ -580,6 +580,17 @@ Translation hangs off the **end** of the pipeline: the input is the already-time
 speaker labels are the ASR's output and are never re-derived. That is why the whole
 subtitle is written first and the translated files are additive.
 
+**Three translation settings, two kinds.** `translateTargetLanguage` and
+`translationModelId` are **configure-once** — which language and which model are properties
+of the user's setup, so they live only in Settings and a run never asks again.
+`settings.translateEnabled` is only the **default** a newly queued file starts from: the
+switch that decides whether *this* run translates sits in the task area (the queue toolbar's
+`BatchTranslationToggle`, and each row's own `file.translate`), the way speaker separation
+does. A Settings-only switch made the app translate files the user had not asked about in
+that moment — the user's words: "把这个开关作为默认值的设置，运行在任务中进行关闭或开启".
+`TranscribeRequest.translate_enabled` therefore carries `file.translate`, not the setting;
+URL import has no queue row to toggle before the job starts, so it still reads the default.
+
 - **Engine**: `translate/server.rs` spawns the bundled `llama-server` on a random
   `127.0.0.1` port, one process per translation stage, and kills it on drop. It waits for
   `GET /health` to answer `{"status":"ok"}` before sending anything.
@@ -847,11 +858,13 @@ supported video, shows a dismissible pill with one import button.
 |---------|---------|
 | `start_transcription` | Begin transcription task |
 | `cancel_transcription` | Cancel running task |
+| `set_transcription_concurrency` | `capacity` (1–3); sizes the Rust semaphore from the user's 并发数 setting |
 | `get_video_metadata` | Extract duration, resolution, size |
 | `generate_thumbnail` | Create video preview |
 | `resolve_paths` | Normalise dropped paths |
 | `find_existing_path` | `paths → Option<String>`: the first subtitle already on disk (drives `skipExistingSubtitle`; deliberately not the fs plugin — see *Skipping existing subtitles*) |
 | `open_in_finder` | Reveal a file / open a directory in the system file manager (`commands::opener`) |
+| `open_file` | Open a written subtitle with its default app (`commands::opener::open_file`); what a finished row's subtitle name calls — *revealing* leaves the user one double-click short of reading it |
 | `list_models` | Catalogue + per-model install state |
 | `download_model` | Stream a model, verify size/SHA256, then rename |
 | `cancel_model_download` | Abort a download and delete the `.part` |
@@ -862,7 +875,6 @@ supported video, shows a dismissible pill with one import button.
 | `update_tray_menu` | Localise the tray's Show / Hide / Quit labels (progress rows are preserved) |
 | `update_tray_progress` | `progress: {title?, rows[]}`; the menu-bar text + the greyed progress rows a left click shows |
 | `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
-| `set_model_mode` | `model_id`, `mode` (`offline`/`streaming`, `''` clears); validates both against the catalogue, then read-modify-writes `settings.json` |
 | `parse_url_input` | `text → Vec<ParsedUrl>`: split, normalise, de-dupe, whitelist (pure Rust) |
 | `start_url_import` | `request: UrlImportRequest`; registers the job and returns immediately |
 | `cancel_url_import` | `task_id`; aborts the import stage only (not a queued file) |
@@ -880,7 +892,7 @@ plan; `translate` entries are grouped separately by `role` in the UI.
 | Event | Payload | Purpose |
 |-------|---------|---------|
 | `transcribe_progress` | `{task_id, progress, overall?, status, step?, total_time?}` | Progress + step updates |
-| `transcribe_complete` | `{task_id, total_time?}` | Finished; all formats written |
+| `transcribe_complete` | `{task_id, total_time?, translation?}` | Finished; all formats written. `translation` = `{written[], skipped?, degraded}` and is present only when the run had a translation plan — it is how the row says "translated to English" or *why* no `<stem>.<lang>.<ext>` appeared (`skipped: sameLanguage` is the common, correct case) |
 | `transcribe_error` | `{task_id, status}` | Failed; `status` is user-showable |
 | `model_download_progress` | `{id, downloaded, total}` | Throttled to ≥200 ms |
 | `model_download_complete` | `{id}` | Model ready |
@@ -889,21 +901,67 @@ plan; `translate` entries are grouped separately by `role` in the UI.
 | `url_import_complete` | `{task_id, outcome}` | One URL converged: subtitle written, or audio ready to queue |
 | `url_import_error` | `{task_id, status}` | One URL failed; `status` is a sentinel, i18n key or message |
 
-`step` is `{current_step, total_steps, step_name, step_elapsed, total_elapsed}` with
-`step_name` from the frozen set `Extracting audio` / `Loading model` / `Transcribing` /
-`Writing subtitle` / `Translating`. `Translating` was **appended**; the first four keep
+`step` is `{current_step, total_steps, step_name, phase?, step_elapsed, total_elapsed}`
+with `step_name` from the frozen set `Extracting audio` / `Loading model` / `Transcribing`
+/ `Writing subtitle` / `Translating`. `Translating` was **appended**; the first four keep
 their exact spelling, because `FileItem.tsx` derives the i18n key as
 `steps.<lowercase, spaces → _>` and renaming one would blank that step. `total_steps` is
 **4 normally and 5 when the run translates**: `Steps::new(translating)` picks the
 denominator per run, and the first step event already carries the right one.
 
-**Two percentages, and only one belongs in a bar.** `progress` is the fraction *within
-the current step* and restarts at 0 whenever a step begins; `overall` is the run-wide
-figure, `(current - 1 + progress/100) / total`, and is what `FileItem`'s bar, the tray
-title and the CLI's `percent` all read. Before `overall` existed the frontend mapped
-`progress` onto `file.progress`, so the bar and the menu-bar percentage fell back to
-0 % at every step change. `overall` is absent on `queued` / `error` events, where there
-is no position in the run to report.
+**`phase` names what inside the recognition step is running** — `vad` / `asr` / `diar` —
+because that step is the one that takes minutes and "转录中" alone cannot distinguish
+"finding the speech" from "reading it" from "separating the speakers". It is absent on
+every other step and on the word-aligned path. The engine's `ProgressFn` used to carry a
+free-form `&str` message ("Detecting speech", "Segmenting audio"); the GUI needed to
+*compare* it, and prose comparisons are exactly what this codebase refuses to do, so it
+became `engine::ProgressPhase` — a closed enum whose `as_str()` is both the payload value
+and the i18n key. The old message was never displayed anywhere anyway.
+
+**Inside the recognition step the phase replaces the step name in the badge**, rather
+than sitting beside it: "转录中 / 识别中" says 转录 twice, so the badge reads
+`[icon] 识别中 · 42%`. Every other step keeps its own name, because no phase is running.
+The icon changes with the step (`AudioLines` / `Cpu` / `FileText` / `Languages`), keyed by
+the frozen step name so a rename shows the spinner instead of the wrong icon.
+
+**`GlassBadge` must forward `size` into the variant call.** It spread the prop onto the
+`div` instead, where `size="sm"` is a valid HTML attribute with no styling effect — so
+every badge in the app silently rendered at `md` (`px-3 py-1`, `text-sm`) and each
+caller's `size="sm"` was a no-op. That, not the padding, was most of the file row's
+height. `GlassButton` already forwarded it correctly; the two components had drifted.
+
+**"Not working" has three distinct states, and the row must not conflate them.**
+`pending` + `isBatchProcessing` means "behind the concurrency limit, will start on
+its own" (badge 排队中); `pending` alone means "waiting for you to press 开始" (等待处理);
+and `processing` + `waiting: true` means "dispatched, parked in the backend's
+semaphore queue" (等待空位, no bar, no spinner). The third state is new with the
+concurrency setting: `ProgressSink::waiting` fires *before* `transcribe_permit()`
+awaits, and `TranscribeProgress.waiting` is a flag rather than a fourth `status`
+value so the UI compares an identifier instead of prose. The tray averages only
+admitted files (`buildTitle` skips `waiting`), because folding a parked 0 % into
+the average makes one running task look half-speed. Without this, a queued file
+showed "启动中…" with a spinner — claiming work that had not begun — which is the
+normal state for every file after the first at the default concurrency of 1.
+
+**Two percentages, and only one is shown.** `progress` is the fraction *within the
+current step* and restarts at 0 whenever a step begins; `overall` is the run-wide figure
+and is what `FileItem`'s bar, its badge, the tray title and the CLI's `percent` all read.
+Before `overall` existed the frontend mapped `progress` onto `file.progress`, so the bar
+and the menu-bar percentage fell back to 0 % at every step change. `overall` is absent on
+`queued` / `error` events, where there is no position in the run to report.
+
+The per-step figure is carried on the event but **not rendered**: an earlier cut printed
+it inside the badge next to the run-wide percentage, which was two numbers for one
+question (the user's words: "这个数字去掉和上面重复了"). The row now states the number
+once, in the badge, and the bar draws the same value.
+
+**The steps are not equal shares of the bar.** `overall` sums a weight table
+(`STEP_WEIGHTS_WITHOUT_TRANSLATION` = 0.02 / 0.03 / 0.85 / 0.10; the translating variant
+splits the last two into 0.10 writing + 0.15 translating and drops transcription to 0.70).
+Equal weights made extracting a WAV and starting the model worth 25 % each, so the bar
+jumped to 50 % before a single word was recognised and then sat still. The weights are a
+*rendering* choice — the bar still reaches 100 % exactly when the last step does — so a
+machine that extracts unusually slowly is slow in the bar, not wrong about it.
 
 **The ASR stage reports progress in audio seconds, not chunk counts.**
 `ProgressFn`'s `(done, total)` are weighted units summed from each VAD chunk's sample
@@ -1068,7 +1126,9 @@ location; `MONOSUB_CONFIG_DIR=~/.monosub` is the supported way to get that liter
 | `src/components/SettingsModelPlan.tsx` | The plan's four questions (语种场景 / 说话人分离 / 词级时间戳 / 显存占用) + live preview + manual overrides; publishes `data-plan-*` attributes for the pilot scenario |
 | `src/components/CustomSelect.tsx` | The app's only dropdown. `searchable` adds a filter box and is on for the **model** pickers (82 ASR / 40 translate entries), off for the short lists. Keeps the empty-value option (`Auto`) only when something else matches, so a no-hit search shows "no matching models" instead of a lone "Auto" |
 | `src/components/SettingsModelsDir.tsx` | The models storage-location card: path, change / reset, and the **only** "open models folder" button (`open_models_dir`) |
-| `src/components/SettingsTranslation.tsx` | Translation switch, target language, translation-model download |
+| `src/components/SettingsTranslation.tsx` | Translation **default** switch, target language, translation-model download; the target and the model are configure-once |
+| `src/components/BatchTranslationToggle.tsx` | Queue-toolbar translation switch: applies one value to every pending file, the way `BatchDiarizationToggle` does for speaker separation |
+| `src/components/BatchDiarizationToggle.tsx` | Queue-toolbar speaker-separation switch (all pending files at once) |
 | `src/components/SettingsUrlImport.tsx` | The `urlImport` Settings group (output dir, Bilibili cookie browser, prefer-local) |
 | `src/components/UrlImportDialog.tsx` | "From a link" panel: paste, per-row errors, language/output dir mirrored from Settings |
 | `src/components/UrlImportItem.tsx` | One import row rendered above `FileList`; never a member of `files` |
@@ -1152,13 +1212,13 @@ urlImports: Record<string, UrlImportState>  // In-flight URL imports (NOT persis
 autoStartImports: boolean       // Dialog checkbox; auto-start is pure frontend (NOT persisted)
 ```
 
-Persisted to `localStorage` as `monosub-storage` at `version: 6`. The `migrate` function
+Persisted to `localStorage` as `monosub-storage` at `version: 7`. The `migrate` function
 **drops** `enableNoiseReduction`, `enableVolumeNormalization`, `enableBilingual` and
 `bilingualTargetLang`: those
 settings never reached the engine in the old code either (the Python engine hardcoded
 the filters), so they were dead. The equivalent ffmpeg filters are now always applied.
 
-The v3, v4 and v5 steps **add** fields and must not drop anything; v6 **replaces** one
+The v3–v7 steps **add** fields and must not drop anything; v6 **replaces** one
 field and migrates its value instead of discarding it:
 
 ```ts
@@ -1168,9 +1228,9 @@ requireWordTimestamps: boolean            // false
 modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>
 
 // settings (added in v4; translation)
-translateEnabled: boolean                 // false
-translateTargetLanguage: TranslateTargetLanguage // 'en' (never 'auto')
-translationModelId: string                // '' means "catalogue default"
+translateEnabled: boolean                 // false — the DEFAULT for a new file, not the per-run switch
+translateTargetLanguage: TranslateTargetLanguage // 'en' (never 'auto') — configure once
+translationModelId: string                // '' means "catalogue default" — configure once
 
 // settings (added in v5; URL import)
 urlImportOutputDir: string                // '' means ~/Downloads/MonoSub
@@ -1182,14 +1242,31 @@ languageProfile: 'mandarin' | 'mixed' | 'multilingual'  // 'mandarin'
 memoryBudget: 'small' | 'medium' | 'large'              // 'medium'
 // `speedPreference` was REMOVED in v6: `memoryBudgetFromSpeed` maps
 // fast→small, accurate→large, balanced→medium, so a v5 blob keeps its intent.
+
+// settings (v7; concurrency)
+concurrency: 1 | 2 | 3                    // 1 — see the two-consumers note below
 ```
+
+**`settings.concurrency` has two consumers and they must agree.** The frontend queue uses
+it as the number of tasks it dispatches (`processQueueBatch`), and the Rust semaphore is
+sized from it through the `set_transcription_concurrency` command. Before the setting
+existed the queue hard-coded 3 while `TRANSCRIBE_SEMAPHORE` admitted **1**, so two of the
+three "running" rows sat at 0 % inside the backend — which is also why the per-row start
+button had been disabled on the global `isProcessing`: nothing could have run anyway.
+A new start is queued, not refused: the app is built to accept it and wait for a slot
+(`开始任务之后自动排队就好了`).
+
+Resizing replaces the semaphore rather than mutating it (`tokio`'s capacity is fixed at
+creation). Stages already running hold permits from the old one, so they finish
+undisturbed; only newly spawned tasks see the new figure. That is what a user expects from
+lowering a limit: "no more than N from now on", not "kill what is running".
 
 **Run mode is deliberately *not* in this store.** It is per-model and must reach the CLI,
 which is a separate process with no WebView, so it lives in `settings.json`
 (`modelModes`) alongside the frozen plan. A `localStorage` copy would be a second source of
 truth the CLI cannot read — the same reason `recognitionPlan` is persisted by Rust. The
-Settings row reads `effective_mode` from `list_models` and writes through
-`set_model_mode`; it keeps no React state of its own beyond the optimistic row update.
+Settings row only *reads* it (`effective_mode` from `list_models`) and holds no state of
+its own, because there is nothing to set: the app streams wherever it can.
 
 `urlImports` is the one deliberately **non-persisted** slice: an import is an in-flight
 network job, so a reload must start with nothing rather than with rows whose task ids no
@@ -1230,12 +1307,17 @@ by ffmpeg's own rpath; the two layouts must not be merged.
 
 ### Opening a path in the file manager
 
-`commands/opener.rs` is the **only** implementation, and there are two entry points because
-there are two user intents:
+`commands/opener.rs` is the **only** implementation, and there are three entry points because
+there are three user intents:
 
 - `open_directory(dir)` — "show me what is in here" → macOS `open <dir>`.
 - `reveal_in_file_manager(path)` — "show me this thing" → a file is `open -R <file>`, but a
   **directory is opened**, not revealed.
+- `open_file(path)` — "open this file" → `open <file>`, i.e. the default app. This is what a
+  finished row's subtitle name calls: the user asked to read the subtitle, and revealing it
+  in Finder leaves them one double-click short. Windows needs `cmd /C start "" <path>` — the
+  empty title is required, because `start` treats its first quoted argument as the window
+  title and would otherwise eat the path.
 
 `-R` means "select it in the parent window" (`man open`: *Reveals the file(s) in the Finder
 instead of opening them*), so applying it to a directory shows the **parent** folder —
@@ -1297,8 +1379,13 @@ extension swap.
   progress. Do not assume it arrives in order.
 - An all-silent input returns `[]` with **exit code 0** — that is success, not an
   error. The app writes an empty subtitle.
-- `--session-option sense_asr.vad_model_path=<dir>` must be passed explicitly, or the
-  CLI falls back to its own relative `assets/…` path.
+- `--session-option {family}.vad_model_path=<dir>` must be passed explicitly, or the
+  CLI falls back to its own relative `assets/…` path — **but only to a model that
+  declares the option**. `spec::sends_vad_model_path` reads the model's own GGUF first
+  and falls back to a family list (`sense_asr` only); a family-level table was wrong:
+  measured on the shipped Fun-ASR-Nano 2512 GGUF, whose spec declares exactly one
+  session option (`weight_type`), sending `fun_asr_nano.vad_model_path` failed the
+  whole run with `unknown Fun-ASR-Nano session option`.
 
 ### Which `--request-option`s a model accepts
 
@@ -1346,9 +1433,15 @@ rules above for why one axis is the honest shape.)
 
 | status | solver | download | UI badge |
 |---|---|---|---|
-| `supported` | plans it, +`VERIFIED_BONUS` | yes | — |
+| `supported` | plans it, +`VERIFIED_BONUS` | yes | `models.supported` (success) |
 | `unverified` | plans it, no bonus | yes | `models.unverified` (neutral) |
 | `unsupported` | never plans it | refused | `models.unsupported` (destructive) |
+
+All three are labelled, including `supported`. Leaving the good state blank made
+an absent badge ambiguous — it could mean "verified and fine" or "the field did
+not arrive", and the second is a real case: an older backend sends nothing, which
+the frontend reads as `unverified`. A badge on every row removes that ambiguity
+at the cost of one word.
 
 Unverified models stay **selectable**. They lose `VERIFIED_BONUS` (45) in the
 solver's score, which is larger than `INSTALLED_BONUS` (30) but smaller than
@@ -1357,39 +1450,47 @@ beats an unverified one already on disk, while 显存预算 and language fit sti
 outrank verification. The UI labels them instead of hiding them; filtering them
 out would hide most of the catalogue behind a manual override.
 
-The Settings row shows exactly one status badge, and a retired entry has no
-download button because the backend would refuse the request. The manual model
+The Settings row shows exactly one status badge — always exactly one, never
+zero — and a retired entry has no download button because the backend would
+refuse the request. The manual model
 pickers in `SettingsModelPlan` filter `unsupported` out entirely and clear a pin
 that points at one, so a stale `localStorage` override cannot freeze a plan the
 run then rejects.
 
-### Run mode: offline vs streaming, per model
+### Run mode: streaming wherever it is possible
 
 `models.json` carries a `modes` array per entry (`offline` / `streaming`), taken from
 the family spec embedded in the GGUF (`audiocpp.model_spec.json` → `modes`) and
 cross-checked against `audiocpp_cli --list-loaders --json`. Absent means offline only,
 which keeps every pre-existing entry on exactly the argv it had.
 
-**A declaration is not an entitlement to be used.** Streaming is offered only where the
+**A declaration is not an entitlement to be used.** Streaming runs only where the
 pipeline can actually drive it, and that is a strictly smaller set:
 
 - **Recognition cannot stream in this CLI version.** The ASR path is
   `--request-sequence`, which `audiocpp_cli` treats as a *batch input* and rejects in
   any mode but offline (`app/cli/main.cpp`: `batch inputs require offline mode`). So
   `sense_asr`, `qwen3_asr` and `moss_transcribe_diarize` all declare `streaming` and
-  none of them gets a switch here. `cli::build_argv` enforces this in code
+  none of them streams here. `cli::build_argv` enforces this in code
   (`reject_streaming_with_batch_input`), so it is not a comment someone can forget.
 - **Diarization is the one stage that can stream.** It is a single whole-file call, and
   `nemotron_3_diar`'s `finalize()` returns the complete `speaker_turns`, so
   `--turns-out` has the same shape in both modes.
 
 `ModelSpec::streaming_selectable()` is the single predicate (`declares streaming` **and**
-`has role diar` **and** `engine == audiocpp`). The GUI shows the switch from
-`selectable_modes()` and the pipeline picks `--mode` from the same predicate, so a model
-cannot be offered a mode it will not be run in.
+`has role diar` **and** `engine == audiocpp`), and `ModelSpec::default_mode()` derives
+from it. The pipeline picks `--mode` from it, so a model can never be run in a mode the
+predicate denies.
 
-**Streaming is the default wherever it is available.** Two reasons, and the second is the
-one that matters:
+**There is no user-facing switch, and this is deliberate.** Streaming is what the app
+does wherever it can, so a control would be asking a question the app has already
+answered — the GUI is not where a user should have to learn that offline diarization
+renumbers speakers per window. `list_models` therefore returns exactly one mode field,
+`effective_mode`, and `Settings.tsx` renders it as a badge (only for streaming; the
+absence of a badge says offline). It is a statement of what will run, not an input.
+
+Streaming is the default wherever it is available for two reasons — and the second one is
+the one that matters:
 
 1. a local-first app runs beside whatever else the machine is doing, so the lower peak
    footprint is worth having;
@@ -1400,15 +1501,29 @@ one that matters:
    therefore always takes the single-call path, even when `max_session_seconds` is set —
    windowing it would reintroduce exactly the renumbering streaming avoids.
 
-The choice lives in `<app_config_dir>/settings.json` as `modelModes: { "<id>": "offline" |
-"streaming" }` — one entry per model, because whether a session can be fed in chunks is a
-property of the checkpoint. `model_dir::chosen_mode` is the only resolver: no entry means
+**An override exists as a data escape hatch, not as UI.** `<app_config_dir>/settings.json`
+accepts `modelModes: { "<id>": "offline" | "streaming" }` — one entry per model, because
+whether a session can be fed in chunks is a property of the checkpoint.
+`model_dir::chosen_mode` is the only resolver: no entry means
 `ModelSpec::default_mode()`, an unreadable value means the same, and a stored `streaming`
 for a model that cannot stream is **dropped with a log line** rather than obeyed — a
 settings file outlives a catalogue, and a plan change must not turn into a spawn-time
-error. Clearing the preference (`mode: ""`) removes the entry instead of storing the
-current default, so a future catalogue change still reaches the model. `set_model_mode`
-validates both the id and the mode against the catalogue before writing.
+error. There is no command that writes this map: it is read-only from the app's point of
+view, so a hand edit is the only way to pin a mode, and `merge_model_mode` exists only so
+that shape stays tested (and so a future UI, if one is ever justified, has one writer).
+
+### Picking files: cache-name exclusions apply to directory scans only
+
+`resolve_paths` (`commands/video.rs`) is what turns a dialog selection or a drop into queue
+rows. It filters out this app's own artefacts — `<stem>_audio.wav`, `<stem>_thumb.jpg`,
+dotfiles — because a directory expansion would otherwise queue the WAV the app just wrote
+next to the video.
+
+That filter was applied to **explicitly picked** paths too, and a file named
+`EP494_audio.wav` is an ordinary audio input: choosing it added no row and printed nothing,
+so it looked like the dialog was broken. `is_media_file` is therefore extension-only, and
+the exclusions live in `is_cache_artefact`, which only `collect_media_files` consults. "The
+user picked this file" outranks "this looks like our cache".
 
 ### Skipping existing subtitles (`skipExistingSubtitle`)
 

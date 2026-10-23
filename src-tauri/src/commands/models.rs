@@ -125,23 +125,15 @@ pub struct ModelStatus {
     /// existed (`supported: false` + `verified: true`). Distinct from
     /// `installed`: a model can be downloaded and still never verified.
     pub status: String,
-    /// Run modes this model's own spec declares (`offline` / `streaming`).
+    /// The mode a run uses **now**: `offline` or `streaming`.
     ///
-    /// The declaration, not the offer: `sense_asr` declares streaming but this
-    /// app's recognition pipeline is `--request-sequence`, which the CLI only
-    /// accepts offline. Read `selectable_modes` for what the switch may show.
-    pub modes: Vec<String>,
-    /// Modes the user may choose between here, in menu order. `["offline"]`
-    /// means "no choice to make", not "a feature is missing".
-    pub selectable_modes: Vec<String>,
-    /// The mode a run uses when the user has stored no preference.
-    pub default_mode: String,
-    /// The mode a run would use **now**: the stored choice when it is one this
-    /// model offers, otherwise `default_mode`.
-    ///
-    /// Resolved in Rust rather than in the view, because the rule (a stored
-    /// `streaming` for a model that cannot stream is dropped) has to match what
-    /// the pipeline does, and the pipeline is not a React component.
+    /// This is the only mode field the UI needs, because streaming is what the
+    /// app does wherever it can — there is nothing for the user to decide, and a
+    /// row that offered a switch would be asking a question the app has already
+    /// answered. Resolved in Rust rather than in the view because the rule (no
+    /// stored preference ⇒ the model's default; a stored `streaming` for a model
+    /// that cannot stream ⇒ dropped) has to match what the pipeline does, and
+    /// the pipeline is not a React component.
     pub effective_mode: String,
     /// Every manifest file present with a matching size.
     pub installed: bool,
@@ -159,14 +151,7 @@ impl ModelStatus {
     ) -> Self {
         let spec = status.spec;
         // Resolved before the struct literal moves the `String` fields out of
-        // `spec`; `selectable_modes()` borrows `self`.
-        let selectable_modes: Vec<String> = spec
-            .selectable_modes()
-            .into_iter()
-            .map(|mode| mode.as_str().to_string())
-            .collect();
-        let default_mode = spec.default_mode().as_str().to_string();
-        let modes: Vec<String> = spec.modes.iter().map(|mode| mode.as_str().to_string()).collect();
+        // `spec`; `default_mode()` / `streaming_selectable()` borrow `self`.
         let effective_mode = crate::model_dir::chosen_mode(
             &crate::model_dir::BackendSettings {
                 model_modes: stored_modes.clone(),
@@ -217,9 +202,6 @@ impl ModelStatus {
             source: spec.source.map(|source| source.as_str().to_string()),
             tier: spec.tier.map(|tier| tier.as_str().to_string()),
             status: spec.status.as_str().to_string(),
-            modes,
-            selectable_modes,
-            default_mode,
             effective_mode: effective_mode.as_str().to_string(),
             installed: status.installed,
             size_on_disk: status.size_on_disk,

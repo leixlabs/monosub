@@ -587,19 +587,6 @@ impl ModelSpec {
             && self.engine == Engine::Audiocpp
     }
 
-    /// The modes the user may choose between for this model, in menu order.
-    ///
-    /// A model that cannot stream yields `[Offline]` rather than an empty list:
-    /// "only one choice" is a fact worth rendering, while "no choices" reads as
-    /// a missing feature.
-    pub fn selectable_modes(&self) -> Vec<RunMode> {
-        if self.streaming_selectable() {
-            vec![RunMode::Offline, RunMode::Streaming]
-        } else {
-            vec![RunMode::Offline]
-        }
-    }
-
     /// The mode a run should use when the user has expressed no preference.
     ///
     /// Streaming, when it is available: the app is local-first and runs beside
@@ -1138,7 +1125,7 @@ mod tests {
     /// rejects every batch input outside offline mode. Offering the switch would
     /// produce a control whose only effect is a spawn-time error.
     #[test]
-    fn only_a_streaming_diar_model_is_offered_the_streaming_switch() {
+    fn only_a_streaming_diar_model_is_actually_run_streaming() {
         let specs = committed_catalog();
 
         let asr = specs
@@ -1150,8 +1137,11 @@ mod tests {
             "the checkpoint declares streaming, which is why the distinction matters"
         );
         assert!(!asr.streaming_selectable());
-        assert_eq!(asr.selectable_modes(), vec![RunMode::Offline]);
-        assert_eq!(asr.default_mode(), RunMode::Offline);
+        assert_eq!(
+            asr.default_mode(),
+            RunMode::Offline,
+            "recognition runs through --request-sequence, which the CLI only accepts offline"
+        );
 
         let diar = specs
             .iter()
@@ -1159,14 +1149,9 @@ mod tests {
             .expect("the default diar entry is in the catalogue");
         assert!(diar.streaming_selectable());
         assert_eq!(
-            diar.selectable_modes(),
-            vec![RunMode::Offline, RunMode::Streaming],
-            "menu order: offline first, streaming second"
-        );
-        assert_eq!(
             diar.default_mode(),
             RunMode::Streaming,
-            "a local app runs beside everything else, so the lower footprint wins"
+            "no stored preference means the default, and streaming is the default here"
         );
 
         // The retired v1 entry declares offline only and stays retired.

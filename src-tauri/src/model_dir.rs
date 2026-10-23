@@ -311,14 +311,6 @@ pub fn chosen_mode(settings: &BackendSettings, spec: &ModelSpec) -> RunMode {
     chosen
 }
 
-/// Persist one model's run mode, keeping every other field.
-pub fn save_model_mode(app: &tauri::AppHandle, model_id: &str, mode: &str) -> Result<(), String> {
-    let path = settings_path(app)?;
-    let mut settings = read_settings_at(&path);
-    merge_model_mode(&mut settings, model_id, mode);
-    write_settings_at(&path, &settings)
-}
-
 // `configured_root` used to live here. It now exists exactly once, as
 // `paths::AppPaths::models_root`, because the precedence (env → persisted
 // setting → default) had to run *before* an `AppPaths` could be built — keeping
@@ -426,7 +418,8 @@ mod tests {
     }
 
     /// A stored choice is honoured — including "offline" on a model that
-    /// defaults to streaming, which is the whole point of the switch.
+    /// defaults to streaming. There is no UI that writes it, but the map is a
+    /// supported way to pin a mode by hand.
     #[test]
     fn a_stored_mode_wins_over_the_default() {
         use crate::engine::catalog::RunMode;

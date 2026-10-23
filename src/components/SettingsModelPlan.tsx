@@ -232,7 +232,11 @@ export function SettingsModelPlan() {
   return (
     <section className="space-y-4" aria-label={t('modelPlan.title')}>
       <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
-        <h3 className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
+        {/* Same weight and colour as every other Settings label
+            (`text-sm font-semibold text-text-primary`): this is the card's
+            heading, and the muted uppercase variant made it read as a caption
+            for the controls rather than as the name of the section. */}
+        <h3 className="text-sm font-semibold text-text-primary dark:text-gray-200">
           {t('modelPlan.title')}
         </h3>
 
@@ -240,7 +244,7 @@ export function SettingsModelPlan() {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.languageProfile')}</span>
+              <span className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('modelPlan.languageProfile')}</span>
               <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
                 {t('modelPlan.languageProfileHint')}
               </p>
@@ -259,7 +263,7 @@ export function SettingsModelPlan() {
 
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.diarization')}</span>
+              <span className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('modelPlan.diarization')}</span>
               <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
                 {t('modelPlan.diarizationDefaultHint')}
               </p>
@@ -274,7 +278,7 @@ export function SettingsModelPlan() {
 
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.wordTimestamps')}</span>
+              <span className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('modelPlan.wordTimestamps')}</span>
               <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
                 {t('modelPlan.wordTimestampsHint')}
               </p>
@@ -289,7 +293,7 @@ export function SettingsModelPlan() {
 
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
-              <span className="text-xs text-text-secondary dark:text-gray-300">{t('modelPlan.memoryBudget')}</span>
+              <span className="text-sm font-semibold text-text-primary dark:text-gray-200">{t('modelPlan.memoryBudget')}</span>
               <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-0.5">
                 {t('modelPlan.memoryBudgetHint')}
               </p>
@@ -307,7 +311,69 @@ export function SettingsModelPlan() {
           </div>
         </div>
 
-        {/* Live preview of the resolved plan */}
+        {/* Gaps: explain the missing capability and offer the download. */}
+        {actionableGaps.length > 0 && (
+          <div className="p-3 rounded-2xl border border-warning/40 dark:border-warning/40 bg-warning/5 space-y-2">
+            <p className="text-xs font-semibold text-warning">{t('modelPlan.gapTitle')}</p>
+            {actionableGaps.map((gap) => {
+              const id = gap.suggestedModelId as string;
+              const model = installedById.get(id);
+              return (
+                <div key={`${gap.requirement}:${id}`} className="flex items-center justify-between gap-3">
+                  <span className="text-xxs text-text-secondary dark:text-gray-400">
+                    {t('modelPlan.gapSuggest', {
+                      model: model?.display_name ?? id,
+                      size: model ? formatModelSize(modelManifestSize(model)) : '—',
+                    })}
+                  </span>
+                  <GlassButton
+                    variant="outline"
+                    size="sm"
+                    disabled={downloadingId === id}
+                    onClick={() => void handleDownload(id)}
+                  >
+                    {downloadingId === id ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : null}
+                    {t('modelPlan.download')}
+                  </GlassButton>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Advanced: pin a specific model per step (design §8.2.3). */}
+        <details className="group">
+          <summary className="cursor-pointer text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
+            {t('modelPlan.advanced')}
+          </summary>
+          <div className="mt-3 space-y-3">
+            {SLOT_ORDER.map((slot) => (
+              <div key={slot} className="flex items-center justify-between gap-4">
+                <GlassTooltip content={t(SLOT_HINT_KEY[slot])} side="top">
+                  <span className="text-xs text-text-secondary dark:text-gray-300 underline decoration-dotted decoration-text-tertiary/60 underline-offset-2">
+                    {t(SLOT_LABEL_KEY[slot])}
+                  </span>
+                </GlassTooltip>
+                <CustomSelect
+                  value={modelOverrides[slot] ?? ''}
+                  options={slotOptions[slot]}
+                  onChange={(value) => setModelOverride(slot, value)}
+                  // The ASR slot lists the whole catalogue (82 entries); without a
+                  // filter, pinning a model means scrolling a menu that has no
+                  // order a user can predict.
+                  searchable
+                  testId={`plan-override-${slot}`}
+                />
+              </div>
+            ))}
+          </div>
+        </details>
+
+        {/* Live preview of the resolved plan. It sits *below* the manual
+            overrides because it is the answer to everything above it — the four
+            questions and any pin — so reading order is cause then result. */}
         <div
           data-testid="plan-preview"
           // The resolved plan as machine-readable attributes: resolution is
@@ -394,66 +460,6 @@ export function SettingsModelPlan() {
             </>
           ) : null}
         </div>
-
-        {/* Gaps: explain the missing capability and offer the download. */}
-        {actionableGaps.length > 0 && (
-          <div className="p-3 rounded-2xl border border-warning/40 dark:border-warning/40 bg-warning/5 space-y-2">
-            <p className="text-xs font-semibold text-warning">{t('modelPlan.gapTitle')}</p>
-            {actionableGaps.map((gap) => {
-              const id = gap.suggestedModelId as string;
-              const model = installedById.get(id);
-              return (
-                <div key={`${gap.requirement}:${id}`} className="flex items-center justify-between gap-3">
-                  <span className="text-xxs text-text-secondary dark:text-gray-400">
-                    {t('modelPlan.gapSuggest', {
-                      model: model?.display_name ?? id,
-                      size: model ? formatModelSize(modelManifestSize(model)) : '—',
-                    })}
-                  </span>
-                  <GlassButton
-                    variant="outline"
-                    size="sm"
-                    disabled={downloadingId === id}
-                    onClick={() => void handleDownload(id)}
-                  >
-                    {downloadingId === id ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : null}
-                    {t('modelPlan.download')}
-                  </GlassButton>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Advanced: pin a specific model per step (design §8.2.3). */}
-        <details className="group">
-          <summary className="cursor-pointer text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
-            {t('modelPlan.advanced')}
-          </summary>
-          <div className="mt-3 space-y-3">
-            {SLOT_ORDER.map((slot) => (
-              <div key={slot} className="flex items-center justify-between gap-4">
-                <GlassTooltip content={t(SLOT_HINT_KEY[slot])} side="top">
-                  <span className="text-xs text-text-secondary dark:text-gray-300 underline decoration-dotted decoration-text-tertiary/60 underline-offset-2">
-                    {t(SLOT_LABEL_KEY[slot])}
-                  </span>
-                </GlassTooltip>
-                <CustomSelect
-                  value={modelOverrides[slot] ?? ''}
-                  options={slotOptions[slot]}
-                  onChange={(value) => setModelOverride(slot, value)}
-                  // The ASR slot lists the whole catalogue (82 entries); without a
-                  // filter, pinning a model means scrolling a menu that has no
-                  // order a user can predict.
-                  searchable
-                  testId={`plan-override-${slot}`}
-                />
-              </div>
-            ))}
-          </div>
-        </details>
       </div>
     </section>
   );

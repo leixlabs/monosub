@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
-import { useStore, SubtitleFormat, OutputLanguage } from '@/store/useStore';
+import { useStore, SubtitleFormat, OutputLanguage, MIN_CONCURRENCY, MAX_CONCURRENCY } from '@/store/useStore';
 import { supportedLanguages, toSupportedLanguage, UI_LANGUAGE_STORAGE_KEY } from '@/i18n';
 import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
 import { SettingsModelPlan } from '@/components/SettingsModelPlan';
@@ -49,12 +49,10 @@ import {
   modelManifestSize,
   recognitionModels,
   removeModel,
-  setModelMode,
   translationModels,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
   type ModelDownloadProgressPayload,
-  type ModelRunMode,
   type ModelStatus,
 } from '@/lib/models';
 
@@ -108,7 +106,6 @@ interface ModelRowProps {
   onDownload: (id: string) => void;
   onCancel: (id: string) => void;
   onRemove: (id: string) => void;
-  onModeChange: (id: string, mode: ModelRunMode | '') => void;
 }
 
 /**
@@ -117,15 +114,7 @@ interface ModelRowProps {
  * Shared by the recognition and translation groups (translation-design §7), so
  * both behave identically — the only difference is which list they sit in.
  */
-function ModelRow({
-  model,
-  isDownloading,
-  percent,
-  onDownload,
-  onCancel,
-  onRemove,
-  onModeChange,
-}: ModelRowProps) {
+function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemove }: ModelRowProps) {
   const { t } = useTranslation();
   const displayName = model.display_name || model.id;
   const displaySize = model.installed && model.size_on_disk > 0
@@ -146,13 +135,22 @@ function ModelRow({
             <GlassBadge variant={model.installed ? 'success' : 'warning'} size="sm">
               {model.installed ? t('models.installed') : t('models.notInstalled')}
             </GlassBadge>
-            {/* One badge per status, never two: `status` is a single axis, so
-                the row says "unverified" *or* "not supported", not both. An
-                unverified entry stays downloadable and selectable — the label
-                informs instead of blocking. A retired one stays listed so the
-                survey reads as one document, but nothing will ever select it;
-                saying so is the difference between "not recommended" and "not
-                offered". */}
+            {/* Exactly one status badge, always present: `status` is a single
+                axis, so the row says "supported" *or* "unverified" *or* "not
+                supported" — never two of them. Every state is labelled because
+                an absent badge is ambiguous: it could mean "verified and fine"
+                or "this field did not arrive", and the second is a real case
+                (an older backend sends nothing, which reads as `unverified`).
+                The three states differ in consequence, not in kind: an
+                unverified entry stays downloadable and selectable, and a retired
+                one stays listed so the survey reads as one document while
+                nothing will ever select it. Saying which is the difference
+                between "not recommended" and "not offered". */}
+            {model.status === 'supported' && (
+              <GlassBadge variant="success" size="sm" title={t('models.supportedHint')}>
+                {t('models.supported')}
+              </GlassBadge>
+            )}
             {model.status === 'unverified' && (
               <GlassBadge variant="default" size="sm" title={t('models.unverifiedHint')}>
                 {t('models.unverified')}
@@ -207,48 +205,26 @@ function ModelRow({
         </div>
       </div>
 
-      {/* Run mode. Shown only where the user has a real choice: `selectable_modes`
-          is Rust's answer, so a model the pipeline can only run offline never
-          gets a switch that would change nothing. The hint states the *actual*
-          effect — the offline diar path splits a long file into windows that
-          each number speakers from zero, which is why streaming is the default
-          wherever it is offered. */}
-      {model.selectable_modes.length > 1 && (
-        <div className="space-y-1.5" data-testid={`model-mode-${model.id}`}>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-text-primary dark:text-gray-200">
-              {t('models.runMode')}
-            </span>
-            <div className="flex items-center gap-1 rounded-full bg-divider/60 dark:bg-zinc-700/60 p-0.5">
-              {model.selectable_modes.map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => {
-                    // Clicking the selected mode is not a change: re-persisting it
-                    // would pin a choice the user never expressed.
-                    if (model.effective_mode === mode) return;
-                    // Choosing the model's own default clears the entry instead of
-                    // storing it, so a future catalogue change still reaches this
-                    // model.
-                    onModeChange(model.id, mode === model.default_mode ? '' : mode);
-                  }}
-                  aria-pressed={model.effective_mode === mode}
-                  data-testid={`model-mode-${model.id}-${mode}`}
-                  className={`px-2.5 py-1 rounded-full text-xxs font-medium transition-colors ${
-                    model.effective_mode === mode
-                      ? 'bg-bg-primary dark:bg-zinc-900 text-text-primary dark:text-white shadow-sm'
-                      : 'text-text-secondary dark:text-gray-400 hover:text-text-primary'
-                  }`}
-                >
-                  {t(`models.modes.${mode}`)}
-                </button>
-              ))}
-            </div>
-          </div>
-          <p className="text-xxs text-text-secondary dark:text-gray-400 leading-relaxed">
-            {t(`models.modes.${model.effective_mode}Hint`)}
-          </p>
+      {/* Run mode, shown as a fact rather than a question: streaming is what the
+          app does wherever it can, so there is nothing for the user to decide.
+          Only streaming is labelled — printing "offline" on the hundred-odd
+          models that only run offline would be noise, and the absence of the
+          badge already says it. `effective_mode` is Rust's answer, so a
+          hand-edited `modelModes` entry is reflected here instead of the row
+          claiming a mode the run will not use. */}
+      {model.effective_mode === 'streaming' && (
+        <div className="flex items-center gap-2" data-testid={`model-mode-${model.id}`}>
+          <span className="text-xs text-text-secondary dark:text-gray-400">
+            {t('models.runMode')}
+          </span>
+          <GlassBadge
+            variant="primary"
+            size="sm"
+            title={t('models.modes.streamingHint')}
+            data-testid={`model-mode-${model.id}-value`}
+          >
+            {t('models.modes.streaming')}
+          </GlassBadge>
         </div>
       )}
 
@@ -508,33 +484,6 @@ export function Settings() {
         delete next[id];
         return next;
       });
-    }
-  };
-
-  /**
-   * Persist one model's run mode. `''` clears the preference and restores the
-   * model's default, which is why the row sends `''` when the user clicks the
-   * mode that is already the default: storing it would pin today's answer.
-   */
-  const handleModeChange = async (id: string, mode: ModelRunMode | '') => {
-    setModelActionError('');
-    try {
-      await setModelMode(id, mode);
-      if (!isMountedRef.current) return;
-      // The backend re-validates and the effective mode depends on the model's
-      // own declaration, so the row takes the answer it computed rather than
-      // echoing the click: a rejected mode must not look applied.
-      setModels((prev) => prev.map((model) => (
-        model.id === id
-          ? { ...model, effective_mode: mode === '' ? model.default_mode : mode }
-          : model
-      )));
-    } catch (error) {
-      console.error('[set_model_mode] Failed:', error);
-      reportFrontendError(error, { context: `set_model_mode ${id}` });
-      if (isMountedRef.current) {
-        setModelActionError(String(error));
-      }
     }
   };
 
@@ -818,7 +767,7 @@ export function Settings() {
                   </div>
 
                   {/* Processing */}
-                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
                         <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
@@ -832,6 +781,36 @@ export function Settings() {
                         checked={settings.skipExistingSubtitle}
                         onCheckedChange={(checked) => updateSettings({ skipExistingSubtitle: checked })}
                       />
+                    </div>
+
+                    {/* Concurrency: how many files run at once. The same number
+                        sizes the Rust semaphore, so the queue and the GPU agree
+                        (see `AppSettings.concurrency`). A segmented control
+                        rather than a dropdown: the range is 1–3 and seeing all
+                        three at once is clearer than a menu with three items. */}
+                    <div className="flex items-center justify-between gap-4 pt-3 border-t border-divider dark:border-zinc-700">
+                      <div className="min-w-0">
+                        <label className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                          {t('settings.processing.concurrency')}
+                        </label>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 mt-0.5">
+                          {t('settings.processing.concurrencyDesc')}
+                        </p>
+                      </div>
+                      <div className="flex gap-1 bg-bg-secondary dark:bg-zinc-800 rounded-lg p-1 shrink-0">
+                        {Array.from({ length: MAX_CONCURRENCY }, (_, i) => i + MIN_CONCURRENCY).map((n) => (
+                          <GlassButton
+                            key={n}
+                            variant={settings.concurrency === n ? 'default' : 'ghost'}
+                            size="sm"
+                            onClick={() => updateSettings({ concurrency: n })}
+                            className="px-3 h-7 text-sm tabular-nums"
+                            data-testid={`concurrency-${n}`}
+                          >
+                            {n}
+                          </GlassButton>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -910,7 +889,6 @@ export function Settings() {
                             onDownload={(id) => void handleDownloadModel(id)}
                             onCancel={(id) => void handleCancelModelDownload(id)}
                             onRemove={(id) => void handleRemoveModel(id)}
-                            onModeChange={(id, mode) => void handleModeChange(id, mode)}
                           />
                         ))}
                       </>
@@ -930,7 +908,6 @@ export function Settings() {
                             onDownload={(id) => void handleDownloadModel(id)}
                             onCancel={(id) => void handleCancelModelDownload(id)}
                             onRemove={(id) => void handleRemoveModel(id)}
-                            onModeChange={(id, mode) => void handleModeChange(id, mode)}
                           />
                         ))}
                       </>
