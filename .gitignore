@@ -64,6 +64,14 @@ src-tauri/resources/*
 *.wav
 *.mp3
 
+# Windows MSIX staging (scripts/windows/build-msix.sh) and its dev cert.
+# Root-anchored so the tracked scripts/build/ directory is not affected.
+/build/
+*.pfx
+
+# Scratch downloads for the Windows packaging work; never committed.
+/.winbuild/
+
 # Phase 0 PoC scratch (scripts are in scripts/poc/, everything else is local)
 poc/
 /tmp/

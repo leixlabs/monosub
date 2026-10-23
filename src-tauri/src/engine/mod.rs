@@ -1010,8 +1010,14 @@ mod tests {
     fn resolves_a_relative_reported_path_against_the_cwd() {
         // Observed live: `text_out[c0000]=out/seg_c0000.txt` when `--text-out`
         // is relative, so the raw string is not always usable as-is.
-        let absolute = resolve_reported_path("/tmp/x/out/seg_c0000.txt");
-        assert_eq!(absolute, PathBuf::from("/tmp/x/out/seg_c0000.txt"));
+        //
+        // The absolute case is built with `Path::new` rather than hard-coded as
+        // "/tmp/x/..." because on Windows that string is not absolute (no drive
+        // letter), so it would go through the relative branch and fail for a
+        // reason the test is not about.
+        let absolute_path = std::env::temp_dir().join("out").join("seg_c0000.txt");
+        let absolute = resolve_reported_path(&absolute_path.to_string_lossy());
+        assert_eq!(absolute, absolute_path);
 
         let relative = resolve_reported_path("out/seg_c0000.txt");
         assert!(relative.is_absolute(), "{relative:?}");

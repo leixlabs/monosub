@@ -1,7 +1,7 @@
 {
   "name": "monosub",
   "private": true,
-  "version": "2.0.1",
+  "version": "2.0.0",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "build:dmg": "./scripts/build/build-macos-app.sh",
+    "build:msix": "./scripts/windows/build-msix.sh",
     "check": "tsc -b --noEmit",
     "check:i18n": "node scripts/utils/check-i18n-keys.mjs",
     "lint": "eslint .",

@@ -268,28 +268,34 @@ mod tests {
 
     #[test]
     fn vad_invocation_matches_the_spec_vector() {
+        // Paths are built with `Path::join`, not written as "/tmp/...": on Windows
+        // a leading-slash string is not absolute, and `join` would then keep the
+        // parent instead of replacing it, so the argv comparison would fail on
+        // string formatting rather than on behaviour.
+        let work_dir = std::env::temp_dir().join("work");
+        let audio = work_dir.join("audio.wav");
+        let chunks_out = work_dir.join("vad_chunks.json");
+        let model = std::env::temp_dir().join("models").join("silero_vad");
+
         let invocation = vad_invocation(
             &VadModel {
                 family: DEFAULT_FAMILY.to_string(),
-                model: PathBuf::from("/res/models/silero_vad"),
+                model: model.clone(),
             },
-            Path::new("/tmp/work/audio.wav"),
-            Path::new("/tmp/work"),
+            &audio,
+            &work_dir,
         );
 
         assert_eq!(invocation.task, "vad");
         assert_eq!(invocation.family, "silero_vad");
-        assert_eq!(invocation.model, PathBuf::from("/res/models/silero_vad"));
+        assert_eq!(invocation.model, model);
         assert_eq!(invocation.backend, Backend::Cpu);
-        assert_eq!(
-            invocation.audio.as_deref(),
-            Some(Path::new("/tmp/work/audio.wav"))
-        );
+        assert_eq!(invocation.audio.as_deref(), Some(audio.as_path()));
         assert_eq!(
             invocation.args,
             vec![
                 "--vad-chunks-out",
-                "/tmp/work/vad_chunks.json",
+                &chunks_out.to_string_lossy(),
                 "--vad-chunk-max-seconds",
                 "15",
                 "--vad-chunk-merge-gap-seconds",
@@ -305,10 +311,13 @@ mod tests {
         for (flag, value) in [
             ("--task", "vad".to_string()),
             ("--family", "silero_vad".to_string()),
-            ("--model", "/res/models/silero_vad".to_string()),
+            ("--model", model.to_string_lossy().into_owned()),
             ("--backend", "cpu".to_string()),
-            ("--audio", "/tmp/work/audio.wav".to_string()),
-            ("--vad-chunks-out", "/tmp/work/vad_chunks.json".to_string()),
+            ("--audio", audio.to_string_lossy().into_owned()),
+            (
+                "--vad-chunks-out",
+                chunks_out.to_string_lossy().into_owned(),
+            ),
             ("--vad-chunk-max-seconds", seconds_arg(VAD_MAX_SECONDS)),
             ("--vad-chunk-merge-gap-seconds", seconds_arg(VAD_MERGE_GAP_SECONDS)),
             ("--vad-chunk-padding-seconds", seconds_arg(VAD_PADDING_SECONDS)),

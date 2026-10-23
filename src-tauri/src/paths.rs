@@ -231,9 +231,13 @@ mod tests {
         ));
         let elsewhere = std::env::temp_dir().join("somewhere-else-models");
         std::fs::create_dir_all(&config_dir).unwrap();
+        // Built with `serde_json` rather than `format!`: a Windows path is full of
+        // backslashes, which are escapes in JSON, so a hand-formatted string is
+        // invalid there and the parse fails for a reason unrelated to the test.
+        let settings = serde_json::json!({ "modelsDir": elsewhere.display().to_string() });
         std::fs::write(
             config_dir.join("settings.json"),
-            format!(r#"{{"modelsDir":"{}"}}"#, elsewhere.display()),
+            serde_json::to_string(&settings).unwrap(),
         )
         .unwrap();
 

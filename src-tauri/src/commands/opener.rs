@@ -122,7 +122,7 @@ fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (Str
 #[cfg(target_os = "windows")]
 fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (String, Vec<String>) {
     let program = "explorer".to_string();
-    match action {
+    match (action, target) {
         // `start "" <path>`: `start` treats a quoted first argument as the
         // window title, so the empty title keeps the path from being eaten.
         (OpenerAction::Open, OpenerTarget::File) => {

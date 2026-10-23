@@ -461,13 +461,25 @@ pub(crate) fn binary_candidates_for_tests(binary_name: &str) -> Vec<String> {
     binary_candidates(binary_name)
 }
 
-/// Base name first, then the `-<target-triple>` variant (video.rs convention).
+/// Base name first, then the `-<target-triple>` variant (video.rs convention),
+/// then the `.exe` forms on Windows — the resource scripts install
+/// `<name>-<triple>.exe` there, so a candidate list without the suffix resolves
+/// nothing and every engine falls back to the bare name in PATH.
 fn binary_candidates(binary_name: &str) -> Vec<String> {
     let target_suffix = target_triple();
     let mut candidates = vec![binary_name.to_string()];
     if !target_suffix.is_empty() {
         candidates.push(format!("{}-{}", binary_name, target_suffix));
     }
+
+    #[cfg(target_os = "windows")]
+    {
+        if !target_suffix.is_empty() {
+            candidates.push(format!("{}-{}.exe", binary_name, target_suffix));
+        }
+        candidates.push(format!("{}.exe", binary_name));
+    }
+
     candidates
 }
 
@@ -531,7 +543,19 @@ mod tests {
             .join("src-tauri")
             .join("resources")
             .join("bin")
-            .join(format!("{}-{}", CLI_BINARY, target_triple()))
+            .join(committed_binary_file_name(CLI_BINARY))
+    }
+
+    /// The name the resource scripts install a bundled binary under, which is
+    /// exactly what [`binary_candidates`] has to resolve. Windows carries `.exe`.
+    fn committed_binary_file_name(binary_name: &str) -> String {
+        let suffixed = format!("{}-{}", binary_name, target_triple());
+
+        #[cfg(target_os = "windows")]
+        return format!("{}.exe", suffixed);
+
+        #[cfg(not(target_os = "windows"))]
+        return suffixed;
     }
 
     fn vad_invocation() -> CliInvocation {
@@ -804,12 +828,15 @@ mod tests {
         assert_eq!(LLAMACPP_BINARY, "llama-server");
         // The name carries no target triple, so `binary_candidates` must offer
         // the suffixed variant too — that is the committed file name.
-        assert_eq!(
-            binary_candidates(LLAMACPP_BINARY),
-            vec![
-                "llama-server".to_string(),
-                format!("llama-server-{}", target_triple()),
-            ]
+        let candidates = binary_candidates(LLAMACPP_BINARY);
+        assert_eq!(candidates[0], "llama-server");
+        assert_eq!(candidates[1], format!("llama-server-{}", target_triple()));
+        // Windows can only execute a `.exe`, so the suffixed name has to appear
+        // in that form as well.
+        #[cfg(target_os = "windows")]
+        assert!(
+            candidates.contains(&format!("llama-server-{}.exe", target_triple())),
+            "Windows candidates must include the .exe form: {candidates:?}"
         );
     }
 
@@ -827,7 +854,7 @@ mod tests {
 
         assert_eq!(
             found,
-            dir.join(format!("llama-server-{}", target_triple()))
+            dir.join(committed_binary_file_name(LLAMACPP_BINARY))
         );
         assert!(is_executable_file(&found), "{}", found.display());
     }

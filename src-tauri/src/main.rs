@@ -3,6 +3,10 @@
 // `monosub::` is the crate name from Cargo.toml.
 use monosub::commands::*;
 use monosub::{logging, tray};
+// `Manager` supplies `get_webview_window`, and both call sites are macOS-only
+// (title bar overlay, Dock reopen), so importing it unconditionally leaves an
+// unused import on Windows.
+#[cfg(target_os = "macos")]
 use tauri::Manager;
 
 fn main() {
@@ -31,12 +35,11 @@ fn main() {
 
     builder
         .setup(|app| {
-            // 获取主窗口
-            let window = app.get_webview_window("main").unwrap();
-
             // macOS 标题栏使用 Overlay，避免透明标题色异常
             #[cfg(target_os = "macos")]
             {
+                // 获取主窗口
+                let window = app.get_webview_window("main").unwrap();
                 let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
             }
 
@@ -88,7 +91,10 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            // 处理 macOS Dock 图标点击，将窗口唤到前台
+            // 处理 macOS Dock 图标点击，将窗口唤到前台。`RunEvent::Reopen` only
+            // exists on macOS — on Windows the tray menu serves the same need, so
+            // the arm is compiled out rather than emulated.
+            #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Reopen { .. } = event {
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.show();
@@ -96,5 +102,9 @@ fn main() {
                     let _ = window.unminimize();
                 }
             }
+
+            // Silence the unused-binding warning on platforms without the arm above.
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app_handle, event);
         });
 }

@@ -1,0 +1,14 @@
+# Line endings. The repo's default `core.autocrlf=true` turns every text file
+# into CRLF in the working tree on Windows, which silently breaks the golden
+# fixtures below: they are compared byte-for-byte against what the writer
+# produces, so a CRLF checkout fails those tests on a machine where nothing is
+# actually wrong.
+#
+# `-text` (binary) on the fixtures means "check out and commit exactly these
+# bytes", which is what a byte-exact golden needs. Everything else keeps the
+# normal autocrlf behaviour.
+src-tauri/tests/fixtures/** -text
+
+# Scripts run under Git Bash / a POSIX shell on every platform; CRLF in them
+# breaks `#!/bin/bash` and here-documents.
+*.sh text eol=lf

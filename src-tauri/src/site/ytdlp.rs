@@ -534,9 +534,13 @@ mod tests {
 
     #[test]
     fn fetch_stage_loads_the_info_dict_and_escapes_the_tag() {
+        // A temp-dir path, not "/tmp/import": on Windows the latter is not
+        // absolute, so the expected argv would differ from the joined path only
+        // in separator style — a failure with no behavioural meaning.
+        let work_dir = std::env::temp_dir().join("import");
         let invocation = Invocation {
             stage: Stage::FetchSubtitles {
-                work_dir: PathBuf::from("/tmp/import"),
+                work_dir: work_dir.clone(),
                 tag: "zh.1".to_string(),
             },
             url: "u".to_string(),
@@ -545,9 +549,10 @@ mod tests {
         };
         let argv = build_argv(&invocation);
 
+        let info_json = work_dir.join("info.json");
         assert_eq!(
             argv.iter().position(|arg| arg == "--load-info-json").map(|index| argv[index + 1].as_str()),
-            Some("/tmp/import/info.json")
+            Some(info_json.to_string_lossy().as_ref())
         );
         // `--sub-langs` is a regex, so `.` is escaped.
         assert_eq!(
@@ -563,7 +568,13 @@ mod tests {
             .map(|index| argv[index + 1].clone())
             .expect("-o template");
         assert!(template.contains("%(id)s"), "{template}");
-        assert!(template.starts_with("/tmp/import/"), "{template}");
+        // The template is `<work_dir>/%(id)s/%(id)s.%(ext)s`, so it starts with
+        // the work dir in the platform's own separator style.
+        assert!(
+            Path::new(&template).starts_with(&work_dir),
+            "{template} should start with {}",
+            work_dir.display()
+        );
     }
 
     #[test]

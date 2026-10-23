@@ -2293,7 +2293,7 @@ dependencies = [
 
 [[package]]
 name = "monosub"
-version = "2.0.1"
+version = "2.0.0"
 dependencies = [
  "futures-util",
  "hound",

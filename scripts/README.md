@@ -4,10 +4,14 @@
 
 ## 目录结构
 
-- `build/`：构建资源准备（audio.cpp CLI、Silero VAD、FFmpeg）与核心 dmg 打包。
-- `release/`：代码签名（Mac）、推平 GitHub 发布流等。
+- `build/`：**macOS** 构建资源准备（audio.cpp CLI、Silero VAD、FFmpeg）与核心 dmg 打包。
+- `release/`：**macOS** 代码签名、推平 GitHub 发布流等。
+- `windows/`：**Windows / Microsoft Store** 全套脚本，与 macOS 完全分开维护（见下）。
 - `setup/`：搭建或清理开发环境，一键安装工具等。
-- `utils/`：通用的常量检测、版本计算助手等。
+- `utils/`：通用的常量检测、版本计算助手等（两个平台共用）。
+
+> macOS 与 Windows 的构建/发布脚本不共用文件：两边的工具链、产物格式（DMG vs MSIX）
+> 和签名模型都不同，混在一个目录里改一处就可能悄悄改坏另一平台。
 
 ---
 
@@ -51,6 +55,51 @@ Python/uv 目录、准备 FFmpeg，再调用 `fetch-audiocpp.sh` 拉取并校验
 ```
 > **注意**：
 > 这个脚本依赖官方的 `gh` CLI 工具。请确保你本地装有 Github CLI，以及具备了相应的提交权限并且事先走过 `gh auth login` 进行了鉴权。
+
+---
+
+### 3. 🪟 构建 Windows MSIX（Microsoft Store）
+
+规范见 `docs/tech-spec/microsoft-store-publish-spec.md`。**必须在 Windows 11 x64 的 Git Bash 中运行**：
+Tauri 不支持从 macOS 交叉编译 Windows 目标（MSVC 链接 + WebView2 SDK）。
+
+```bash
+# 1) 准备 Windows 运行时二进制（audiocpp_cli / llama-server / ffmpeg / yt-dlp + DLL）
+./scripts/windows/prepare-resources.sh
+
+# 2) 构建并打包 MSIX（默认不签名，产出可直接提交 Partner Center）
+./scripts/windows/build-msix.sh
+
+# 本地安装验证：额外生成一份开发证书签名的副本
+./scripts/windows/build-msix.sh --sign
+```
+
+产物在 `dist/`：
+
+| 文件 | 用途 |
+| --- | --- |
+| `monosub_<version>.0_x64.msix` | 上传 Partner Center。**商店会重新签名**，自签名包会被拒绝 |
+| `monosub_<version>.0_x64.signed.msix` | 仅用于本机 `Add-AppxPackage` 验证 |
+
+`check-msix-package.sh` 会在构建末尾自动跑一遍规范 §5.7 的检查清单（包内二进制、DLL、
+四段式版本号、x64 架构、WebView2 依赖、入口点、`runFullTrust`），缺任何一项都会让构建失败。
+
+### 4. 🚀 发布 MSIX 到 GitHub Release
+
+```bash
+# 构建、移动 tag 到当前 HEAD、上传 MSIX、更新 release 说明
+./scripts/windows/release-msix.sh --tag v2.0.0 --update-tag
+
+# 已有产物，只上传
+./scripts/windows/release-msix.sh --tag v2.0.0 --skip-build
+```
+
+`--update-tag` 会把 tag 重写到 HEAD 并强制推送 —— 这是对已发布 ref 的历史改写，
+只有在 release 说明里写着 "built from <sha>"、而产物实际来自更新的提交时才需要。
+不加这个参数时脚本只上传资产、不动 tag。
+
+> 注意：`gh release create` 创建的 release 与 git tag 是两回事。移动 tag 不会移动
+> release 页面，给 release 加资产也不会改变 tag。
 
 ---
 

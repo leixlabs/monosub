@@ -296,10 +296,45 @@ Three traps when writing or running a scenario:
 bun run build         # Frontend only (tsc -b && vite build)
 bun run tauri build   # Full native bundle (runs `build` via beforeBuildCommand)
 bun run build:dmg     # macOS DMG + signing (scripts/build/build-macos-app.sh)
+bun run build:msix    # Windows MSIX for the Microsoft Store (Windows 11 only)
 ```
 
 There is a single build flow — the old `lite`/`full` split is gone, because there is
 no Python runtime to bundle.
+
+#### Windows / Microsoft Store
+
+The Store package is built on Windows 11 x64 only: Tauri cannot cross-compile a
+Windows target from macOS (MSVC link + WebView2 SDK), and `winapp` requires Windows.
+See `docs/tech-spec/microsoft-store-publish-spec.md` for the submission flow.
+
+Windows scripts live in `scripts/windows/`, kept separate from the macOS flows in
+`scripts/build/` and `scripts/release/`. Do not merge them: the toolchains, the
+artifact formats (DMG vs MSIX) and the signing models all differ, so a change made
+for one platform in a shared file can silently break the other. `scripts/utils/`
+is the only shared code.
+
+```bash
+./scripts/windows/prepare-resources.sh   # Windows binaries into resources/bin
+./scripts/windows/build-msix.sh          # → dist/monosub_<version>.0_x64.msix
+./scripts/windows/release-msix.sh --tag v2.0.0 # upload to a GitHub release
+```
+
+Four things about the Windows path that are easy to get wrong:
+
+- The bundled binaries are named `<name>-x86_64-pc-windows-msvc.exe` — the target
+  triple comes **before** the extension. `engine::cli::binary_candidates` appends
+  those `.exe` forms on Windows; `commands::video` had always done so separately,
+  which is why only the ffmpeg path resolved before.
+- `resources/bin/` holds the macOS and Windows binaries side by side; the triple in
+  the name keeps them apart. They are gitignored, so each platform's resource
+  script fetches only its own set.
+- The MSIX is unsigned by default because the Store re-signs every package, and a
+  self-signed one is rejected at submission. `--sign` produces a second, dev-signed
+  copy for local `Add-AppxPackage` verification only.
+- The golden subtitle fixtures are byte-compared, so `.gitattributes` marks them
+  `-text`. Without that, `core.autocrlf=true` checks them out as CRLF on Windows and
+  every writer test fails on a machine where nothing is wrong.
 
 ---
 
