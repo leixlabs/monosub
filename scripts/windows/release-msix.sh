@@ -113,6 +113,15 @@ if [ "$UPDATE_TAG" = true ]; then
     if [ "$OLD_SHA" = "$NEW_SHA" ]; then
         log_success "$TAG already points at HEAD; nothing to move"
     else
+        # An annotated tag needs a committer identity. Without one git fails with
+        # "Committer identity unknown" halfway through — after the old tag has
+        # already been deleted — so check first rather than leaving a broken tag.
+        if ! git var GIT_COMMITTER_IDENT > /dev/null 2>&1; then
+            log_error "No git committer identity configured; an annotated tag cannot be created."
+            log_error "Set one with: git config user.name '...' && git config user.email '...'"
+            exit 1
+        fi
+
         # An annotated tag is what `gh release create` produces and what the
         # existing v2.0.0 is, so recreate it the same way instead of with
         # `git tag -f`, which would turn it into a lightweight tag.
