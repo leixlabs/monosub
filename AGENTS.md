@@ -862,6 +862,7 @@ supported video, shows a dismissible pill with one import button.
 | `update_tray_menu` | Localise the tray's Show / Hide / Quit labels (progress rows are preserved) |
 | `update_tray_progress` | `progress: {title?, rows[]}`; the menu-bar text + the greyed progress rows a left click shows |
 | `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
+| `set_model_mode` | `model_id`, `mode` (`offline`/`streaming`, `''` clears); validates both against the catalogue, then read-modify-writes `settings.json` |
 | `parse_url_input` | `text → Vec<ParsedUrl>`: split, normalise, de-dupe, whitelist (pure Rust) |
 | `start_url_import` | `request: UrlImportRequest`; registers the job and returns immediately |
 | `cancel_url_import` | `task_id`; aborts the import stage only (not a queued file) |
@@ -1183,6 +1184,13 @@ memoryBudget: 'small' | 'medium' | 'large'              // 'medium'
 // fast→small, accurate→large, balanced→medium, so a v5 blob keeps its intent.
 ```
 
+**Run mode is deliberately *not* in this store.** It is per-model and must reach the CLI,
+which is a separate process with no WebView, so it lives in `settings.json`
+(`modelModes`) alongside the frozen plan. A `localStorage` copy would be a second source of
+truth the CLI cannot read — the same reason `recognitionPlan` is persisted by Rust. The
+Settings row reads `effective_mode` from `list_models` and writes through
+`set_model_mode`; it keeps no React state of its own beyond the optimistic row update.
+
 `urlImports` is the one deliberately **non-persisted** slice: an import is an in-flight
 network job, so a reload must start with nothing rather than with rows whose task ids no
 longer exist. Its rows feed `UrlImportItem` and never `files`, so an import in progress
@@ -1354,6 +1362,53 @@ download button because the backend would refuse the request. The manual model
 pickers in `SettingsModelPlan` filter `unsupported` out entirely and clear a pin
 that points at one, so a stale `localStorage` override cannot freeze a plan the
 run then rejects.
+
+### Run mode: offline vs streaming, per model
+
+`models.json` carries a `modes` array per entry (`offline` / `streaming`), taken from
+the family spec embedded in the GGUF (`audiocpp.model_spec.json` → `modes`) and
+cross-checked against `audiocpp_cli --list-loaders --json`. Absent means offline only,
+which keeps every pre-existing entry on exactly the argv it had.
+
+**A declaration is not an entitlement to be used.** Streaming is offered only where the
+pipeline can actually drive it, and that is a strictly smaller set:
+
+- **Recognition cannot stream in this CLI version.** The ASR path is
+  `--request-sequence`, which `audiocpp_cli` treats as a *batch input* and rejects in
+  any mode but offline (`app/cli/main.cpp`: `batch inputs require offline mode`). So
+  `sense_asr`, `qwen3_asr` and `moss_transcribe_diarize` all declare `streaming` and
+  none of them gets a switch here. `cli::build_argv` enforces this in code
+  (`reject_streaming_with_batch_input`), so it is not a comment someone can forget.
+- **Diarization is the one stage that can stream.** It is a single whole-file call, and
+  `nemotron_3_diar`'s `finalize()` returns the complete `speaker_turns`, so
+  `--turns-out` has the same shape in both modes.
+
+`ModelSpec::streaming_selectable()` is the single predicate (`declares streaming` **and**
+`has role diar` **and** `engine == audiocpp`). The GUI shows the switch from
+`selectable_modes()` and the pipeline picks `--mode` from the same predicate, so a model
+cannot be offered a mode it will not be run in.
+
+**Streaming is the default wherever it is available.** Two reasons, and the second is the
+one that matters:
+
+1. a local-first app runs beside whatever else the machine is doing, so the lower peak
+   footprint is worth having;
+2. **speaker identity is a correctness issue, not a memory one.** The offline path splits
+   audio over `max_session_seconds` into overlapping windows; each window numbers its
+   speakers from zero and `chain_labels` joins them by an overlap vote. Streaming never
+   restarts the session, so its ids are consistent by construction. A streaming session
+   therefore always takes the single-call path, even when `max_session_seconds` is set —
+   windowing it would reintroduce exactly the renumbering streaming avoids.
+
+The choice lives in `<app_config_dir>/settings.json` as `modelModes: { "<id>": "offline" |
+"streaming" }` — one entry per model, because whether a session can be fed in chunks is a
+property of the checkpoint. `model_dir::chosen_mode` is the only resolver: no entry means
+`ModelSpec::default_mode()`, an unreadable value means the same, and a stored `streaming`
+for a model that cannot stream is **dropped with a log line** rather than obeyed — a
+settings file outlives a catalogue, and a plan change must not turn into a spawn-time
+error. Clearing the preference (`mode: ""`) removes the entry instead of storing the
+current default, so a future catalogue change still reaches the model. `set_model_mode`
+validates both the id and the mode against the catalogue before writing.
 
 ### Skipping existing subtitles (`skipExistingSubtitle`)
 

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::paths::AppPaths;
+use crate::engine::catalog::RunMode;
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::EngineError;
 
@@ -164,6 +165,7 @@ fn vad_invocation(
         model: vad.model.clone(),
         audio: Some(wav_path.to_path_buf()),
         backend: Backend::Cpu,
+        mode: RunMode::Offline,
         args: vad_args(&chunks_path(work_dir)),
     }
 }

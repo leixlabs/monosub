@@ -261,6 +261,18 @@ pub fn declared_request_options(gguf_path: &Path) -> Result<Option<Vec<String>>,
 pub struct DeclaredOptions {
     pub request: Vec<String>,
     pub session: Vec<String>,
+    /// The spec's top-level `modes` (`["offline","streaming"]`).
+    ///
+    /// Empty means the spec did not declare any — the minimal two-key variant —
+    /// and the caller must not read that as "offline only".
+    pub modes: Vec<String>,
+}
+
+impl DeclaredOptions {
+    /// True when this spec names `streaming` as a supported run mode.
+    pub fn declares_streaming(&self) -> bool {
+        self.modes.iter().any(|mode| mode == "streaming")
+    }
 }
 
 /// Walk a GGUF's embedded spec for its declared option names.
@@ -336,6 +348,17 @@ fn option_names(json: &str) -> Result<DeclaredOptions, String> {
     Ok(DeclaredOptions {
         request: names("request"),
         session: names("session"),
+        modes: document
+            .get("modes")
+            .and_then(|modes| modes.as_array())
+            .map(|modes| {
+                modes
+                    .iter()
+                    .filter_map(|mode| mode.as_str())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 
@@ -517,6 +540,43 @@ mod tests {
             .expect("spec present");
         assert!(declared.request.is_empty());
         assert!(declared.session.is_empty());
+    }
+
+    /// `modes` travels with the same document as the options, so a model can
+    /// declare "I can stream" without the catalogue repeating it by hand.
+    ///
+    /// Measured shape of the shipped `sense_asr` GGUF: the top level carries
+    /// `"modes":["offline","streaming"]` next to `tasks` and `options`.
+    #[test]
+    fn a_spec_declares_its_run_modes() {
+        let spec = r#"{"family":"sense_asr","tasks":["asr"],
+                       "modes":["offline","streaming"],"options":{"request":[],"session":[]}}"#;
+        let declared = options_of(gguf_with(&[(SPEC_KEY.to_string(), Some(spec.to_string()))]))
+            .expect("spec present");
+        assert_eq!(declared.modes, vec!["offline", "streaming"]);
+        assert!(declared.declares_streaming());
+    }
+
+    /// A spec that names only `offline`, or omits `modes` entirely, must not
+    /// read as streaming-capable.
+    #[test]
+    fn a_spec_without_streaming_does_not_claim_it() {
+        let offline = options_of(gguf_with(&[(
+            SPEC_KEY.to_string(),
+            Some(r#"{"family":"sortformer_diar","modes":["offline"]}"#.to_string()),
+        )]))
+        .expect("spec present");
+        assert!(!offline.declares_streaming());
+
+        let minimal = options_of(gguf_with(&[(
+            SPEC_KEY.to_string(),
+            Some(r#"{"family":"qwen3_asr","sources":[]}"#.to_string()),
+        )]))
+        .expect("spec present");
+        assert!(
+            minimal.modes.is_empty() && !minimal.declares_streaming(),
+            "an absent declaration is not a streaming claim"
+        );
     }
 
     #[test]

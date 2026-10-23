@@ -1424,6 +1424,9 @@ mod tests {
             } else {
                 SupportStatus::Unverified
             },
+            // Fixtures declare no modes: offline is the safe default and keeps
+            // every existing plan test on the path it was written for.
+            modes: vec![crate::engine::catalog::RunMode::Offline],
             licenses: Vec::new(),
             // Only the ASR whose word-timestamp claim is conditional on another
             // model needs a dependency; keeping it out of `FakeModel` avoids

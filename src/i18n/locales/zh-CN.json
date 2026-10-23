@@ -220,7 +220,14 @@
     "unverified": "未验证",
     "unverifiedHint": "尚未完整实测，可能无法正常工作",
     "unsupported": "不支持",
-    "unsupportedHint": "当前版本的 MonoSub 不再提供该模型。它保留在清单中仅为完整性；方案求解不会选中它，也无法下载。"
+    "unsupportedHint": "当前版本的 MonoSub 不再提供该模型。它保留在清单中仅为完整性；方案求解不会选中它，也无法下载。",
+    "runMode": "运行模式",
+    "modes": {
+      "offline": "离线",
+      "streaming": "流式",
+      "offlineHint": "整段音频一次处理。长音频会被切成互相重叠的窗口，每个窗口的说话人从零重新编号，再按重叠时长投票拼接——这是猜测，不是身份。",
+      "streamingHint": "音频分块输入、状态在块之间延续：峰值内存更低；会话从不重启，所以说话人标记始终一致。"
+    }
   },
   "modelPlan": {
     "title": "识别方案",

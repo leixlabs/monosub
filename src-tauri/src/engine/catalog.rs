@@ -327,6 +327,58 @@ fn default_status() -> SupportStatus {
     SupportStatus::Unverified
 }
 
+/// A run mode `audiocpp_cli --mode` accepts for this model.
+///
+/// Declared per entry from the family's own spec (`modes: ["offline",
+/// "streaming"]`), never inferred here — the checkpoint decides what its
+/// architecture can do, and the CLI's loader table agrees with it.
+///
+/// **A declaration is not an entitlement to be used.** Streaming is only
+/// selectable for a model this app can actually drive in streaming mode, and
+/// that is a narrower set than "declares streaming":
+///
+/// * the ASR path is `--request-sequence`, which `audiocpp_cli` rejects in any
+///   mode but offline (`app/cli/main.cpp`: *batch inputs require offline mode*),
+///   so a streaming ASR model still runs offline through this pipeline;
+/// * diarization is a single whole-file call and is therefore the one stage that
+///   can genuinely stream.
+///
+/// [`RunMode::is_selectable`] is that predicate, and it is the only place the
+/// distinction is decided.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunMode {
+    /// One call over the whole input; the CLI default and the historic behaviour.
+    Offline,
+    /// The model's own streaming policy: audio fed in chunks, state carried
+    /// across them. Lower peak memory, and speaker ids stay consistent because
+    /// the session is never restarted.
+    Streaming,
+}
+
+impl RunMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RunMode::Offline => "offline",
+            RunMode::Streaming => "streaming",
+        }
+    }
+
+    /// True when `audiocpp_cli` would be passed `--mode streaming`.
+    pub fn is_streaming(self) -> bool {
+        matches!(self, RunMode::Streaming)
+    }
+}
+
+/// Default for an entry that predates `modes`: offline only.
+///
+/// Deliberately the narrow answer. `--mode` is never passed for offline (it is
+/// the CLI default), so an entry without the key keeps running exactly as it
+/// did, and a model whose family does stream is opt-in through the catalogue.
+fn default_modes() -> Vec<RunMode> {
+    vec![RunMode::Offline]
+}
+
 /// One licence attached to a model. `licenses[]` supersedes the single
 /// `license` string, which is retained for back-compat.
 #[derive(Debug, Clone)]
@@ -383,6 +435,13 @@ pub struct ModelSpec {
     /// state that never existed: `supported: false, verified: true` claimed an
     /// entry was measured and also never offered. One enum cannot.
     pub status: SupportStatus,
+    /// Run modes this model's own spec declares (`offline` / `streaming`).
+    ///
+    /// Read from `models.json`, which takes it from the family spec embedded in
+    /// the GGUF. Declaring a mode is not the same as offering it here — see
+    /// [`RunMode`] — and [`Self::streaming_selectable`] is what the GUI and the
+    /// pipeline consult.
+    pub modes: Vec<RunMode>,
     pub licenses: Vec<License>,
     /// Other catalogue ids this model cannot work without (v3).
     ///
@@ -438,6 +497,7 @@ impl Default for ModelSpec {
             source: None,
             tier: None,
             status: SupportStatus::Unverified,
+            modes: default_modes(),
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
@@ -502,6 +562,59 @@ impl ModelSpec {
     pub fn has_role(&self, role: Role) -> bool {
         let roles = self.effective_roles();
         roles.contains(&role)
+    }
+
+    /// True when this app can drive this model in streaming mode.
+    ///
+    /// Two conditions, and the second is the one that is easy to get wrong:
+    ///
+    /// 1. the checkpoint declares `streaming` — it is an architecture claim, and
+    ///    a model that cannot stream fails at `start_stream()`, not at parse
+    ///    time;
+    /// 2. the stage that would run it is a **single whole-file call**. Today
+    ///    that is diarization only. Recognition goes through
+    ///    `--request-sequence`, and `audiocpp_cli` rejects every batch input
+    ///    outside offline mode (`batch inputs require offline mode`), so
+    ///    offering a streaming switch for `sense_asr` would be a control that
+    ///    changes nothing but the error message.
+    ///
+    /// This is deliberately the single place the rule lives: the GUI shows the
+    /// switch from it and the pipeline picks `--mode` from it, so a model cannot
+    /// be offered a mode it will not be run in.
+    pub fn streaming_selectable(&self) -> bool {
+        self.modes.contains(&RunMode::Streaming)
+            && self.has_role(Role::Diar)
+            && self.engine == Engine::Audiocpp
+    }
+
+    /// The modes the user may choose between for this model, in menu order.
+    ///
+    /// A model that cannot stream yields `[Offline]` rather than an empty list:
+    /// "only one choice" is a fact worth rendering, while "no choices" reads as
+    /// a missing feature.
+    pub fn selectable_modes(&self) -> Vec<RunMode> {
+        if self.streaming_selectable() {
+            vec![RunMode::Offline, RunMode::Streaming]
+        } else {
+            vec![RunMode::Offline]
+        }
+    }
+
+    /// The mode a run should use when the user has expressed no preference.
+    ///
+    /// Streaming, when it is available: the app is local-first and runs beside
+    /// whatever else the machine is doing, so the lower peak footprint is the
+    /// better default. It also fixes a correctness problem rather than only a
+    /// memory one — an offline run over a long file is split into windows that
+    /// each number speakers from zero, and the stitching that joins them is a
+    /// vote, not an identity. A streaming session is never restarted, so its
+    /// speaker ids are consistent by construction.
+    pub fn default_mode(&self) -> RunMode {
+        if self.streaming_selectable() {
+            RunMode::Streaming
+        } else {
+            RunMode::Offline
+        }
     }
 
     fn effective_roles(&self) -> Vec<Role> {
@@ -590,6 +703,14 @@ struct ModelWire {
     /// retire in the plan.
     #[serde(default = "default_status")]
     status: SupportStatus,
+    /// Run modes the family declares. Absent means offline only — see
+    /// [`default_modes`].
+    ///
+    /// Not `#[serde(other)]`-tolerant: the values come from the family spec, and
+    /// a typo here would silently disable streaming for a model that supports
+    /// it, which is exactly the kind of failure nobody would notice.
+    #[serde(default = "default_modes")]
+    modes: Vec<RunMode>,
     #[serde(default)]
     licenses: Vec<LicenseWire>,
     #[serde(default)]
@@ -668,6 +789,7 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
             source: model.source,
             tier: model.tier,
             status: model.status,
+            modes: model.modes,
             licenses: model
                 .licenses
                 .into_iter()
@@ -980,6 +1102,78 @@ mod tests {
         );
         assert!(specs[0].status.is_offered());
         assert!(!specs[0].status.is_verified());
+    }
+
+    /// An entry that says nothing about `modes` is offline only, and never
+    /// streaming.
+    ///
+    /// The narrow default is the safe one: `--mode` is only emitted for
+    /// streaming, so an entry without the key keeps running exactly as it did.
+    /// Reading absence as "supports streaming" would push a model whose family
+    /// cannot stream into `start_stream()`.
+    #[test]
+    fn a_missing_modes_key_means_offline_only() {
+        let specs = parse_inline(
+            r#"{"version":2,"models":[
+              {"id":"m","family":"nemotron_3_diar","display_name":"M","target_directory":"d",
+               "model_file":"m.gguf","files":[],"languages":["auto"],"license":"x",
+               "capabilities":{"timestamps":"turns","diarization":"turns","produces_text":false},
+               "roles":["diar"]}
+            ]}"#,
+        );
+
+        assert_eq!(specs[0].modes, vec![RunMode::Offline]);
+        assert!(
+            !specs[0].streaming_selectable(),
+            "a model that does not declare streaming must not be offered it"
+        );
+        assert_eq!(specs[0].default_mode(), RunMode::Offline);
+    }
+
+    /// The one mode predicate: a declaration alone is not enough, because the
+    /// pipeline has to be able to drive it.
+    ///
+    /// `sense_asr` declares `streaming` — the family really does have a streaming
+    /// session — but recognition here is `--request-sequence`, and the CLI
+    /// rejects every batch input outside offline mode. Offering the switch would
+    /// produce a control whose only effect is a spawn-time error.
+    #[test]
+    fn only_a_streaming_diar_model_is_offered_the_streaming_switch() {
+        let specs = committed_catalog();
+
+        let asr = specs
+            .iter()
+            .find(|spec| spec.id == "sensevoice_small_q8")
+            .expect("the default ASR entry is in the catalogue");
+        assert!(
+            asr.modes.contains(&RunMode::Streaming),
+            "the checkpoint declares streaming, which is why the distinction matters"
+        );
+        assert!(!asr.streaming_selectable());
+        assert_eq!(asr.selectable_modes(), vec![RunMode::Offline]);
+        assert_eq!(asr.default_mode(), RunMode::Offline);
+
+        let diar = specs
+            .iter()
+            .find(|spec| spec.id == "nemotron_3_diar_q8_0")
+            .expect("the default diar entry is in the catalogue");
+        assert!(diar.streaming_selectable());
+        assert_eq!(
+            diar.selectable_modes(),
+            vec![RunMode::Offline, RunMode::Streaming],
+            "menu order: offline first, streaming second"
+        );
+        assert_eq!(
+            diar.default_mode(),
+            RunMode::Streaming,
+            "a local app runs beside everything else, so the lower footprint wins"
+        );
+
+        // The retired v1 entry declares offline only and stays retired.
+        for spec in specs.iter().filter(|spec| spec.family == "sortformer_diar") {
+            assert!(!spec.streaming_selectable());
+            assert_eq!(spec.default_mode(), RunMode::Offline);
+        }
     }
 
     /// The committed file must not offer v1 diarization, and must still offer the
@@ -1505,6 +1699,7 @@ mod tests {
             source: None,
             tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
+            modes: Vec::new(),
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),

@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
-use crate::engine::catalog::ModelSpec;
+use crate::engine::catalog::{self, ModelSpec};
 use crate::engine::plan::{self, ModelPlan, StepKind};
 use crate::engine::{self, Backend, EngineError, TranscribeOpts};
 use crate::subtitle::{self, Format, PostProcessConfig};
@@ -696,6 +696,25 @@ pub async fn transcribe_file(
                             .iter()
                             .map(|chunk| (chunk.start_s, chunk.end_s))
                             .collect();
+                        // The user's per-model choice, re-validated against the
+                        // catalogue: `chosen_mode` answers the model's default
+                        // (streaming wherever the app can drive it) when nothing
+                        // is stored, and refuses a stored `streaming` for a
+                        // model that cannot run it.
+                        //
+                        // A catalogue miss leaves the mode at the offline
+                        // default; `detect_turns` then reports the missing model
+                        // itself, so this must not add a second failure path.
+                        let diar_mode = catalog::catalog(paths)
+                            .ok()
+                            .and_then(|specs| specs.into_iter().find(|spec| spec.id == diar_id))
+                            .map(|spec| {
+                                crate::model_dir::chosen_mode(
+                                    &crate::model_dir::read_settings_at(&paths.settings_path()),
+                                    &spec,
+                                )
+                            })
+                            .unwrap_or(catalog::RunMode::Offline);
                         match engine::diar::detect_turns(
                             paths,
                             audio.path(),
@@ -703,6 +722,7 @@ pub async fn transcribe_file(
                             params.backend,
                             &turns_path,
                             &speech,
+                            diar_mode,
                         )
                         .await
                         {
@@ -1842,6 +1862,7 @@ mod tests {
                 source: None,
                 tier: None,
                 status: crate::engine::catalog::SupportStatus::Unverified,
+                modes: Vec::new(),
                 licenses: Vec::new(),
                 requires: Vec::new(),
                 language_tokens: Vec::new(),
@@ -1913,6 +1934,7 @@ mod tests {
             source: None,
             tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
+            modes: Vec::new(),
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),

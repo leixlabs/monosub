@@ -337,6 +337,46 @@ pub async fn resolve_model_plan(
     })
 }
 
+/// Persist one model's run mode (`offline` / `streaming`), or clear it.
+///
+/// `mode: ""` means "use the model's default", which is streaming wherever the
+/// app can drive it. Storing the resolved default instead would pin today's
+/// answer and stop a catalogue change from reaching the user.
+///
+/// The model id is checked against the catalogue before anything is written, so
+/// a stale GUI cannot persist a preference for a model that has been removed;
+/// a mode the model does not offer is rejected for the same reason — the switch
+/// is only ever shown for `selectable_modes`, and a value outside that set can
+/// only come from a hand-edited file or an old build.
+///
+/// Read-modify-write (`model_dir::save_model_mode`), so this cannot erase
+/// `modelsDir`, `recognitionPlan` or `translation`.
+#[tauri::command]
+pub async fn set_model_mode(app: AppHandle, model_id: String, mode: String) -> Result<(), String> {
+    let paths = crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    let spec = catalog::catalog(&paths)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|spec| spec.id == model_id)
+        .ok_or_else(|| format!("model '{}' is not in the catalogue", model_id))?;
+
+    let normalized = mode.trim().to_ascii_lowercase();
+    if !normalized.is_empty()
+        && !spec
+            .selectable_modes()
+            .iter()
+            .any(|candidate| candidate.as_str() == normalized)
+    {
+        return Err(format!(
+            "model '{}' does not offer mode '{}' here",
+            model_id, normalized
+        ));
+    }
+
+    tracing::debug!(model = %model_id, mode = %normalized, "persisting model run mode");
+    crate::model_dir::save_model_mode(&app, &model_id, &normalized)
+}
+
 /// Persist the Settings → 翻译 intent for the CLI to report.
 ///
 /// Read-modify-write (`model_dir::save_translation_settings`), so this cannot
@@ -503,6 +543,7 @@ mod tests {
             source: None,
             tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
+            modes: Vec::new(),
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),

@@ -15,6 +15,7 @@ pub mod vad;
 pub mod wav;
 pub mod words;
 
+use crate::engine::catalog::RunMode;
 use crate::engine::diar::SAMPLE_RATE;
 use crate::paths::AppPaths;
 use std::path::PathBuf;
@@ -563,6 +564,7 @@ async fn run_sequence(
         // Sequence mode names every chunk inside requests.json.
         audio: None,
         backend,
+        mode: RunMode::Offline,
         args: asr_args(requests_path, &text_out, &segments_out, vad_dir, family),
     };
 

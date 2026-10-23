@@ -64,6 +64,7 @@ fn main() {
             monosub::site::read_clipboard_video,
             list_models,
             resolve_model_plan,
+            set_model_mode,
             save_translation_settings,
             log_directory,
             open_logs_dir,

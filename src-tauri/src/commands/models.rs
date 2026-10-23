@@ -125,6 +125,24 @@ pub struct ModelStatus {
     /// existed (`supported: false` + `verified: true`). Distinct from
     /// `installed`: a model can be downloaded and still never verified.
     pub status: String,
+    /// Run modes this model's own spec declares (`offline` / `streaming`).
+    ///
+    /// The declaration, not the offer: `sense_asr` declares streaming but this
+    /// app's recognition pipeline is `--request-sequence`, which the CLI only
+    /// accepts offline. Read `selectable_modes` for what the switch may show.
+    pub modes: Vec<String>,
+    /// Modes the user may choose between here, in menu order. `["offline"]`
+    /// means "no choice to make", not "a feature is missing".
+    pub selectable_modes: Vec<String>,
+    /// The mode a run uses when the user has stored no preference.
+    pub default_mode: String,
+    /// The mode a run would use **now**: the stored choice when it is one this
+    /// model offers, otherwise `default_mode`.
+    ///
+    /// Resolved in Rust rather than in the view, because the rule (a stored
+    /// `streaming` for a model that cannot stream is dropped) has to match what
+    /// the pipeline does, and the pipeline is not a React component.
+    pub effective_mode: String,
     /// Every manifest file present with a matching size.
     pub installed: bool,
     /// Bytes currently on disk (`0` when not installed).
@@ -132,8 +150,30 @@ pub struct ModelStatus {
 }
 
 impl ModelStatus {
-    fn from_catalog(status: crate::engine::catalog::ModelStatus) -> Self {
+    /// `stored_modes` is the per-model map from `settings.json`; it is passed in
+    /// rather than read here so `from_catalog` stays a pure function (the
+    /// catalogue is unit-tested without an `AppHandle`).
+    fn from_catalog(
+        status: crate::engine::catalog::ModelStatus,
+        stored_modes: &std::collections::BTreeMap<String, String>,
+    ) -> Self {
         let spec = status.spec;
+        // Resolved before the struct literal moves the `String` fields out of
+        // `spec`; `selectable_modes()` borrows `self`.
+        let selectable_modes: Vec<String> = spec
+            .selectable_modes()
+            .into_iter()
+            .map(|mode| mode.as_str().to_string())
+            .collect();
+        let default_mode = spec.default_mode().as_str().to_string();
+        let modes: Vec<String> = spec.modes.iter().map(|mode| mode.as_str().to_string()).collect();
+        let effective_mode = crate::model_dir::chosen_mode(
+            &crate::model_dir::BackendSettings {
+                model_modes: stored_modes.clone(),
+                ..Default::default()
+            },
+            &spec,
+        );
         let capabilities = spec.capabilities();
         // An entry with no explicit `roles` is a plain ASR model (v1 fallback).
         let roles: Vec<String> = if spec.roles.is_empty() {
@@ -177,6 +217,10 @@ impl ModelStatus {
             source: spec.source.map(|source| source.as_str().to_string()),
             tier: spec.tier.map(|tier| tier.as_str().to_string()),
             status: spec.status.as_str().to_string(),
+            modes,
+            selectable_modes,
+            default_mode,
+            effective_mode: effective_mode.as_str().to_string(),
             installed: status.installed,
             size_on_disk: status.size_on_disk,
         }
@@ -247,7 +291,13 @@ impl std::fmt::Display for DownloadError {
 pub async fn list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String> {
     let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
     let statuses = catalog::list(&paths).map_err(|e| e.to_string())?;
-    Ok(statuses.into_iter().map(ModelStatus::from_catalog).collect())
+    // Read once, not per model: `chosen_mode` is called for every entry and a
+    // catalogue is 129 rows.
+    let stored_modes = crate::model_dir::load_settings(&app).model_modes;
+    Ok(statuses
+        .into_iter()
+        .map(|status| ModelStatus::from_catalog(status, &stored_modes))
+        .collect())
 }
 /// Start downloading `id` in the background and return immediately.
 ///
@@ -1013,17 +1063,21 @@ mod tests {
             source: None,
             tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
+            modes: Vec::new(),
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
             max_session_seconds: None,
         };
 
-        let status = ModelStatus::from_catalog(catalog::ModelStatus {
-            spec,
-            installed: false,
-            size_on_disk: 0,
-        });
+        let status = ModelStatus::from_catalog(
+            catalog::ModelStatus {
+                spec,
+                installed: false,
+                size_on_disk: 0,
+            },
+            &std::collections::BTreeMap::new(),
+        );
         let json = serde_json::to_value(&status).expect("serialize ModelStatus");
 
         assert_eq!(json["engine"], "llamacpp");
@@ -1058,17 +1112,21 @@ mod tests {
             source: None,
             tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
+            modes: Vec::new(),
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),
             max_session_seconds: None,
         };
 
-        let status = ModelStatus::from_catalog(catalog::ModelStatus {
-            spec,
-            installed: true,
-            size_on_disk: 10,
-        });
+        let status = ModelStatus::from_catalog(
+            catalog::ModelStatus {
+                spec,
+                installed: true,
+                size_on_disk: 10,
+            },
+            &std::collections::BTreeMap::new(),
+        );
         let json = serde_json::to_value(&status).expect("serialize ModelStatus");
 
         assert_eq!(json["engine"], "audiocpp");

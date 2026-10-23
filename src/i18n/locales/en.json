@@ -165,7 +165,14 @@
     "unverified": "Unverified",
     "unverifiedHint": "Not yet run end to end; it may not work",
     "unsupported": "Not supported",
-    "unsupportedHint": "This version of MonoSub does not offer this model. It is listed for completeness; the planner never selects it and it cannot be downloaded."
+    "unsupportedHint": "This version of MonoSub does not offer this model. It is listed for completeness; the planner never selects it and it cannot be downloaded.",
+    "runMode": "Run mode",
+    "modes": {
+      "offline": "Offline",
+      "streaming": "Streaming",
+      "offlineHint": "One pass over the whole file. Long audio is split into overlapping windows whose speakers are re-numbered per window, then stitched by overlap — which is a vote, not an identity.",
+      "streamingHint": "Audio is fed in chunks with state carried across them: lower peak memory, and speaker labels stay consistent because the session is never restarted."
+    }
   },
   "errors": {
     "modelNotInstalled": "The speech model is not installed. Click this file's error badge to see details and download it.",

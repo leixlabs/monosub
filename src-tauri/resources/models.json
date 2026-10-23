@@ -479,7 +479,10 @@
       "attribution": "Canary 180M Flash (NVIDIA, repackaged by audio-cpp). English/Spanish/German/French; F32 full precision. Weights retain the upstream CC BY 4.0 licence.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "canary_180m_flash_q8_0",
@@ -524,7 +527,10 @@
         }
       ],
       "attribution": "Canary 180M Flash (NVIDIA, repackaged by audio-cpp). English/Spanish/German/French; 249 MB — the lightest ASR entry. Weights retain the upstream CC BY 4.0 licence.",
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "citrinet_asr_q8_0",
@@ -563,7 +569,10 @@
       "attribution": "Citrinet-256 (NVIDIA NeMo stt_en_citrinet_256, repackaged by audio-cpp). Offline English CTC ASR; upstream card unreachable from this environment, license chosen from the NGC model page (待核对).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "cohere_transcribe_03_2026_bf16",
@@ -617,7 +626,10 @@
       "attribution": "Cohere Transcribe 03-2026 (CohereLabs/cohere-transcribe-03-2026). 14 languages; offline quiet-energy chunks up to 35s; no timestamps or diarization; Apache-2.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "cohere_transcribe_03_2026_q4_0",
@@ -671,7 +683,10 @@
       "attribution": "Cohere Transcribe 03-2026 (CohereLabs/cohere-transcribe-03-2026). 14 languages; offline quiet-energy chunks up to 35s; no timestamps or diarization; Apache-2.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "cohere_transcribe_03_2026_q8_0",
@@ -725,7 +740,10 @@
       "attribution": "Cohere Transcribe 03-2026 (CohereLabs/cohere-transcribe-03-2026). 14 languages; offline quiet-energy chunks up to 35s; no timestamps or diarization; Apache-2.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "confucius4_r2t2_f16",
@@ -798,7 +816,11 @@
       "attribution": "Confucius4-R2T2 (netease-youdao/Confucius4-R2T2; Qwen3-ASR-1.7B fine-tune). Low-latency append-only streaming transcription; no timestamps, no speaker diarization. Weights under the NetEase Youdao Model Use License Agreement (separate commercial license above 100M MAU / RMB 1B revenue).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "confucius4_r2t2_q4_k_m",
@@ -871,7 +893,11 @@
       "attribution": "Confucius4-R2T2 (netease-youdao/Confucius4-R2T2; Qwen3-ASR-1.7B fine-tune). Low-latency append-only streaming transcription; no timestamps, no speaker diarization. Weights under the NetEase Youdao Model Use License Agreement (separate commercial license above 100M MAU / RMB 1B revenue).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "confucius4_r2t2_q8_0",
@@ -944,7 +970,11 @@
       "attribution": "Confucius4-R2T2 (netease-youdao/Confucius4-R2T2; Qwen3-ASR-1.7B fine-tune). Low-latency append-only streaming transcription; no timestamps, no speaker diarization. Weights under the NetEase Youdao Model Use License Agreement (separate commercial license above 100M MAU / RMB 1B revenue).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "crisperwhisper_2_large_bf16",
@@ -988,7 +1018,11 @@
       "attribution": "CrisperWhisper 2.0 Large (nyralabs/CrisperWhisper2.0_large). Verbatim/intended transcription with word timestamps; inference code MIT, model weights and outputs under the nyra health Non-Commercial Research License (non-commercial use only; commercial use requires a separate license).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "crisperwhisper_2_large_q4_k",
@@ -1032,7 +1066,11 @@
       "attribution": "CrisperWhisper 2.0 Large (nyralabs/CrisperWhisper2.0_large). Verbatim/intended transcription with word timestamps; inference code MIT, model weights and outputs under the nyra health Non-Commercial Research License (non-commercial use only; commercial use requires a separate license).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "crisperwhisper_2_large_q8_0",
@@ -1076,7 +1114,11 @@
       "attribution": "CrisperWhisper 2.0 Large (nyralabs/CrisperWhisper2.0_large). Verbatim/intended transcription with word timestamps; inference code MIT, model weights and outputs under the nyra health Non-Commercial Research License (non-commercial use only; commercial use requires a separate license).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "firered_audio_orig",
@@ -1117,7 +1159,10 @@
       "attribution": "FireRedAudio (FireRedTeam/FireRedAudio, repackaged by audio-cpp). Unified audio LLM; the ASR path (template_name=asr) covers Chinese/English.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "firered_audio_q8_0",
@@ -1158,7 +1203,10 @@
       "attribution": "FireRedAudio (FireRedTeam/FireRedAudio, repackaged by audio-cpp). Unified audio LLM; the ASR path (template_name=asr) covers Chinese/English.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "fun_asr_nano_2512_f16",
@@ -1204,7 +1252,10 @@
       "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf). Offline ASR for auto/zh/en/ja; FunASR Model License v1.1.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "fun_asr_nano_2512_q8_0",
@@ -1248,7 +1299,10 @@
         }
       ],
       "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf)",
-      "status": "supported"
+      "status": "supported",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gemma_3_12b_it_q4_k_m",
@@ -1608,7 +1662,10 @@
       "attribution": "GigaAM Multilingual CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_multilingual_ctc_f32",
@@ -1653,7 +1710,10 @@
       "attribution": "GigaAM Multilingual CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_multilingual_large_ctc_f16",
@@ -1698,7 +1758,10 @@
       "attribution": "GigaAM Multilingual Large CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_multilingual_large_ctc_f32",
@@ -1743,7 +1806,10 @@
       "attribution": "GigaAM Multilingual Large CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_v3_ctc_f16",
@@ -1784,7 +1850,10 @@
       "attribution": "GigaAM v3 CTC (ai-sage/GigaAM-v3, repackaged by audio-cpp). Russian; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_v3_e2e_ctc_f16",
@@ -1825,7 +1894,10 @@
       "attribution": "GigaAM v3 E2E CTC (ai-sage/GigaAM-v3, repackaged by audio-cpp). Restores punctuation/capitalization; Russian; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_v3_e2e_rnnt_f16",
@@ -1866,7 +1938,10 @@
       "attribution": "GigaAM v3 E2E RNN-T (ai-sage/GigaAM-v3, repackaged by audio-cpp). Restores punctuation/capitalization; Russian; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "gigaam_v3_rnnt_f16",
@@ -1907,7 +1982,10 @@
       "attribution": "GigaAM v3 RNN-T (ai-sage/GigaAM-v3, repackaged by audio-cpp). Russian; optional word timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "granite_speech_5_0_470m_turboctc_q8_0",
@@ -1947,7 +2025,11 @@
       "attribution": "IBM Granite Speech 5.0 470M TurboCTC (IBM, repackaged by audio-cpp). Ultra-fast Conformer-CTC English ASR; the model guide states word timestamps are produced (supports_timestamps=true).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "family": "higgs_audio_stt",
@@ -1986,7 +2068,11 @@
       "attribution": "Higgs Audio v3 STT (bosonai/higgs-audio-v3-stt, repackaged by audio-cpp). English; timestamps not exposed. License name pending upstream card verification.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "family": "higgs_audio_stt",
@@ -2025,7 +2111,11 @@
       "attribution": "Higgs Audio v3 STT (bosonai/higgs-audio-v3-stt, repackaged by audio-cpp). English; timestamps not exposed. License name pending upstream card verification.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "hviske_v5_3_q8_0",
@@ -2065,7 +2155,10 @@
       "attribution": "Hviske v5.3 (syvai/hviske-v5.3). Offline Danish ASR; Conformer-based Cohere-style path, no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "hy_mt_1_8b_q4_k_m",
@@ -2196,7 +2289,11 @@
       "attribution": "Kroko Community 64-L English (Banafo/Kroko-ASR, repackaged by audio-cpp). Native offline/streaming Zipformer2/RNN-T transcription with word timestamps; community free models are CC-BY-SA.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_f16",
@@ -2271,7 +2368,11 @@
       "attribution": "LFM2.5-Audio 1.5B (LiquidAI/LFM2.5-Audio-1.5B-GGUF). End-to-end speech model; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_jp_f16",
@@ -2346,7 +2447,11 @@
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_jp_f32",
@@ -2421,7 +2526,11 @@
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_jp_q4_0",
@@ -2496,7 +2605,11 @@
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization. Q4_0 S2S may repeat sentences; use Q8_0/F16 for S2S.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_jp_q8_0",
@@ -2571,7 +2684,11 @@
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_q4_0",
@@ -2646,7 +2763,11 @@
       "attribution": "LFM2.5-Audio 1.5B (LiquidAI/LFM2.5-Audio-1.5B-GGUF). End-to-end speech model; ASR is offline-only greedy decoding, no timestamps or speaker diarization. Q4_0 S2S may repeat sentences; use Q8_0/F16 for S2S.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "lfm2_5_audio_1_5b_q8_0",
@@ -2721,7 +2842,11 @@
       "attribution": "LFM2.5-Audio 1.5B (LiquidAI/LFM2.5-Audio-1.5B-GGUF). Default package; end-to-end speech model; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "llama_3_1_8b_instruct_q4_k_m",
@@ -3271,7 +3396,11 @@
       "attribution": "Moonshine Streaming Medium (moonshine-ai/moonshine-streaming-medium). English on-device streaming ASR; MIT; timestamps not exposed.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "moonshine_streaming_small_q8_0",
@@ -3311,7 +3440,11 @@
       "attribution": "Moonshine Streaming Small (moonshine-ai/moonshine-streaming-small). English on-device streaming ASR; MIT; timestamps not exposed.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "moonshine_streaming_tiny_q8_0",
@@ -3351,7 +3484,11 @@
       "attribution": "Moonshine Streaming Tiny (moonshine-ai/moonshine-streaming-tiny). English on-device streaming ASR; MIT; timestamps not exposed.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "moss_transcribe_diarize_bf16",
@@ -3407,7 +3544,11 @@
       "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. BF16 full-precision weights; optional tier.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "moss_transcribe_diarize_q4_k",
@@ -3461,7 +3602,11 @@
         }
       ],
       "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Upstream README marks Q4_K 'not parity-safe: segment/timestamp drift' (up to 680 ms on matched segments) — do not use when faithful timing is required.",
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "moss_transcribe_diarize_q8_0",
@@ -3515,7 +3660,11 @@
         }
       ],
       "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. Q8_0 preserves words and speakers; the recommended passthrough default.",
-      "status": "supported"
+      "status": "supported",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "nemotron_3_5_asr_streaming_0_6b_f16",
@@ -3555,7 +3704,11 @@
       "attribution": "Nemotron 3.5 ASR Streaming 0.6B (nvidia/Nemotron-3.5-ASR-Streaming-0.6B). RNNT offline/streaming ASR; optional token-level timestamps via --words-out; governed by OpenMDW-1.1.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "nemotron_3_5_asr_streaming_0_6b_q8_0",
@@ -3595,7 +3748,11 @@
       "attribution": "Nemotron 3.5 ASR Streaming 0.6B (nvidia/Nemotron-3.5-ASR-Streaming-0.6B). RNNT offline/streaming ASR; optional token-level timestamps via --words-out; governed by OpenMDW-1.1.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "nemotron_3_diar_bf16",
@@ -3639,7 +3796,11 @@
       "attribution": "Nemotron 3 Diarization (NVIDIA). Up to 8 speakers, batch/stream modes; BF16 default checkpoint, pairs with nemotron_asr for speaker-tagged transcription.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "nemotron_3_diar_q8_0",
@@ -3683,7 +3844,11 @@
       "attribution": "Nemotron 3 Diarization (NVIDIA). Up to 8 speakers, batch/stream modes; pairs with nemotron_asr for speaker-tagged transcription.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "niagara_19m_batch_en_f32",
@@ -3722,7 +3887,10 @@
       "attribution": "Niagara 19M Batch English (NVIDIA, repackaged by audio-cpp). Offline batch English ASR; upstream card unreachable from this environment, license not verified (待核对).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "niagara_38m_batch_en_f32",
@@ -3761,7 +3929,10 @@
       "attribution": "Niagara 38M Batch English (NVIDIA, repackaged by audio-cpp). Offline batch English ASR; upstream card unreachable from this environment, license not verified (待核对).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "owsm_ctc_v4_1b_f32",
@@ -3826,7 +3997,11 @@
       "attribution": "OWSM-CTC v4 1B (espnet/owsm_ctc_v4_1B). Non-autoregressive self-conditioned CTC ASR/ST; no timestamps; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_ctc_v4_1b_q8_0",
@@ -3891,7 +4066,11 @@
       "attribution": "OWSM-CTC v4 1B (espnet/owsm_ctc_v4_1B). Non-autoregressive self-conditioned CTC ASR/ST; no timestamps; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_base_102m_f32",
@@ -3956,7 +4135,11 @@
       "attribution": "OWSM v4 Base 102M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_base_102m_q8_0",
@@ -4021,7 +4204,11 @@
       "attribution": "OWSM v4 Base 102M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_medium_1b_f32",
@@ -4086,7 +4273,11 @@
       "attribution": "OWSM v4 Medium 1B (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_medium_1b_q4_k",
@@ -4151,7 +4342,11 @@
       "attribution": "OWSM v4 Medium 1B (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_medium_1b_q8_0",
@@ -4216,7 +4411,11 @@
       "attribution": "OWSM v4 Medium 1B (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_small_370m_f32",
@@ -4281,7 +4480,11 @@
       "attribution": "OWSM v4 Small 370M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_small_370m_q4_k",
@@ -4346,7 +4549,11 @@
       "attribution": "OWSM v4 Small 370M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "owsm_v4_small_370m_q8_0",
@@ -4411,7 +4618,11 @@
       "attribution": "OWSM v4 Small 370M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "parakeet_tdt_0_6b_v3_f16",
@@ -4476,7 +4687,11 @@
       "attribution": "Parakeet-TDT-0.6B-v3 (nvidia/parakeet-tdt-0.6b-v3, repackaged by audio-cpp). 25 European languages with auto-detect; word-level timestamps; CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "parakeet_tdt_0_6b_v3_q8_0",
@@ -4541,7 +4756,11 @@
       "attribution": "Parakeet-TDT-0.6B-v3 (nvidia/parakeet-tdt-0.6b-v3, repackaged by audio-cpp). 25 European languages with auto-detect; word-level timestamps; CC-BY-4.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "pulsevad_2_1k_f32",
@@ -4584,7 +4803,10 @@
       "attribution": "PulseVAD 2.1k Student (Aydin Adnan). 81 KB pulse-based student VAD; the 81k teacher package is pulsevad_81k_f32.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "pulsevad_81k_f32",
@@ -4625,7 +4847,10 @@
         }
       ],
       "attribution": "PulseVAD 81k (Aydin Adnan). 394 KB pulse-based VAD; on a 32.9 s two-speaker clip it covered the whole file (525892 samples) whereas bundled Silero stopped at 290336 samples (55%). Test VAD candidate.",
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "qwen2_5_0_5b_instruct_q4_k_m",
@@ -6055,7 +6280,11 @@
       "attribution": "Qwen3-ASR-0.6B (Qwen/Qwen3-ASR-0.6B-hf). 30 languages; word timestamps require the forced aligner and are offline-only.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "qwen3_asr_0_6b_q8_0",
@@ -6205,7 +6434,11 @@
           "token": "Persian"
         }
       ],
-      "status": "supported"
+      "status": "supported",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "qwen3_forced_aligner_0_6b_q8_0",
@@ -6255,7 +6488,10 @@
         }
       ],
       "attribution": "Qwen3-ForcedAligner-0.6B (Qwen/Qwen3-ForcedAligner-0.6B). Not bundled: downloaded on demand. word_timestamps for qwen3_asr, also the `align` task.",
-      "status": "supported"
+      "status": "supported",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "qwen3_asr_1_7b_f16",
@@ -6325,7 +6561,11 @@
       "attribution": "Qwen3-ASR-1.7B (Qwen/Qwen3-ASR-1.7B-hf). 30 languages; word timestamps require the forced aligner and are offline-only.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "qwen3_asr_1_7b_q8_0",
@@ -6395,7 +6635,11 @@
       "attribution": "Qwen3-ASR-1.7B (Qwen/Qwen3-ASR-1.7B-hf). 30 languages; word timestamps require the forced aligner and are offline-only.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "samsone_134m_bf16",
@@ -6434,7 +6678,10 @@
       "attribution": "SAMSONE 134M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "samsone_134m_q8_0",
@@ -6473,7 +6720,10 @@
       "attribution": "SAMSONE 134M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "samsone_356m_bf16",
@@ -6512,7 +6762,10 @@
       "attribution": "SAMSONE 356M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "samsone_356m_q8_0",
@@ -6551,7 +6804,10 @@
       "attribution": "SAMSONE 356M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "samsone_99m_bf16",
@@ -6590,7 +6846,10 @@
       "attribution": "SAMSONE 99M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "samsone_99m_q8_0",
@@ -6629,7 +6888,10 @@
       "attribution": "SAMSONE 99M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "sensevoice_small_q8",
@@ -6691,7 +6953,11 @@
         }
       ],
       "attribution": "SenseVoice-Small (FunAudioLLM/SenseVoiceSmall)",
-      "status": "supported"
+      "status": "supported",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "sortformer_diar_4spk_q8_0",
@@ -6733,7 +6999,10 @@
       ],
       "attribution": "Sortformer Diar 4spk v1 (nvidia/diar_sortformer_4spk-v1). CC-BY-NC-4.0 — non-commercial use only; MonoSub is a personal learning project, so it is listed for attribution and local use. Speaker turns only (max 4 speakers), no text. NOT SUPPORTED (v5): marked unsupported because its encoder graph is fixed at 120 s of audio and it caps out at 4 speakers; nemotron_3_diar has neither limit and a permissive licence. Kept in the catalogue so the measurement stays next to the model.",
       "max_session_seconds": 120,
-      "status": "unsupported"
+      "status": "unsupported",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "sortformer_diar_4spk_v1_f16",
@@ -6777,7 +7046,10 @@
       "requires": [],
       "language_tokens": [],
       "max_session_seconds": 120,
-      "status": "unsupported"
+      "status": "unsupported",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "tower_instruct_7b_v0_1_q4_k_m",
@@ -6951,7 +7223,10 @@
       "attribution": "VibeASR (microsoft/VibeVoice-ASR-BitNet; port microsoft/VibeASR.cpp, MIT). CPU-only edge ASR: I8_S INT8 VAE encoder plus ternary I2_S Qwen2 decoder. audio.cpp loading requires running tools/community_models/convert_vibeasr_gguf.py to remap the GGUF type ids before use.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "vibeasr_vae_encoder_i8_s",
@@ -7005,7 +7280,10 @@
       "attribution": "VibeASR (microsoft/VibeVoice-ASR-BitNet; port microsoft/VibeASR.cpp, MIT). CPU-only edge ASR: I8_S INT8 VAE encoder plus ternary I2_S Qwen2 decoder. audio.cpp loading requires running tools/community_models/convert_vibeasr_gguf.py to remap the GGUF type ids before use.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "family": "vibevoice_asr",
@@ -7045,7 +7323,10 @@
       "attribution": "VibeVoice ASR (microsoft/VibeVoice-ASR, MIT). Offline long-form ASR; optional segment timestamps (--segments-out) and speaker turns (--turns-out).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "family": "vibevoice_asr",
@@ -7085,7 +7366,10 @@
       "attribution": "VibeVoice ASR (microsoft/VibeVoice-ASR, MIT). Offline long-form ASR; optional segment timestamps (--segments-out) and speaker turns (--turns-out).",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline"
+      ]
     },
     {
       "id": "vibevoice_asr_streaming_1_5b_bf16",
@@ -7138,7 +7422,11 @@
       "attribution": "VibeVoice ASR Streaming 1.5B (upstream microsoft/VibeVoice-ASR-Streaming-1.5B, MIT; GGUF repack by christopherthompson81). Streaming speaker-attributed transcription; no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "vibevoice_asr_streaming_1_5b_q4_k",
@@ -7191,7 +7479,11 @@
       "attribution": "VibeVoice ASR Streaming 1.5B (upstream microsoft/VibeVoice-ASR-Streaming-1.5B, MIT; GGUF repack by christopherthompson81). Streaming speaker-attributed transcription; no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "vibevoice_asr_streaming_1_5b_q8_0",
@@ -7244,7 +7536,11 @@
       "attribution": "VibeVoice ASR Streaming 1.5B (upstream microsoft/VibeVoice-ASR-Streaming-1.5B, MIT; GGUF repack by christopherthompson81). Streaming speaker-attributed transcription; no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "vibevoice_asr_streaming_7b_bf16",
@@ -7297,7 +7593,11 @@
       "attribution": "VibeVoice ASR Streaming 7B (microsoft/VibeVoice-ASR-Streaming-7B, MIT). Streaming speaker-attributed transcription; emits speaker/text turns but no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "vibevoice_asr_streaming_7b_q4_k",
@@ -7350,7 +7650,11 @@
       "attribution": "VibeVoice ASR Streaming 7B (microsoft/VibeVoice-ASR-Streaming-7B, MIT). Streaming speaker-attributed transcription; emits speaker/text turns but no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "vibevoice_asr_streaming_7b_q8_0",
@@ -7403,7 +7707,11 @@
       "attribution": "VibeVoice ASR Streaming 7B (microsoft/VibeVoice-ASR-Streaming-7B, MIT). Streaming speaker-attributed transcription; emits speaker/text turns but no timestamps.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "voxtral_mini_4b_realtime_2602_bf16",
@@ -7443,7 +7751,11 @@
       "attribution": "Voxtral Mini 4B Realtime 2602 (mistralai/Voxtral-Mini-4B-Realtime-2602). Offline and live-streaming ASR; timestamps not exposed; Apache-2.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "voxtral_mini_4b_realtime_2602_q4_k",
@@ -7483,7 +7795,11 @@
       "attribution": "Voxtral Mini 4B Realtime 2602 (mistralai/Voxtral-Mini-4B-Realtime-2602). Offline and live-streaming ASR; timestamps not exposed; Apache-2.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     },
     {
       "id": "voxtral_mini_4b_realtime_2602_q8_0",
@@ -7523,7 +7839,11 @@
       "attribution": "Voxtral Mini 4B Realtime 2602 (mistralai/Voxtral-Mini-4B-Realtime-2602). Offline and live-streaming ASR; timestamps not exposed; Apache-2.0.",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified"
+      "status": "unverified",
+      "modes": [
+        "offline",
+        "streaming"
+      ]
     }
   ]
 }

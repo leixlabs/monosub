@@ -14,6 +14,7 @@ use std::process::Stdio;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 
+use crate::engine::catalog::RunMode;
 use crate::paths::AppPaths;
 
 /// Where a `--backend` value came from; P1-9 retries `metal` failures on `cpu`.
@@ -31,6 +32,10 @@ pub struct CliInvocation {
     pub model: PathBuf,
     pub audio: Option<PathBuf>,
     pub backend: Backend,
+    /// `--mode` for this call. Offline is the CLI's own default and is
+    /// therefore **not** emitted, which keeps every existing invocation's argv
+    /// byte-identical.
+    pub mode: RunMode,
     pub args: Vec<String>,
 }
 
@@ -260,6 +265,7 @@ pub async fn spawn(
 /// `unknown options` (PoC §4.1). Per-request options belong in `requests.json`.
 fn build_argv(invocation: &CliInvocation) -> Result<Vec<String>, EngineError> {
     reject_request_option_with_sequence(invocation)?;
+    reject_streaming_with_batch_input(invocation)?;
 
     let mut argv = vec![
         "--task".to_string(),
@@ -275,6 +281,14 @@ fn build_argv(invocation: &CliInvocation) -> Result<Vec<String>, EngineError> {
     if let Some(audio) = &invocation.audio {
         argv.push("--audio".to_string());
         argv.push(audio.to_string_lossy().into_owned());
+    }
+
+    // Offline is the CLI's documented default, so it is never spelled out: an
+    // argv that carries `--mode offline` and one that omits it must not differ,
+    // and omitting it keeps the historic invocations unchanged.
+    if invocation.mode.is_streaming() {
+        argv.push("--mode".to_string());
+        argv.push(invocation.mode.as_str().to_string());
     }
 
     argv.extend(invocation.args.iter().cloned());
@@ -300,6 +314,35 @@ fn reject_request_option_with_sequence(invocation: &CliInvocation) -> Result<(),
         )));
     }
 
+    Ok(())
+}
+
+/// `--request-sequence` is a batch input, and the CLI refuses every batch input
+/// outside offline mode:
+///
+/// ```text
+/// audiocpp_cli failed: batch inputs require offline mode
+/// ```
+///
+/// (`app/cli/main.cpp`, the `has_batch_input` branch.) Catching it here rather
+/// than at the spawn keeps the failure a protocol error with a fix in the
+/// message, and makes "recognition cannot stream in this CLI version" a fact of
+/// the code rather than a comment.
+fn reject_streaming_with_batch_input(invocation: &CliInvocation) -> Result<(), EngineError> {
+    if !invocation.mode.is_streaming() {
+        return Ok(());
+    }
+    if invocation
+        .args
+        .iter()
+        .any(|arg| arg == "--request-sequence")
+    {
+        return Err(EngineError::Protocol(
+            "--request-sequence cannot run in streaming mode: audiocpp_cli treats it as a \
+             batch input and rejects it with 'batch inputs require offline mode'"
+                .to_string(),
+        ));
+    }
     Ok(())
 }
 
@@ -498,6 +541,7 @@ mod tests {
             model: PathBuf::from("/res/models/silero_vad"),
             audio: Some(PathBuf::from("/tmp/monosub-t1/audio.wav")),
             backend: Backend::Cpu,
+            mode: RunMode::Offline,
             args: vec![
                 "--vad-chunks-out".to_string(),
                 "/tmp/monosub-t1/vad_chunks.json".to_string(),
@@ -518,6 +562,7 @@ mod tests {
             model: PathBuf::from("/models/SenseVoice-Small-GGUF/sensevoice-small-q8-audiocpp-v1.gguf"),
             audio: None,
             backend: Backend::Metal,
+            mode: RunMode::Offline,
             args: vec![
                 "--request-sequence".to_string(),
                 "/tmp/monosub-t1/requests.json".to_string(),
@@ -626,6 +671,54 @@ mod tests {
         }
     }
 
+    /// `--mode streaming` reaches argv exactly once, and only when asked for.
+    ///
+    /// Offline must stay silent: it is the CLI's own default, so emitting it
+    /// would rewrite every invocation this app has ever built for no gain.
+    #[test]
+    fn argv_spells_out_streaming_and_leaves_offline_to_the_default() {
+        let mut invocation = asr_sequence_invocation();
+        invocation.args.clear();
+        invocation.mode = RunMode::Offline;
+        let offline = build_argv(&invocation).expect("offline argv builds");
+        assert!(
+            !offline.iter().any(|arg| arg == "--mode"),
+            "offline is the CLI default and must not be passed: {offline:?}"
+        );
+
+        invocation.mode = RunMode::Streaming;
+        let streaming = build_argv(&invocation).expect("streaming argv builds");
+        let modes: Vec<&String> = streaming.iter().filter(|arg| *arg == "--mode").collect();
+        assert_eq!(modes.len(), 1, "exactly one --mode: {streaming:?}");
+        assert_eq!(
+            arg_after(&streaming, "--mode"),
+            Some("streaming"),
+            "the value must follow the flag: {streaming:?}"
+        );
+    }
+
+    /// A batch input can never run streaming, so the pair is rejected here
+    /// rather than at the spawn.
+    ///
+    /// `audiocpp_cli` refuses it in its own argument handling (`batch inputs
+    /// require offline mode`), and by then the model has loaded. Catching it in
+    /// `build_argv` keeps the failure a protocol error that names the reason.
+    #[test]
+    fn streaming_is_rejected_with_request_sequence() {
+        let mut invocation = asr_sequence_invocation();
+        invocation.mode = RunMode::Streaming;
+
+        match build_argv(&invocation) {
+            Err(EngineError::Protocol(message)) => {
+                assert!(
+                    message.contains("--request-sequence") && message.contains("streaming"),
+                    "unhelpful message: {message}"
+                );
+            }
+            other => panic!("expected Protocol rejection, got {other:?}"),
+        }
+    }
+
     /// The single-request path may still use `--request-option` (spec §5.5).
     #[test]
     fn build_argv_allows_request_option_without_sequence() {
@@ -635,6 +728,7 @@ mod tests {
             model: PathBuf::from("/models/qwen3-asr.gguf"),
             audio: Some(PathBuf::from("/tmp/audio.wav")),
             backend: Backend::Metal,
+            mode: RunMode::Offline,
             args: vec![
                 "--words-out".to_string(),
                 "/tmp/words.json".to_string(),
@@ -936,6 +1030,7 @@ mod spawn_tests {
             model: vad_dir(),
             audio: Some(audio),
             backend: Backend::Cpu,
+            mode: RunMode::Offline,
             args: vec![
                 "--vad-chunks-out".to_string(),
                 dir.join("c.json").to_string_lossy().into_owned(),

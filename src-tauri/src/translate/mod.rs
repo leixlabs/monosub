@@ -844,6 +844,7 @@ mod tests {
             source: None,
             tier: None,
             status: crate::engine::catalog::SupportStatus::Supported,
+            modes: vec![crate::engine::catalog::RunMode::Offline],
             licenses: Vec::new(),
             requires: Vec::new(),
             language_tokens: Vec::new(),

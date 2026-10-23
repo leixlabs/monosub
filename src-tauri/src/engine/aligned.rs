@@ -30,7 +30,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::paths::AppPaths;
-use crate::engine::catalog;
+use crate::engine::catalog::{self, RunMode};
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::words::{self, Word};
 use crate::engine::{EngineError, ProgressFn, RawChunk};
@@ -184,6 +184,7 @@ pub async fn run_aligned(
         model: request.model_file.clone(),
         audio: Some(request.wav_path.to_path_buf()),
         backend: request.backend,
+        mode: RunMode::Offline,
         args: aligned_args(&out, &request.aligner, &request.vad_dir, request.language),
     };
 

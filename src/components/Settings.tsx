@@ -49,10 +49,12 @@ import {
   modelManifestSize,
   recognitionModels,
   removeModel,
+  setModelMode,
   translationModels,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
   type ModelDownloadProgressPayload,
+  type ModelRunMode,
   type ModelStatus,
 } from '@/lib/models';
 
@@ -106,6 +108,7 @@ interface ModelRowProps {
   onDownload: (id: string) => void;
   onCancel: (id: string) => void;
   onRemove: (id: string) => void;
+  onModeChange: (id: string, mode: ModelRunMode | '') => void;
 }
 
 /**
@@ -114,7 +117,15 @@ interface ModelRowProps {
  * Shared by the recognition and translation groups (translation-design §7), so
  * both behave identically — the only difference is which list they sit in.
  */
-function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemove }: ModelRowProps) {
+function ModelRow({
+  model,
+  isDownloading,
+  percent,
+  onDownload,
+  onCancel,
+  onRemove,
+  onModeChange,
+}: ModelRowProps) {
   const { t } = useTranslation();
   const displayName = model.display_name || model.id;
   const displaySize = model.installed && model.size_on_disk > 0
@@ -195,6 +206,51 @@ function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemov
           )}
         </div>
       </div>
+
+      {/* Run mode. Shown only where the user has a real choice: `selectable_modes`
+          is Rust's answer, so a model the pipeline can only run offline never
+          gets a switch that would change nothing. The hint states the *actual*
+          effect — the offline diar path splits a long file into windows that
+          each number speakers from zero, which is why streaming is the default
+          wherever it is offered. */}
+      {model.selectable_modes.length > 1 && (
+        <div className="space-y-1.5" data-testid={`model-mode-${model.id}`}>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium text-text-primary dark:text-gray-200">
+              {t('models.runMode')}
+            </span>
+            <div className="flex items-center gap-1 rounded-full bg-divider/60 dark:bg-zinc-700/60 p-0.5">
+              {model.selectable_modes.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => {
+                    // Clicking the selected mode is not a change: re-persisting it
+                    // would pin a choice the user never expressed.
+                    if (model.effective_mode === mode) return;
+                    // Choosing the model's own default clears the entry instead of
+                    // storing it, so a future catalogue change still reaches this
+                    // model.
+                    onModeChange(model.id, mode === model.default_mode ? '' : mode);
+                  }}
+                  aria-pressed={model.effective_mode === mode}
+                  data-testid={`model-mode-${model.id}-${mode}`}
+                  className={`px-2.5 py-1 rounded-full text-xxs font-medium transition-colors ${
+                    model.effective_mode === mode
+                      ? 'bg-bg-primary dark:bg-zinc-900 text-text-primary dark:text-white shadow-sm'
+                      : 'text-text-secondary dark:text-gray-400 hover:text-text-primary'
+                  }`}
+                >
+                  {t(`models.modes.${mode}`)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-xxs text-text-secondary dark:text-gray-400 leading-relaxed">
+            {t(`models.modes.${model.effective_mode}Hint`)}
+          </p>
+        </div>
+      )}
 
       {isDownloading && (
         <div className="space-y-1.5">
@@ -452,6 +508,33 @@ export function Settings() {
         delete next[id];
         return next;
       });
+    }
+  };
+
+  /**
+   * Persist one model's run mode. `''` clears the preference and restores the
+   * model's default, which is why the row sends `''` when the user clicks the
+   * mode that is already the default: storing it would pin today's answer.
+   */
+  const handleModeChange = async (id: string, mode: ModelRunMode | '') => {
+    setModelActionError('');
+    try {
+      await setModelMode(id, mode);
+      if (!isMountedRef.current) return;
+      // The backend re-validates and the effective mode depends on the model's
+      // own declaration, so the row takes the answer it computed rather than
+      // echoing the click: a rejected mode must not look applied.
+      setModels((prev) => prev.map((model) => (
+        model.id === id
+          ? { ...model, effective_mode: mode === '' ? model.default_mode : mode }
+          : model
+      )));
+    } catch (error) {
+      console.error('[set_model_mode] Failed:', error);
+      reportFrontendError(error, { context: `set_model_mode ${id}` });
+      if (isMountedRef.current) {
+        setModelActionError(String(error));
+      }
     }
   };
 
@@ -827,6 +910,7 @@ export function Settings() {
                             onDownload={(id) => void handleDownloadModel(id)}
                             onCancel={(id) => void handleCancelModelDownload(id)}
                             onRemove={(id) => void handleRemoveModel(id)}
+                            onModeChange={(id, mode) => void handleModeChange(id, mode)}
                           />
                         ))}
                       </>
@@ -846,6 +930,7 @@ export function Settings() {
                             onDownload={(id) => void handleDownloadModel(id)}
                             onCancel={(id) => void handleCancelModelDownload(id)}
                             onRemove={(id) => void handleRemoveModel(id)}
+                            onModeChange={(id, mode) => void handleModeChange(id, mode)}
                           />
                         ))}
                       </>

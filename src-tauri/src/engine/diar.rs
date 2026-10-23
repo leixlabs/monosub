@@ -20,7 +20,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 use crate::paths::AppPaths;
-use crate::engine::catalog;
+use crate::engine::catalog::{self, RunMode};
 use crate::engine::cli::{spawn, Backend, CliInvocation};
 use crate::engine::{EngineError, RawChunk};
 
@@ -207,6 +207,11 @@ pub fn attribute_turns(segments: &[RawChunk], turns: &[DiarTurn]) -> Vec<RawChun
 /// model as a unit of work: per-chunk runs would each number their speakers from
 /// zero, so `S01` in one chunk would have no measurable relationship to `S01` in
 /// the next and the whole file would show dozens of "speakers".
+///
+/// `mode` is the caller's decision, not this function's: the pipeline resolves
+/// the user's per-model preference through `model_dir::chosen_mode`, which is
+/// what re-validates it against the catalogue. Keeping the lookup out of here is
+/// what lets the tests run without a `settings.json` and without an `AppHandle`.
 pub async fn detect_turns(
     paths: &AppPaths,
     wav_path: &Path,
@@ -214,6 +219,7 @@ pub async fn detect_turns(
     backend: Backend,
     out_path: &Path,
     speech: &[(f64, f64)],
+    mode: RunMode,
 ) -> Result<Vec<DiarTurn>, EngineError> {
     let model_file = catalog::model_path(paths, model_id)?.ok_or_else(|| {
         EngineError::ModelNotInstalled(format!("model '{}' is not in the catalogue", model_id))
@@ -238,12 +244,21 @@ pub async fn detect_turns(
         spec,
         model_file: &model_file,
         backend,
+        mode,
         speech,
     };
 
     // Audio that fits one session is the plain single call, unchanged.
+    //
+    // A streaming session has no per-call ceiling to respect: it carries state
+    // across the whole file rather than building a fixed-capacity graph from the
+    // audio length, which is precisely why `sortformer_diar` needed windowing
+    // and `nemotron_3_diar` does not. So streaming always takes the single-call
+    // path, whatever `max_session_seconds` says — splitting it would restart the
+    // session and reintroduce the per-window speaker numbering that streaming
+    // exists to avoid.
     let ceiling = spec.max_session_seconds;
-    if ceiling.is_none_or(|max| duration_s <= max) {
+    if mode.is_streaming() || ceiling.is_none_or(|max| duration_s <= max) {
         return detect_turns_once(&run, out_path, session_len).await;
     }
 
@@ -258,6 +273,9 @@ struct DiarRun<'a> {
     spec: &'a catalog::ModelSpec,
     model_file: &'a Path,
     backend: Backend,
+    /// Offline (one call over the whole file, windowed when it exceeds the
+    /// model's ceiling) or streaming (one call, audio fed in chunks).
+    mode: catalog::RunMode,
     /// VAD speech spans, file-relative seconds. Empty means "cut on the blind
     /// grid", which is what a caller without a recognition run passes.
     speech: &'a [(f64, f64)],
@@ -275,6 +293,7 @@ async fn detect_turns_once(
         model: run.model_file.to_path_buf(),
         audio: Some(run.wav_path.to_path_buf()),
         backend: run.backend,
+        mode: run.mode,
         args: session_args(run.spec, run.model_file, out_path, session_len),
     };
 
@@ -692,6 +711,9 @@ async fn diarize_long(
             model: run.model_file.to_path_buf(),
             audio: Some(window_wav.clone()),
             backend: run.backend,
+            // The windowed path only runs offline: `detect_turns` sends a
+            // streaming session down the single-call branch above.
+            mode: catalog::RunMode::Offline,
             args: session_args(run.spec, run.model_file, &window_turns, session_len),
         };
         spawn(Some(run.paths), invocation, |_| {}).await?;
@@ -1225,6 +1247,9 @@ mod tests {
             // No VAD spans here: the fixture is a WAV, not a recognition run, so
             // this exercises the blind-grid fallback of `plan_speech_windows`.
             &[],
+            // Offline on purpose: this test is about the *windowing* path, which
+            // a streaming session never takes.
+            RunMode::Offline,
         )
         .await
         .expect("a file over the session ceiling must still diarize");

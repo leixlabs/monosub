@@ -15,7 +15,10 @@
 //! (`commands::models`, which writes files) can never disagree about where the
 //! models are.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+use crate::engine::catalog::{ModelSpec, RunMode};
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
@@ -65,6 +68,28 @@ pub struct BackendSettings {
     /// `--translate`"; `enabled` matters to the GUI only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<TranslationSettings>,
+
+    /// Per-model run mode: `{ "<catalogue id>": "streaming" | "offline" }`.
+    ///
+    /// One entry per model rather than one global switch, because the answer is
+    /// a property of the checkpoint: whether *this* model's session can be fed
+    /// in chunks. A model with no entry uses
+    /// [`crate::engine::catalog::ModelSpec::default_mode`], which is streaming
+    /// wherever the app can actually drive it — a local-first app runs beside
+    /// whatever else the machine is doing, so the lower peak footprint is the
+    /// better default, and a streaming diarization session also keeps speaker
+    /// ids consistent instead of re-numbering them per window.
+    ///
+    /// Stored as strings so a catalogue id can be written by either side (the
+    /// GUI and the CLI) without sharing an enum; an unreadable value is treated
+    /// as "no preference" rather than an error, because a settings file must
+    /// never brick a run.
+    #[serde(
+        default,
+        rename = "modelModes",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub model_modes: BTreeMap<String, String>,
 }
 
 /// The four plan answers **and the plan they produced**, frozen at Settings time.
@@ -235,6 +260,65 @@ pub fn save_translation_settings(
     write_settings_at(&path, &settings)
 }
 
+/// Fold one model's run mode into the settings already on disk.
+///
+/// An empty `mode` **removes** the entry, which is how "use the default" is
+/// expressed: storing the current default instead would pin today's answer and
+/// stop a future catalogue from changing it.
+pub fn merge_model_mode(existing: &mut BackendSettings, model_id: &str, mode: &str) {
+    let mode = mode.trim().to_ascii_lowercase();
+    if mode.is_empty() {
+        existing.model_modes.remove(model_id);
+    } else {
+        existing.model_modes.insert(model_id.to_string(), mode);
+    }
+}
+
+/// The mode the user chose for `model_id`, if it is one this model offers.
+///
+/// Two things are deliberately filtered here rather than at the call site:
+///
+/// * an **unreadable** value (`"turbo"`) is not a preference, so it falls
+///   through to the default instead of failing a run;
+/// * a value the model does **not** declare is dropped for the same reason. A
+///   settings file outlives a catalogue — the user can pin streaming on
+///   `nemotron_3_diar` and later switch the plan to a diar model that only runs
+///   offline, and that must not turn into `batch inputs require offline mode`
+///   or `streaming execution is not supported` at spawn time.
+pub fn chosen_mode(settings: &BackendSettings, spec: &ModelSpec) -> RunMode {
+    let Some(raw) = settings.model_modes.get(&spec.id) else {
+        return spec.default_mode();
+    };
+    let chosen = match raw.as_str() {
+        "streaming" => RunMode::Streaming,
+        "offline" => RunMode::Offline,
+        other => {
+            tracing::warn!(
+                model = %spec.id,
+                value = %other,
+                "unrecognised model mode in settings.json; using the default"
+            );
+            return spec.default_mode();
+        }
+    };
+    if chosen.is_streaming() && !spec.streaming_selectable() {
+        tracing::info!(
+            model = %spec.id,
+            "settings.json asks for streaming but this model cannot run it here; using offline"
+        );
+        return RunMode::Offline;
+    }
+    chosen
+}
+
+/// Persist one model's run mode, keeping every other field.
+pub fn save_model_mode(app: &tauri::AppHandle, model_id: &str, mode: &str) -> Result<(), String> {
+    let path = settings_path(app)?;
+    let mut settings = read_settings_at(&path);
+    merge_model_mode(&mut settings, model_id, mode);
+    write_settings_at(&path, &settings)
+}
+
 // `configured_root` used to live here. It now exists exactly once, as
 // `paths::AppPaths::models_root`, because the precedence (env → persisted
 // setting → default) had to run *before* an `AppPaths` could be built — keeping
@@ -302,6 +386,136 @@ mod tests {
         std::fs::write(&file, b"x").unwrap();
         let err = validate_dir(&file).expect_err("a file is not a directory");
         assert!(err.contains("not a directory"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn diar_spec() -> crate::engine::catalog::ModelSpec {
+        crate::engine::catalog::ModelSpec {
+            id: "nemotron_3_diar_q8_0".to_string(),
+            family: "nemotron_3_diar".to_string(),
+            roles: vec![crate::engine::catalog::Role::Diar],
+            modes: vec![
+                crate::engine::catalog::RunMode::Offline,
+                crate::engine::catalog::RunMode::Streaming,
+            ],
+            ..Default::default()
+        }
+    }
+
+    fn offline_only_spec() -> crate::engine::catalog::ModelSpec {
+        crate::engine::catalog::ModelSpec {
+            id: "sortformer_diar_4spk_q8_0".to_string(),
+            family: "sortformer_diar".to_string(),
+            roles: vec![crate::engine::catalog::Role::Diar],
+            modes: vec![crate::engine::catalog::RunMode::Offline],
+            ..Default::default()
+        }
+    }
+
+    /// No stored preference means the model's default, which is streaming for a
+    /// diar model that can do it.
+    #[test]
+    fn an_unset_mode_uses_the_model_default() {
+        use crate::engine::catalog::RunMode;
+        let settings = BackendSettings::default();
+        assert_eq!(chosen_mode(&settings, &diar_spec()), RunMode::Streaming);
+        assert_eq!(
+            chosen_mode(&settings, &offline_only_spec()),
+            RunMode::Offline
+        );
+    }
+
+    /// A stored choice is honoured — including "offline" on a model that
+    /// defaults to streaming, which is the whole point of the switch.
+    #[test]
+    fn a_stored_mode_wins_over_the_default() {
+        use crate::engine::catalog::RunMode;
+        let mut settings = BackendSettings::default();
+        merge_model_mode(&mut settings, "nemotron_3_diar_q8_0", "offline");
+        assert_eq!(chosen_mode(&settings, &diar_spec()), RunMode::Offline);
+
+        merge_model_mode(&mut settings, "nemotron_3_diar_q8_0", "Streaming");
+        assert_eq!(
+            chosen_mode(&settings, &diar_spec()),
+            RunMode::Streaming,
+            "the stored spelling is normalised, so a hand-edited file still works"
+        );
+    }
+
+    /// A preference that no longer makes sense is dropped, not obeyed.
+    ///
+    /// A settings file outlives a catalogue: the user can pin streaming on one
+    /// diar model and later switch the plan to one that only runs offline. That
+    /// must not become a spawn-time `streaming execution is not supported`.
+    #[test]
+    fn a_mode_the_model_cannot_run_falls_back_instead_of_failing() {
+        use crate::engine::catalog::RunMode;
+        let mut settings = BackendSettings::default();
+        merge_model_mode(&mut settings, "sortformer_diar_4spk_q8_0", "streaming");
+        assert_eq!(
+            chosen_mode(&settings, &offline_only_spec()),
+            RunMode::Offline
+        );
+
+        merge_model_mode(&mut settings, "nemotron_3_diar_q8_0", "turbo");
+        assert_eq!(
+            chosen_mode(&settings, &diar_spec()),
+            RunMode::Streaming,
+            "an unreadable value is not a preference"
+        );
+    }
+
+    /// `""` removes the entry rather than storing it: "use the default" must not
+    /// pin today's default.
+    #[test]
+    fn clearing_a_mode_removes_the_entry_and_keeps_everything_else() {
+        let mut settings = BackendSettings {
+            models_dir: Some("/models".to_string()),
+            ..BackendSettings::default()
+        };
+        merge_model_mode(&mut settings, "nemotron_3_diar_q8_0", "offline");
+        assert_eq!(
+            settings
+                .model_modes
+                .get("nemotron_3_diar_q8_0")
+                .map(String::as_str),
+            Some("offline")
+        );
+
+        merge_model_mode(&mut settings, "nemotron_3_diar_q8_0", "");
+        assert!(settings.model_modes.is_empty());
+        assert_eq!(
+            settings.models_dir.as_deref(),
+            Some("/models"),
+            "clearing a mode must not disturb the other persisted slices"
+        );
+    }
+
+    /// The JSON spelling is `modelModes` with string values, and an absent key
+    /// is not an error.
+    #[test]
+    fn model_modes_survive_the_settings_file() {
+        let dir = scratch("modes");
+        let path = dir.join(SETTINGS_FILE);
+        let mut settings = BackendSettings::default();
+        merge_model_mode(&mut settings, "nemotron_3_diar_q8_0", "streaming");
+        write_settings_at(&path, &settings).expect("write settings");
+
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("\"modelModes\""), "{raw}");
+        assert!(
+            raw.contains("\"nemotron_3_diar_q8_0\": \"streaming\""),
+            "{raw}"
+        );
+
+        let parsed = read_settings_at(&path);
+        assert_eq!(
+            parsed
+                .model_modes
+                .get("nemotron_3_diar_q8_0")
+                .map(String::as_str),
+            Some("streaming")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

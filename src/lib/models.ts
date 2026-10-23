@@ -66,12 +66,49 @@ export interface ModelStatus {
    * verified.
    */
   status: ModelSupportStatus;
+  /**
+   * Run modes the model's own spec declares (`offline` / `streaming`).
+   *
+   * The declaration only: `sense_asr` declares streaming, but this app's
+   * recognition pipeline is `--request-sequence`, which `audiocpp_cli` rejects
+   * outside offline mode. Use `selectable_modes` for what the UI may offer.
+   */
+  modes: ModelRunMode[];
+  /**
+   * Modes the user may actually choose here, in menu order. `['offline']` means
+   * "there is no choice to make", not "a feature is missing".
+   */
+  selectable_modes: ModelRunMode[];
+  /** The mode a run uses when nothing is stored (streaming when available). */
+  default_mode: ModelRunMode;
+  /**
+   * The mode a run would use now: the stored choice when it is one this model
+   * offers, else `default_mode`. Resolved in Rust so the panel and the pipeline
+   * cannot disagree.
+   */
+  effective_mode: ModelRunMode;
   installed: boolean;
   size_on_disk: number;
 }
 
 /** How far the app stands behind a catalogue entry (mirrors `SupportStatus`). */
 export type ModelSupportStatus = 'supported' | 'unverified' | 'unsupported';
+
+/**
+ * `audiocpp_cli --mode` (mirrors `RunMode`).
+ *
+ * - `offline`   — one call over the whole input; the CLI default.
+ * - `streaming` — the model's own streaming policy: audio fed in chunks, state
+ *                 carried across them. Lower peak memory, and speaker ids stay
+ *                 consistent because the session is never restarted.
+ */
+export type ModelRunMode = 'offline' | 'streaming';
+
+const asRunMode = (value: unknown): ModelRunMode =>
+  value === 'streaming' ? 'streaming' : 'offline';
+
+const asRunModeList = (value: unknown): ModelRunMode[] =>
+  Array.isArray(value) && value.length > 0 ? value.map(asRunMode) : ['offline'];
 
 export interface ModelDownloadProgressPayload {
   id: string;
@@ -196,6 +233,13 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
     // older than this field, and that default keeps every entry offered without
     // claiming anyone proved it works.
     status: asSupportStatus(status.status),
+    modes: asRunModeList(status.modes),
+    selectable_modes: asRunModeList(status.selectable_modes),
+    default_mode: asRunMode(status.default_mode),
+    // An older backend that predates this field sends nothing, and `offline` is
+    // what it would actually run, so the fallback states the truth rather than
+    // guessing at streaming.
+    effective_mode: asRunMode(status.effective_mode),
     installed: status.installed === true,
     size_on_disk: asNumber(status.size_on_disk),
   };
@@ -247,6 +291,17 @@ export const listModels = async (): Promise<ModelStatus[]> => {
   const raw = await invoke<unknown>('list_models');
   return Array.isArray(raw) ? raw.map(normalizeModelStatus) : [];
 };
+
+/**
+ * Persist one model's run mode. `''` clears the preference, which restores the
+ * model's default (streaming wherever the app can drive it).
+ *
+ * The backend re-validates both the id and the mode against the catalogue, so a
+ * rejected promise here means the model does not offer that mode — not that the
+ * write failed.
+ */
+export const setModelMode = (modelId: string, mode: ModelRunMode | ''): Promise<void> =>
+  invoke<void>('set_model_mode', { modelId, mode });
 
 export const downloadModel = (id: string): Promise<void> =>
   invoke<void>('download_model', { id });
