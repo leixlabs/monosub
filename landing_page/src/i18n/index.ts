@@ -2,8 +2,6 @@ export interface LanguageConfig {
   code: string;
   name: string;
   flag: string;
-  price: string;
-  monthly?: string;
   rtl?: boolean;
 }
 
@@ -13,10 +11,9 @@ export interface Translation {
   
   // Navigation
   nav_features: string;
-  nav_pricing: string;
+  nav_screenshots: string;
   nav_faq: string;
-  nav_cta: string;
-  
+
   // Hero
   hero_title_line1: string;
   hero_title_line2: string;
@@ -26,6 +23,38 @@ export interface Translation {
   hero_cta: string;
   hero_learn_more: string;
   hero_trust: string;
+  hero_platform: string;
+
+  // Hero carousel
+  carousel_prev: string;
+  carousel_next: string;
+  hero_shot_1: string;
+  hero_shot_2: string;
+  hero_shot_3: string;
+  hero_shot_4: string;
+  hero_shot_5: string;
+
+  // Screenshot showcase
+  showcase_title: string;
+  showcase_subtitle: string;
+  showcase_tab_queue: string;
+  showcase_tab_translate: string;
+  showcase_tab_speakers: string;
+  showcase_tab_url: string;
+  showcase_queue_desc: string;
+  showcase_translate_desc: string;
+  showcase_speakers_desc: string;
+  showcase_url_desc: string;
+  shot_queue: string;
+  shot_batch: string;
+  shot_rowstates: string;
+  shot_translated: string;
+  shot_translate_settings: string;
+  shot_models: string;
+  shot_catalogue: string;
+  shot_url_rows: string;
+  shot_url_dialog: string;
+  shot_clipboard: string;
   
   // Pain Points
   pain_title: string;
@@ -56,54 +85,10 @@ export interface Translation {
   feature_5_desc: string;
   feature_6_title: string;
   feature_6_desc: string;
-  
-  // Pricing
-  pricing_title: string;
-  pricing_subtitle: string;
-  pricing_period: string;
-  pricing_cloud: string;
-  pricing_monosub: string;
-  pricing_1month: string;
-  pricing_6months: string;
-  pricing_1year: string;
-  pricing_2years: string;
-  pricing_5years: string;
-  pricing_cloud_1month: string;
-  pricing_cloud_6months: string;
-  pricing_cloud_1year: string;
-  pricing_cloud_2years: string;
-  pricing_cloud_5years: string;
-  pricing_monosub_price: string;
-  pricing_cta: string;
-  pricing_save: string;
-  pricing_x: string;
-  pricing_check: string;
-  pricing_feature_transcription: string;
-  pricing_feature_export: string;
-  pricing_feature_batch: string;
-  pricing_feature_speaker: string;
-  pricing_feature_support: string;
-  pricing_feature: string;
-  pricing_free: string;
-  pricing_pro: string;
-  pricing_pro_price: string;
-  pricing_pro_description: string;
-  pricing_pro_discount: string;
-  pricing_pro_cta: string;
-  
-  // Tech
-  tech_title: string;
-  tech_subtitle: string;
-  tech_model: string;
-  tech_model_value: string;
-  tech_framework: string;
-  tech_framework_value: string;
-  tech_acceleration: string;
-  tech_acceleration_value: string;
-  tech_platforms: string;
-  tech_platform_macos: string;
-  tech_platform_windows: string;
-  tech_platform_linux: string;
+  feature_7_title: string;
+  feature_7_desc: string;
+  feature_8_title: string;
+  feature_8_desc: string;
   
   // FAQ
   faq_title: string;
@@ -116,10 +101,6 @@ export interface Translation {
   faq_3_a: string;
   faq_4_q: string;
   faq_4_a: string;
-  faq_5_q: string;
-  faq_5_a: string;
-  faq_6_q: string;
-  faq_6_a: string;
   
   // Final CTA
   final_title: string;
@@ -128,7 +109,6 @@ export interface Translation {
   final_trust_1: string;
   final_trust_2: string;
   final_trust_3: string;
-  final_payment: string;
   
   // Footer
   footer_copyright: string;
@@ -137,6 +117,9 @@ export interface Translation {
   footer_contact: string;
 }
 
+/** Type-safe lookup for a key that is built at runtime (e.g. a tab id). */
+export type TranslationKey = keyof Translation;
+
 // Only two locales ship: Simplified Chinese and English. `/zh/` keeps the
 // historic short path, `/en/` is the default and therefore the fallback for
 // every unlisted language.
@@ -144,8 +127,8 @@ import zhCN from './locales/zh-CN';
 import en from './locales/en';
 
 export const languageConfigs: LanguageConfig[] = [
-  { code: 'zh', name: '中文（简体）', flag: '🇨🇳', price: '¥299', monthly: '¥149' },
-  { code: 'en', name: 'English', flag: '🇺🇸', price: '$39', monthly: '$19' }
+  { code: 'zh', name: '中文（简体）', flag: '🇨🇳' },
+  { code: 'en', name: 'English', flag: '🇺🇸' }
 ];
 
 export const translations: Record<string, Translation> = {

@@ -3,10 +3,9 @@ import { Helmet, HelmetProvider } from 'react-helmet-async';
 import { useLanguage } from './hooks/useLanguage';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
+import { Showcase } from './components/Showcase';
 import { PainPoints } from './components/PainPoints';
 import { Features } from './components/Features';
-import { Pricing } from './components/Pricing';
-import { TechSpecs } from './components/TechSpecs';
 import { FAQ } from './components/FAQ';
 import { FinalCTA } from './components/FinalCTA';
 import { Footer } from './components/Footer';
@@ -40,22 +39,30 @@ function App() {
         <meta property="og:description" content={t.hero_subtitle_line1} />
         <meta property="og:type" content="website" />
         <meta property="og:url" content={`https://monosub.leix.dev/${lang}/`} />
-        
+        <meta property="og:image" content="https://monosub.leix.dev/og-image.jpg" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={t.hero_shot_1} />
+        <meta property="og:site_name" content="MonoSub" />
+        <meta property="og:locale" content={lang === 'zh' ? 'zh_CN' : 'en_US'} />
+
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={t.page_title} />
         <meta name="twitter:description" content={t.hero_subtitle_line1} />
+        <meta name="twitter:image" content="https://monosub.leix.dev/og-image.jpg" />
+
+        {/* Icons */}
+        <link rel="icon" type="image/png" href="/icon.png" />
+        <link rel="apple-touch-icon" href="/icon.png" />
       </Helmet>
 
       <div className="min-h-screen bg-dark-bg text-white">
         <Navbar />
         <Hero />
+        <Showcase />
         <PainPoints />
-        <section id="features">
-          <Features />
-        </section>
-        <Pricing />
-        <TechSpecs />
+        <Features />
         <FAQ />
         <FinalCTA />
         <Footer />

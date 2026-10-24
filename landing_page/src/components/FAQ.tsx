@@ -9,22 +9,20 @@ export const FAQ = () => {
     { q: t.faq_1_q, a: t.faq_1_a },
     { q: t.faq_2_q, a: t.faq_2_a },
     { q: t.faq_3_q, a: t.faq_3_a },
-    { q: t.faq_4_q, a: t.faq_4_a },
-    { q: t.faq_5_q, a: t.faq_5_a },
-    { q: t.faq_6_q, a: t.faq_6_a }
+    { q: t.faq_4_q, a: t.faq_4_a }
   ];
 
   return (
-    <section id="faq" className="py-20 px-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="text-center mb-16 fade-in">
+    <section id="faq" className="py-16 px-6 scroll-mt-24">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-12 fade-in">
           <h2 className="text-4xl md:text-5xl font-bold mb-4">{t.faq_title}</h2>
           <p className="text-xl text-gray-400">{t.faq_subtitle}</p>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid md:grid-cols-2 gap-6">
           {faqs.map((faq, idx) => (
-            <div key={idx} className="card rounded-2xl overflow-hidden fade-in">
+            <div key={idx} className="card rounded-3xl overflow-hidden fade-in">
               <button
                 onClick={() => setOpenIndex(openIndex === idx ? null : idx)}
                 className="w-full p-6 text-left flex items-center justify-between hover:bg-dark-card/50 transition-colors"
@@ -39,7 +37,7 @@ export const FAQ = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                 </svg>
               </button>
-              
+
               <div
                 className={`overflow-hidden transition-all duration-300 ${
                   openIndex === idx ? 'max-h-96' : 'max-h-0'

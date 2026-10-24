@@ -29,19 +29,13 @@ export const Navbar = () => {
           <a href="#features" className="text-gray-300 hover:text-white transition-colors">
             {t.nav_features}
           </a>
-          <a href="#pricing" className="text-gray-300 hover:text-white transition-colors">
-            {t.nav_pricing}
+          <a href="#screenshots" className="text-gray-300 hover:text-white transition-colors">
+            {t.nav_screenshots}
           </a>
           <a href="#faq" className="text-gray-300 hover:text-white transition-colors">
             {t.nav_faq}
           </a>
           <LanguageSwitcher />
-          <a
-            href="#cta"
-            className="cta-button text-white font-semibold px-6 py-2 rounded-lg transition-all"
-          >
-            {t.nav_cta}
-          </a>
         </div>
 
         {/* Mobile Navigation */}
