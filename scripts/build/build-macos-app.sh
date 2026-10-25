@@ -14,7 +14,8 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 
 # v2.0 起引擎是随包的 audiocpp_cli，不再有 Lite/Full 之分。
-# 已知 scripts/release/release.sh 仍会传入旧参数，此处显式忽略以免 DMG 命名被污染。
+# 旧调用方（release.sh 曾传 --type=lite/full）可能还带着参数，此处显式忽略以免
+# DMG 命名被污染。
 if [ "$#" -gt 0 ]; then
     log_warning "已忽略参数: $* （不再有 Lite/Full 构建模式）"
 fi
@@ -43,9 +44,10 @@ rm -f "$BUILD_DIR"/*/release/bundle/dmg/*.dmg 2>/dev/null || true
 
 log_info "2. 同步版本号..."
 # 这里不再自增版本号。旧版每次构建都 bump 一次，于是 `bun run build:dmg` 会把工作区
-# 弄脏、连续构建还会跳版本号；而 release.sh 自己也会 bump，结果是 DMG 文件名里的版本
-# 比 release tag 大 1（实测：tag v2.0.0，产物 MonoSub-2.0.1.dmg）。
-# 版本号只在 release.sh 里自增一次，构建脚本只负责把三处版本对齐。
+# 弄脏、连续构建还会跳版本号；而发布脚本也会 bump，结果是 DMG 文件名里的版本比
+# release tag 大 1（实测：tag v2.0.0，产物 MonoSub-2.0.1.dmg）。
+# 版本号只在发布成功之后自增一次（scripts/utils/bump-version.sh，由
+# scripts/publish/publish.sh 调用），构建脚本只负责把三处版本对齐。
 source "$SCRIPT_DIR/../utils/version-utils.sh"
 sync_versions_from_tauri "$PROJECT_ROOT"
 VERSION=$(get_tauri_version "$PROJECT_ROOT")

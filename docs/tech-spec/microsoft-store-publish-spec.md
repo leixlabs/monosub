@@ -270,7 +270,7 @@ node_modules\.bin\tauri.cmd build --no-bundle
 ### 5.4 组装打包目录
 
 脚本用的是 `build\msix\app\`，不是 `dist\`：`dist\` 是 Vite 的前端产物目录，也是
-`release.sh` 收集产物的目录，把包内布局写进去会互相覆盖。
+发布产物（DMG / MSIX）的收集目录，把包内布局写进去会互相覆盖。
 
 ```powershell
 # 包内布局 = AppPaths::resolve_resources_root 期望的形状：

@@ -59,8 +59,8 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $OutputDir = Join-Path $ProjectRoot 'dist'
 
-# Staging must NOT be dist\: Vite writes the frontend there, and release.sh
-# collects artifacts from there too. `build\` is gitignored.
+# Staging must NOT be dist\: Vite writes the frontend there, and the publish
+# scripts collect artifacts from there too. `build\` is gitignored.
 $StageDir = Join-Path $ProjectRoot 'build\msix'
 $StageAppDir = Join-Path $StageDir 'app'
 

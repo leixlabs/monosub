@@ -1,12 +1,23 @@
 ﻿# Requires: Windows PowerShell 5.1 (in-box) or PowerShell 7, and the GitHub CLI.
 #
 # Usage:
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\release-msix.ps1 `
-#       -Tag v2.0.0 [-SkipBuild] [-UpdateTag]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\windows\publish-msix.ps1 `
+#       [-Tag v2.0.0] [-Version 2.0.0] [-UpdateTag]
 #
-# Builds the Windows MSIX and attaches it to a GitHub release.
+# Publishes an ALREADY BUILT MSIX to a GitHub release. It does not build anything:
+# the build step is build-msix.ps1 (or `bun run build:msix`), which writes
+# dist\monosub_<version>.0_x64.msix. Keeping build and publish apart means a failed
+# upload never costs another build, and a failed build never leaves a half-made
+# release on GitHub. The macOS side is split the same way (scripts/release/
+# release.sh builds, scripts/publish/publish.sh publishes).
 #
-# Two different releases exist for a tag and they are easy to confuse:
+# -Version picks which built package to publish. It defaults to the tauri.conf.json
+# version, but after a previous publish that file has already been bumped for the
+# next release, so pass -Version explicitly when publishing an older build (e.g.
+# the macOS DMG release already bumped 2.0.0 -> 2.0.1 and you are attached the
+# 2.0.0 MSIX). The MSIX in dist\ is the source of truth, not the config.
+#
+# Two different things exist for a tag and they are easy to confuse:
 #   * the git tag, which points at a commit
 #   * the GitHub release, which is the page that holds the assets
 # Moving a tag does not move the release, and adding an asset to a release does
@@ -22,11 +33,11 @@
 param(
     # `--tag` already binds to -Tag: PowerShell matches parameter names
     # case-insensitively and accepts any number of leading dashes. What it does
-    # NOT do is fold a hyphen *inside* the name, so `--skip-build` and
-    # `--update-tag` need the aliases below. (An alias that differs from its
-    # parameter only by case is itself an error: `ParameterNameConflictsWithAlias`.)
+    # NOT do is fold a hyphen *inside* the name, so `--update-tag` needs the alias
+    # below. (An alias that differs from its parameter only by case is itself an
+    # error: `ParameterNameConflictsWithAlias`.)
     [string]$Tag = '',
-    [Alias('skip-build')][switch]$SkipBuild,
+    [string]$Version = '',
     [Alias('update-tag')][switch]$UpdateTag
 )
 
@@ -49,55 +60,69 @@ Set-Location $ProjectRoot
 
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
     Write-Err 'gh CLI is required'
-    exit 1
+    Exit 1
 }
+
+Write-Host '==============================================='
+Write-Host 'MonoSub publish (MSIX) - upload to GitHub Releases'
+Write-Host '==============================================='
+Write-Step "Target repository: $ReleaseRepo"
 
 # --- 1. Version and tag ---------------------------------------------------
 $TauriConf = Get-Content -LiteralPath (Join-Path $ProjectRoot 'src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json
-$Version = $TauriConf.version
-if ($Version -notmatch '^\d+\.\d+\.\d+$') {
-    Write-Err "tauri.conf.json version '$Version' is not x.y.z"
-    exit 1
+$ConfVersion = $TauriConf.version
+if ($ConfVersion -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Err "tauri.conf.json version '$ConfVersion' is not x.y.z"
+    Exit 1
 }
-if ([string]::IsNullOrEmpty($Tag)) { $Tag = "v$Version" }
+
+if ([string]::IsNullOrEmpty($Version)) {
+    $Version = $ConfVersion
+} elseif ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Err "Version '$Version' is not x.y.z"
+    Exit 1
+} elseif ($Version -ne $ConfVersion) {
+    Write-Warn "Publishing $Version while tauri.conf.json says $ConfVersion"
+    Write-Warn '(the config was already bumped for the next release - using the package version)'
+}
 $ManifestVersion = "$Version.0"
 $MsixName = "monosub_${ManifestVersion}_x64.msix"
 $MsixPath = Join-Path $OutputDir $MsixName
 
-Write-Step "Version $Version, tag $Tag"
+if ([string]::IsNullOrEmpty($Tag)) { $Tag = "v$Version" }
 
 # The app's own update check compares its CARGO_PKG_VERSION against the release
 # tag, so a tag that is not exactly v<version> makes "Check for Updates" report
-# an update forever (see release.sh). The same rule applies to this path.
+# an update forever (see scripts/publish/publish.sh). Same rule here, and it is
+# checked against the package version - the thing users actually install.
 if ($Tag -ne "v$Version") {
-    Write-Err "Tag $Tag does not match the app version v$Version."
+    Write-Err "Tag $Tag does not match the package version v$Version."
     Write-Err 'The app compares its own version to the release tag, so these must agree.'
-    exit 1
+    Exit 1
 }
 
-# --- 2. Build ------------------------------------------------------------
-if (-not $SkipBuild) {
-    Write-Step '1. Building the MSIX ...'
-    & (Join-Path $ScriptDir 'build-msix.ps1')
-    if ($LASTEXITCODE -ne 0) {
-        Write-Err 'build-msix.ps1 failed'
-        exit 1
+Write-Step "Version $Version, tag $Tag"
+
+# --- 2. The artifact is the input ----------------------------------------
+# Publish consumes files; it never produces them. A missing package means the
+# build step has not run (or ran for a different version), and there is nothing
+# honest this script could upload.
+if (-not (Test-Path -LiteralPath $MsixPath)) {
+    Write-Err "No $MsixPath to publish."
+    Write-Err 'Build it first: powershell -File scripts\windows\build-msix.ps1'
+    $FromDist = @(Get-ChildItem -LiteralPath $OutputDir -Filter '*.msix' -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*.signed.msix' } |
+        ForEach-Object { $_.Name })
+    if ($FromDist.Count -gt 0) {
+        Write-Err ("dist\ has: " + ($FromDist -join ', '))
+        Write-Err 'Pass -Version <the one in that file name> to publish it instead.'
     }
-} else {
-    Write-Step '1. Skipping build (-SkipBuild)'
-    if (-not (Test-Path -LiteralPath $MsixPath)) {
-        Write-Err "No $MsixPath to publish"
-        exit 1
-    }
+    Exit 1
 }
 
 # The signed copy is a local-install artifact; the Store and GitHub get the
 # unsigned one, because a self-signed package cannot be submitted or trusted by
 # anyone who has not installed this machine's certificate.
-if (-not (Test-Path -LiteralPath $MsixPath)) {
-    Write-Err "Expected $MsixPath"
-    exit 1
-}
 
 # --- 3. Optional tag move ------------------------------------------------
 if ($UpdateTag) {
@@ -109,14 +134,14 @@ if ($UpdateTag) {
     if ($dirty.Count -gt 0) {
         Write-Err 'Working tree is dirty. Commit the packaging scripts first:'
         git status --short
-        exit 1
+        Exit 1
     }
 
     $OldSha = (@(git rev-parse --short $Tag 2>$null) | Select-Object -First 1)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($OldSha)) { $OldSha = '' }
     $NewSha = (@(git rev-parse --short HEAD) | Select-Object -First 1)
     if ([string]::IsNullOrEmpty($OldSha)) { $OldSha = '<none>' }
-    Write-Step "2. Moving $Tag from $OldSha to $NewSha ..."
+    Write-Step "Moving $Tag from $OldSha to $NewSha ..."
 
     if ($OldSha -eq $NewSha) {
         Write-Ok "$Tag already points at HEAD; nothing to move"
@@ -128,7 +153,7 @@ if ($UpdateTag) {
         if ($LASTEXITCODE -ne 0) {
             Write-Err 'No git committer identity configured; an annotated tag cannot be created.'
             Write-Err "Set one with: git config user.name '...' && git config user.email '...'"
-            exit 1
+            Exit 1
         }
 
         # An annotated tag is what `gh release create` produces and what the
@@ -136,9 +161,9 @@ if ($UpdateTag) {
         # `git tag -f`, which would turn it into a lightweight tag.
         git tag -d $Tag > $null 2>&1
         git tag -a $Tag -m "MonoSub $Version"
-        if ($LASTEXITCODE -ne 0) { Write-Err "Could not create tag $Tag"; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Write-Err "Could not create tag $Tag"; Exit 1 }
         git push origin "refs/tags/$Tag" --force
-        if ($LASTEXITCODE -ne 0) { Write-Err "Could not push tag $Tag"; exit 1 }
+        if ($LASTEXITCODE -ne 0) { Write-Err "Could not push tag $Tag"; Exit 1 }
         Write-Ok "$Tag now points at $NewSha"
         Write-Warn 'Anyone who already fetched the old tag keeps the old commit until they re-fetch.'
     }
@@ -146,30 +171,30 @@ if ($UpdateTag) {
     $TagSha = (@(git rev-parse --short $Tag 2>$null) | Select-Object -First 1)
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrEmpty($TagSha)) {
         Write-Err "Tag $Tag does not exist. Run with -UpdateTag to create it."
-        exit 1
+        Exit 1
     }
-    Write-Step "2. Leaving $Tag where it is ($TagSha)"
+    Write-Step "Leaving $Tag where it is ($TagSha)"
 }
 
 # --- 4. Upload -----------------------------------------------------------
 # `--clobber` replaces an asset of the same name, so re-running after a fix does
 # not fail on the second upload. The release itself must already exist: creating
 # one here would hide the DMG that belongs to the same version.
-Write-Step "3. Uploading $MsixName to release $Tag ..."
+Write-Step "Uploading $MsixName to release $Tag ..."
 gh release view $Tag --repo $ReleaseRepo > $null 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Release $Tag does not exist in $ReleaseRepo."
-    Write-Err 'Create it first, or publish through the normal release flow.'
-    exit 1
+    Write-Err 'Create it first (scripts/publish/publish.sh on macOS), or run the normal release flow.'
+    Exit 1
 }
 
 gh release upload $Tag $MsixPath --repo $ReleaseRepo --clobber
-if ($LASTEXITCODE -ne 0) { Write-Err "Uploading $MsixName failed"; exit 1 }
+if ($LASTEXITCODE -ne 0) { Write-Err "Uploading $MsixName failed"; Exit 1 }
 
 # --- 5. Refresh the notes ------------------------------------------------
 # The asset table in the existing notes only lists the DMG. Appending rather than
 # rewriting keeps the hand-written sections (macOS first launch, etc.) intact.
-Write-Step '4. Updating the release notes with the Windows package ...'
+Write-Step 'Updating the release notes with the Windows package ...'
 $CurrentNotes = (& gh release view $Tag --repo $ReleaseRepo --json body --jq '.body') -join "`n"
 
 # When the tag moved, the "Built from commit" line still names the old commit —
@@ -206,13 +231,13 @@ certificate, so Windows users should install MonoSub from the Store instead.
 
 "@
     gh release edit $Tag --repo $ReleaseRepo --notes $NewNotes
-    if ($LASTEXITCODE -ne 0) { Write-Err 'Updating the release notes failed'; exit 1 }
+    if ($LASTEXITCODE -ne 0) { Write-Err 'Updating the release notes failed'; Exit 1 }
     Write-Ok 'Release notes updated'
 }
 
 Write-Ok "Done: https://github.com/$ReleaseRepo/releases/tag/$Tag"
 
 # Explicit: a .ps1 that ends normally leaves $LASTEXITCODE at whatever its last
-# native command returned, and the caller (`bun run build:msix`, or a CI step)
+# native command returned, and the caller (`bun run publish:msix`, or a CI step)
 # reads that value.
 exit 0

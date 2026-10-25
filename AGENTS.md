@@ -181,24 +181,26 @@ monosub/
 │
 ├── scripts/
 │   ├── build/
+│   │   ├── build-macos-app.sh   # (release, macOS) build+package → dist/MonoSub-<v>.dmg
 │   │   ├── fetch-audiocpp.sh    # Pinned download + SHA256 of CLI + VAD model
 │   │   ├── fetch-llamacpp.sh    # Pinned download + SHA256 of llama-server + dylibs
 │   │   ├── fetch-ytdlp.sh       # Pinned download + SHA256 of yt-dlp + its licences
 │   │   ├── prepare-ffmpeg.sh
 │   │   └── prepare-resources.sh # Runs the fetches, then regenerates MANIFEST
-│   ├── release/
-│   │   ├── build-macos-app.sh
-│   │   ├── sign-app.sh          # Signs bundled binaries, then the app
-│   │   ├── bump-version.sh
-│   │   └── release.sh
+│   ├── release/                 # (release) local artifacts only — never touches GitHub
+│   │   ├── release.sh           # Build + collect + validate the DMG into dist/
+│   │   └── sign-app.sh          # Signs bundled binaries, then the app
+│   ├── publish/                 # (publish) dist/ → GitHub Releases — never builds
+│   │   └── publish.sh
 │   ├── windows/                 # PowerShell (Windows-only; see the Store section)
 │   │   ├── prepare-resources.ps1 # Fetches the Windows binaries, regenerates MANIFEST
-│   │   ├── build-msix.ps1        # → dist\monosub_<version>.0_x64.msix
+│   │   ├── build-msix.ps1        # (release) → dist\monosub_<version>.0_x64.msix
 │   │   ├── check-msix-package.ps1 # spec §5.7 checklist over the built package
 │   │   ├── add-execution-alias.ps1 # Declares monosub-cli's App Execution Alias
-│   │   └── release-msix.ps1      # Uploads the MSIX to a GitHub release
+│   │   └── publish-msix.ps1      # (publish) uploads the MSIX to a GitHub release
 │   └── utils/
 │       ├── version-utils.sh
+│       ├── bump-version.sh      # Patch bump + sync; called by publish, never by build
 │       ├── check-i18n-keys.mjs  # Asserts both locales match en.json
 │       └── clean-temp-files.sh
 │
@@ -302,11 +304,29 @@ Three traps when writing or running a scenario:
 bun run build         # Frontend only (tsc -b && vite build)
 bun run tauri build   # Full native bundle (runs `build` via beforeBuildCommand)
 bun run build:dmg     # macOS DMG + signing (scripts/build/build-macos-app.sh)
+bun run release:dmg   # Same, wrapped with version/artifact checks (scripts/release/release.sh)
+bun run publish:macos # Upload dist/ to GitHub Releases (scripts/publish/publish.sh)
 bun run build:msix    # Windows MSIX for the Microsoft Store (Windows 11 only)
+bun run publish:msix  # Attach the MSIX to an existing release (Windows only)
 ```
 
 There is a single build flow — the old `lite`/`full` split is gone, because there is
 no Python runtime to bundle.
+
+#### Release vs publish
+
+Building and publishing are two separate scripts, and keeping them apart is the
+point: `release` produces artifacts locally (`dist/`), `publish` uploads whatever is
+in `dist/` to GitHub. A failed build must never leave a tagged release with no
+assets, and a failed upload must never cost another 15-minute build.
+
+- `scripts/release/release.sh` — build, package, sign-check; no `gh`, no network.
+- `scripts/publish/publish.sh` — `gh release create/upload`, notes, `--recreate` /
+  `--add-assets`; never builds. Takes `--version` because the version in
+  `tauri.conf.json` is the *next* release's once a publish has bumped it.
+- The patch bump (`scripts/utils/bump-version.sh`) happens **after** a successful
+  publish, never before a build: the tag must equal the version baked into the app,
+  so bumping first yields `MonoSub-2.0.1.dmg` under tag `v2.0.0`.
 
 #### Windows / Microsoft Store
 
@@ -315,26 +335,26 @@ Windows target from macOS (MSVC link + WebView2 SDK), and `winapp` requires Wind
 See `docs/tech-spec/microsoft-store-publish-spec.md` for the submission flow.
 
 Windows scripts live in `scripts/windows/`, kept separate from the macOS flows in
-`scripts/build/` and `scripts/release/`. Do not merge them: the toolchains, the
-artifact formats (DMG vs MSIX) and the signing models all differ, so a change made
-for one platform in a shared file can silently break the other. `scripts/utils/`
-is the only shared code. They are **PowerShell**, not bash: the whole Windows path
-can only run on Windows and every tool it drives (winapp, `tauri.cmd`, cargo,
-System32 `curl.exe`) is a native Windows process, so one runtime means one path
+`scripts/build/`, `scripts/release/` and `scripts/publish/`. Do not merge them: the
+toolchains, the artifact formats (DMG vs MSIX) and the signing models all differ, so
+a change made for one platform in a shared file can silently break the other.
+`scripts/utils/` is the only shared code. They are **PowerShell**, not bash: the whole
+Windows path can only run on Windows and every tool it drives (winapp, `tauri.cmd`,
+cargo, System32 `curl.exe`) is a native Windows process, so one runtime means one path
 convention and one error model. `scripts/utils/version-utils.sh` stays bash because
 macOS uses it.
 
 ```powershell
 powershell -File scripts\windows\prepare-resources.ps1   # Windows binaries into resources\bin
-powershell -File scripts\windows\build-msix.ps1          # → dist\monosub_<version>.0_x64.msix
-powershell -File scripts\windows\release-msix.ps1 -Tag v2.0.0   # upload to a GitHub release
+powershell -File scripts\windows\build-msix.ps1          # (release) → dist\monosub_<version>.0_x64.msix
+powershell -File scripts\windows\publish-msix.ps1        # (publish) upload to an existing GitHub release
 ```
 
 `bun run build:msix` is the same build and forwards its flags (`bun run build:msix
---sign`, `--skip-resources`). The scripts take PowerShell parameters (`-Sign`,
-`-SkipResources`, `-Tag`); leading dashes and case do not matter, but a hyphen
-*inside* a name does, so `-SkipResources` and `--skip-resources` are both declared
-(an `[Alias]`).
+--sign`, `--skip-resources`); `bun run publish:msix` is the upload. The scripts take
+PowerShell parameters (`-Sign`, `-SkipResources`, `-Tag`, `-Version`); leading dashes
+and case do not matter, but a hyphen *inside* a name does, so `-SkipResources` and
+`--skip-resources` are both declared (an `[Alias]`).
 
 Six things about the Windows path that are easy to get wrong:
 
