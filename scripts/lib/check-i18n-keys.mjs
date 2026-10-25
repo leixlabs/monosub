@@ -3,7 +3,7 @@
 // (docs/tech-spec/tasks.md P1-20). Exits non-zero and prints the offending keys
 // per file when a locale is missing or carrying extra keys.
 //
-// Usage: node scripts/utils/check-i18n-keys.mjs
+// Usage: node scripts/lib/check-i18n-keys.mjs
 
 import fs from 'node:fs';
 import path from 'node:path';

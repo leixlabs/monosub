@@ -86,7 +86,7 @@ impl Default for TranscribeOpts {
         Self {
             language: "auto".to_string(),
             model_id: None,
-            backend: Backend::Metal,
+            backend: Backend::platform_default(),
             vad_model_id: None,
             word_timestamps: false,
         }
@@ -515,10 +515,15 @@ async fn transcribe_batch(
     .await
     {
         Ok(results) => Ok(results),
-        Err(err @ EngineError::Failed { .. }) if backend == Backend::Metal && is_backend_failure(&err) => {
+        // Only a failed `metal` run gets one CPU retry: it is the one backend
+        // where the same binary carries both paths. A `cuda` failure is reported
+        // as-is — Windows bundles no CPU build to retry on, and silently dropping
+        // to the slow path is worse than an error the user can act on.
+        Err(err @ EngineError::Failed { .. }) if backend.has_cpu_fallback() && is_backend_failure(&err) => {
             tracing::warn!(
                 error = %err,
-                "metal backend failed; retrying once on cpu"
+                "{} backend failed; retrying once on cpu",
+                backend
             );
             // Announce only if the notice itself would not move progress back.
             if floor.load(std::sync::atomic::Ordering::SeqCst) <= done_before {
@@ -928,12 +933,18 @@ fn parse_metric_id(line: &str) -> Option<String> {
 }
 
 /// A `metal` run that failed for backend reasons is worth one CPU retry.
+///
+/// `cuda` is matched too so a GPU-level failure is reported with the same
+/// wording, but nothing retries it — see the retry gate above.
 fn is_backend_failure(err: &EngineError) -> bool {
     let EngineError::Failed { stderr_tail, message } = err else {
         return false;
     };
     let haystack = format!("{}\n{}", message, stderr_tail).to_lowercase();
-    haystack.contains("metal") || haystack.contains("backend") || haystack.contains("gpu")
+    haystack.contains("metal")
+        || haystack.contains("cuda")
+        || haystack.contains("backend")
+        || haystack.contains("gpu")
 }
 
 /// Physical cores, used for `--threads`.

@@ -136,13 +136,15 @@ pub fn language_profile_from_wire(value: Option<&str>) -> LanguageProfile {
 /// task's to edit; `MemoryBudget::label` is the same idea. Canonical on purpose:
 /// the accepted aliases (`zh-en`, `multi`) must be normalised before they are
 /// written to `settings.json`, or the CLI would see a spelling the UI never uses.
-/// Same rule as `transcribe::resolve_backend`: only an explicit `cpu` forces
-/// CPU, everything else is Metal on macOS and CPU elsewhere.
+/// Same rule as `transcribe::resolve_backend`: an explicit value wins, otherwise
+/// the platform's own backend — Metal on macOS, CUDA on Windows (the only backend
+/// the Windows package bundles).
 pub fn backend_from_device(device: Option<&str>) -> Backend {
     match device.map(|value| value.trim().to_lowercase()) {
         Some(value) if value == "cpu" => Backend::Cpu,
-        _ if cfg!(target_os = "macos") => Backend::Metal,
-        _ => Backend::Cpu,
+        Some(value) if value == "cuda" => Backend::Cuda,
+        Some(value) if value == "metal" => Backend::Metal,
+        _ => Backend::platform_default(),
     }
 }
 
@@ -393,14 +395,10 @@ mod tests {
         assert_eq!(language_profile_from_wire(None), LanguageProfile::Mandarin);
 
         assert_eq!(backend_from_device(Some("cpu")), Backend::Cpu);
-        assert_eq!(
-            backend_from_device(Some("metal")),
-            if cfg!(target_os = "macos") {
-                Backend::Metal
-            } else {
-                Backend::Cpu
-            }
-        );
+        assert_eq!(backend_from_device(Some("metal")), Backend::Metal);
+        assert_eq!(backend_from_device(Some("cuda")), Backend::Cuda);
+        assert_eq!(backend_from_device(None), Backend::platform_default());
+        assert_eq!(backend_from_device(Some("auto")), Backend::platform_default());
     }
 
     #[test]

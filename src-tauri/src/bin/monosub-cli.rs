@@ -341,7 +341,9 @@ async fn run_one(
             .cloned()
             .unwrap_or_else(|| "sensevoice_small_q8".to_string()),
         vad_model_id: None,
-        backend: monosub::engine::Backend::Metal,
+        // The platform's own backend, not a hard-coded Metal: on Windows the
+        // bundled engine is the CUDA build and `metal` does not exist there.
+        backend: monosub::engine::Backend::platform_default(),
         // The saved plan's own answer, not a re-derivation: the plan was solved
         // against `require_word_timestamps`, and a plan that cannot align still
         // runs (with estimated timing) — the engine decides from the model, this

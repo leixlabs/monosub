@@ -1,208 +1,144 @@
-# Scripts 说明文档
+# scripts/
 
-本文档介绍了 `scripts` 目录下的各种自动化工具集合：构建、本地开发环境配置、应用签名，
-以及**把产物发布到 GitHub Releases**。
+发布一条 MonoSub 版本的全部自动化：拉取运行时二进制、构建产物、校验、上传到
+GitHub Releases。
 
-**构建（release）和发布（publish）是两件事、两个脚本。** 构建只在本机产出可发布的文件，
-发布只把 `dist/` 里已有的文件传上 GitHub。理由见下一节。
+## 一种语言，两个平台
+
+这里所有脚本都是 Node（ESM，`>=20`，`package.json` 本来就要求）。不再有
+bash / PowerShell 的分裂。
+
+以前是 macOS 一套 bash、Windows 一套 PowerShell。那带来每个流程的两份拷贝、
+一个让 bash 入口把控制权交给 PowerShell 的桥，以及一类只存在于接缝处的 bug：
+传给 PowerShell 的 POSIX 路径、bash 执行不了的 `.cmd` shim、被 `-Command` 吃掉
+的 `-File`。Node 在两个平台上都已经是这个项目的硬性依赖，所以脚本改为在内部
+分支：
+
+```js
+const platform = hostPlatform();   // 'macos' | 'windows'，其余直接 die
+if (platform === 'macos')   ...
+else if (platform === 'windows') ...
+```
+
+两个平台真的需要不同逻辑时，各自一个函数放在同一个文件里；需要相同逻辑时
+（校验和、资源清单、release notes、版本自增）就是共享的，只调一次。
 
 ## 目录结构
 
-- `build/`：**macOS** 构建资源准备（audio.cpp CLI、Silero VAD、FFmpeg）与核心 dmg 打包。
-- `release/`：**macOS** 发布构建 —— 跑构建、收集并校验 DMG，产物落到 `dist/`。不联网。
-- `publish/`：把 `dist/` 里的产物发到 GitHub Releases。**不构建任何东西。**
-- `windows/`：**Windows / Microsoft Store** 全套脚本（PowerShell），与 macOS 完全分开维护（见下）。
-- `setup/`：搭建或清理开发环境，一键安装工具等。
-- `utils/`：版本号读写与自增、i18n 键检查、清理等（两个平台共用）。
+```
+scripts/
+├── lib/                    共享代码 + 几个独立小工具
+│   ├── log.mjs             日志（只在 TTY 上着色）
+│   ├── platform.mjs        宿主平台、target triple、.exe 后缀
+│   ├── paths.mjs           项目根、dist/、resources/、暂存目录、tauri CLI
+│   ├── shell.mjs           run / capture / which，处理 Windows 的 .cmd
+│   ├── fs.mjs              拷贝、chmod、UTF-8（无 BOM）写入、临时目录
+│   ├── net.mjs             带重试的下载、SHA-256 校验
+│   ├── archive.mjs         zip 读取/解包（纯 JS）+ tar.gz
+│   ├── version.mjs         版本读取 / 同步 / 自增
+│   ├── xml.mjs             AppxManifest 的最小化编辑
+│   ├── bump-version.mjs    独立工具：自增版本号
+│   ├── check-i18n-keys.mjs 独立工具：i18n key 检查
+│   └── clean-temp-files.mjs 独立工具：清理历史遗留
+│
+├── release/                产出可发布的产物 —— 只在本机跑，不联网
+│   ├── release.mjs         入口：读版本 → 打包 → 核对 dist/
+│   ├── package.mjs         构建产物（macOS → DMG，Windows → MSIX）
+│   ├── prepare-resources.mjs 拉取随包的运行时二进制
+│   ├── verify.mjs          校验产物（DMG / MSIX）
+│   └── bundle-ffmpeg.mjs   macOS 专用：重链 ffmpeg 及其 dylib
+│
+└── publish/
+    └── publish.mjs         dist/ → GitHub Releases —— 从不构建
+```
 
-> macOS 与 Windows 的构建/发布脚本不共用文件：两边的工具链、产物格式（DMG vs MSIX）
-> 和签名模型都不同，混在一个目录里改一处就可能悄悄改坏另一平台。macOS 侧是 bash，
-> Windows 侧是 PowerShell —— 两个平台的脚本语言也刻意不统一，理由见第 4 节。
-> 唯一的接口是 `dist/`：两个平台的产物都落在那里，`publish` 只认文件，不认平台。
+`build/` 曾经和 `release/` 分开，实际上两者只是同一个流程的两段（打包 / 核对
+产物），所以合成一个 `release/`。真正独立的是 `publish/`：它只上传，不构建。
 
----
+## 两步
 
-## 一条铁律：构建与发布分开
-
-| | 谁做 | 做什么 | 不做什么 | 失败了怎么办 |
-| --- | --- | --- | --- | --- |
-| **release** | `scripts/release/release.sh`（macOS）<br>`scripts/windows/build-msix.ps1`（Windows） | 版本对齐、编译、打包、签名校验、产物进 `dist/` | 不调 `gh`、不联网、不改版本号 | 修好再重跑，GitHub 上不会留下半成品 |
-| **publish** | `scripts/publish/publish.sh`（macOS）<br>`scripts/windows/publish-msix.ps1`（Windows） | 生成 release notes、创建/更新 release、上传资产、成功后自增版本号 | 不编译、不打包、不签名 | 直接重跑，不用再等十几分钟构建 |
-
-拆开的好处是每一步都能单独重跑：DMG 构建要十几分钟，上传只是一次 HTTP；构建失败时
-不该在 GitHub 上留下一个只有 tag 没有资产的 release，上传失败时也不该逼你重新构建。
-
-**版本自增放在 publish 成功之后**（`scripts/utils/bump-version.sh`），不是 release 里。
-原因是 tag 必须严格等于打进 App 的版本号：App 的「检查更新」拿自身 `CARGO_PKG_VERSION`
-跟 release tag 比。构建前自增就会让 DMG 文件名比 tag 大一号（线上真出过
-tag `v2.0.0` / 产物 `MonoSub-2.0.1.dmg` 这种事）。
-
----
-
-## 常用命令卡片
-
-### 1. 📦 macOS：构建发布产物（release）
+发布故意是两个命令，因为构建要十几分钟，上传只是一次 HTTP 调用：
 
 ```bash
-# 方式一：使用 package.json 的快捷命令
-bun run release:dmg
-
-# 方式二：直接执行脚本
-./scripts/release/release.sh
-
-# 已经构建过，只想核对 dist/ 里的产物
-./scripts/release/release.sh --skip-build
+node scripts/release/release.mjs      # 1. 构建 + 打包 + 校验 → dist/
+node scripts/publish/publish.mjs      # 2. 把 dist/ 传上 GitHub Releases
 ```
 
-它读取版本号 → 调用 `build/build-macos-app.sh`（准备资源 → 前端构建 → Tauri 打包 →
-签名/分发校验）→ 把 DMG 收集到 `dist/`，最后打印「下一步发布用什么命令」。
-**这一步不发任何东西到 GitHub。**
+构建失败不该在 GitHub 上留下半成品 release；上传失败（网络、权限、release 已存在）
+也不该逼你重新构建。两步都能单独重跑，中间只靠 `dist/` 衔接。
 
-自 v2.0 起，推理引擎为随包分发的 `audiocpp_cli` 单文件二进制 + 内置 Silero VAD 模型，
-不再有 Python/uv 运行时，因此也**不再区分 Lite / Full 构建模式**（旧参数 `--type=`
-会被忽略并提示）。
+两步都不自增版本号。release tag 必须等于打进 App 的版本号 —— App 的「检查更新」
+拿自己的 `CARGO_PKG_VERSION` 跟 tag 比 —— 所以自增发生在发布**成功之后**
+（`publish.mjs` 调 `lib/bump-version.mjs`，可用 `--skip-bump` 关掉）。
+在构建前自增，就是当初 `tag v2.0.0` 配 `MonoSub-2.0.1.dmg` 的成因。
 
-`prepare-resources.sh` 是构建前唯一的资源准备入口，它会清理已废弃的 Python/uv 目录、
-准备 FFmpeg，再调用 `fetch-audiocpp.sh` 拉取并校验 `audiocpp_cli` 与
-`silero_vad_16k.safetensors`。脚本可重复运行。
+## 命令一览
 
-✨ *DMG 落在根目录的 `dist/` 下，文件名形如 `MonoSub-2.0.0.dmg`。*
+`package.json` 里的封装：
 
-### 2. 🚀 macOS：发布到 GitHub（publish）
-
-```bash
-bun run publish:macos
-# 等价于 ./scripts/publish/publish.sh
+```
+bun run release           # 读版本 → 打包 → 核对 dist/
+bun run release:package   # 只打包（不核对 dist/）
+bun run release:resources # 只拉运行时二进制
+bun run release:verify    # 校验一个已有产物
+bun run publish           # node scripts/publish/publish.mjs
+bun run publish:macos     # ... --platform macos
+bun run publish:msix      # ... --platform windows
 ```
 
-默认把 `dist/` 里**当前版本**的所有产物（`*.dmg`，以及同时存在的 `*.msix`）一起上传。
-`*.signed.msix` 会被跳过：那是只用于本机安装验证的副本。
+每个脚本都认 `-h` / `--help`：
 
-| 参数 | 作用 |
-| --- | --- |
-| `--version 2.0.0` | 明确指定发布哪个已构建版本（默认取 `tauri.conf.json`） |
-| `--recreate` | 已有同名 release：删除后重建（换产物时用） |
-| `--add-assets` | 已有同名 release：只补资产，不改 notes、不自增版本 |
-| `--skip-bump` | 发布成功后不自增版本号 |
-| `--draft` | 建为草稿（草稿不自增版本号） |
-| `--asset <path>` | 只上传指定文件（可重复；给定时不再扫描 `dist/`） |
-| `--notes-file <path>` | 用文件内容作为 release notes（默认自动生成） |
+| 脚本 | 参数 |
+|------|------|
+| `release/release.mjs` | `--skip-build`（`--skip-package` 是旧名）只核对 `dist/` 已有产物 |
+| `release/package.mjs` | `--skip-resources` 复用 `resources/`；`--sign` 额外产出 dev-signed 副本（仅 Windows） |
+| `release/prepare-resources.mjs` | 无参数，幂等 |
+| `release/verify.mjs` | `<path-to-dmg-or-msix>`，失败即非零退出 |
+| `publish/publish.mjs` | `--version` `--platform` `--recreate` `--add-assets` `--skip-bump` `--draft` `--asset` `--notes-file` |
+| `lib/bump-version.mjs` | 无参数；发布成功后由 `publish.mjs` 调用 |
 
-> **注意**：依赖官方的 `gh` CLI，并已执行 `gh auth login`。目标仓库默认
-> `leixlabs/monosub`，可用环境变量 `RELEASE_REPO` 覆盖。
+产物命名（两边都不一样，别凭印象）：
 
-默认行为是「先构建再发布」变成两步之后，一次完整发版是：
+- macOS → `dist/MonoSub-<version>.dmg`
+- Windows → `dist/monosub_<version>.0_x64.msix`
+  （`*.signed.msix` 只是本地 `Add-AppxPackage` 用的副本，不算发布产物）
 
-```bash
-./scripts/release/release.sh        # 1. 构建 + 本地校验，十几分钟
-./scripts/publish/publish.sh        # 2. 上传，几秒
-```
+## Windows 只走 CUDA
 
-### 3. 🪟 Windows：构建 MSIX（Microsoft Store）
+CPU 推理太慢，不能出货，所以 Windows 包拉的是两个引擎的 **CUDA** 构建，里面
+没有 CPU 版本：
 
-规范见 `docs/tech-spec/microsoft-store-publish-spec.md`。**必须在 Windows 11 x64 上运行**：
-Tauri 不支持从 macOS 交叉编译 Windows 目标（MSVC 链接 + WebView2 SDK）。
+| 引擎 | 包 | 落位 |
+|------|-----|------|
+| audio.cpp v0.9.1 | `...-windows-x64-cuda13.3.zip` + 同名 `cudart` 包 | `bin\audiocpp_cli\` |
+| llama.cpp b11696 | `...-win-cuda-13.4-x64.zip` + 同名 `cudart` 包 | `bin\llama-server\` |
 
-Windows 侧脚本是 **PowerShell**（`.ps1`），不是 bash：这条链路只能在 Windows 上跑，
-它驱动的每个工具（winapp、`tauri.cmd`、cargo、System32 的 `curl.exe`）都是原生 Windows
-进程，用同一个运行时就不必在 bash 与 PowerShell 之间来回转义路径。Git Bash 不是必需的。
+每个引擎放**各自的目录**：两者都带一个 `ggml-cuda.dll`，却是针对不同 CUDA
+toolkit 编的，平铺在一个 `bin\` 里时后装的会静默覆盖先装的。Windows 解析进程
+导入时先查可执行文件所在目录，所以 `.exe` 挨着自己的 DLL 就够了 —— 不需要 PATH
+或 manifest。`engine::cli::find_executable` 会再探一层 `<dir>/<binary-name>/`，
+`Backend::platform_default()` 在 Windows 上返回 `Cuda`，都是同一件事的两半。
 
-```powershell
-# 1) 准备 Windows 运行时二进制（audiocpp_cli / llama-server / ffmpeg / yt-dlp + DLL）
-powershell -File scripts\windows\prepare-resources.ps1
+CUDA 13.x 意味着 Pascal 及更早（GTX 10 系以下）被排除 —— NVIDIA 在 CUDA 13 里
+移除了这些架构 —— 而它是覆盖 Blackwell（RTX 50 系，sm_120）的版本，CUDA 12.x
+不覆盖。机器上没有 NVIDIA 显卡时，`prepare-resources.mjs` 只警告不中止。
 
-# 2) 构建并打包 MSIX（默认不签名，产出可直接提交 Partner Center）
-powershell -File scripts\windows\build-msix.ps1
+macOS 不受影响：那边 audio.cpp 是静态链接，llama 的 dylib 本来就平铺在 `bin/`，
+没有冲突，后端仍是 `metal`。
 
-# 本地安装验证：额外生成一份开发证书签名的副本
-powershell -File scripts\windows\build-msix.ps1 -Sign
-```
+## 加一个平台
 
-也可以走 `bun`：`bun run build:msix`（参数同样会透传，例如
-`bun run build:msix --sign`、`bun run build:msix --skip-resources`）。
-这一步就是 Windows 侧的 release：产物进 `dist\`，不碰 GitHub。
+1. 给需要的脚本加分支 —— `platform.mjs` 已经会拒绝未知宿主，三个 release 脚本
+   遇到不认识的平台会 `die` 并给出明确信息，而不是跑错的那半边。
+2. `prepare-resources.mjs` 末尾那段共享尾巴（Silero VAD、yt-dlp 许可证、
+   `MANIFEST.txt`）保持共享。
+3. 在 `release.mjs` 和 `publish.mjs` 里加上该平台的产物扩展名。
 
-产物在 `dist\`：
+## 约定
 
-| 文件 | 用途 |
-| --- | --- |
-| `monosub_<version>.0_x64.msix` | 上传 Partner Center / GitHub。**商店会重新签名**，自签名包会被拒绝 |
-| `monosub_<version>.0_x64.signed.msix` | 仅用于本机 `Add-AppxPackage` 验证，不会被发布 |
-
-`check-msix-package.ps1` 会在构建末尾自动跑一遍规范 §5.7 的检查清单（包内二进制、DLL、
-四段式版本号、x64 架构、WebView2 依赖、入口点、`runFullTrust`，以及 `monosub-cli` 的
-App Execution Alias 是否真的挂在 `<Application>\<Extensions>` 下），缺任何一项都会让构建失败。
-
-### 4. 🚀 Windows：发布 MSIX 到 GitHub（publish）
-
-```powershell
-# 上传 dist\ 里的 MSIX，并在 release notes 里补一张 Windows 表
-powershell -File scripts\windows\publish-msix.ps1
-
-# 显式指定发布哪个已构建版本（tauri.conf.json 已被上次发布自增过时用这个）
-powershell -File scripts\windows\publish-msix.ps1 -Version 2.0.0
-
-# 顺手把 tag 重写到当前 HEAD（见下面的警告）
-powershell -File scripts\windows\publish-msix.ps1 -Tag v2.0.0 -UpdateTag
-```
-
-也可以走 `bun run publish:msix`。这个脚本**不构建**：`dist\` 里没有对应版本的 MSIX 时，
-它会直接失败并告诉你先跑 `build-msix.ps1`。目标 release 必须已经存在（通常由 macOS 侧
-的 `publish.sh` 创建），因为在这里另建一个会盖掉同一版本下的 DMG。
-
-`-UpdateTag` 会把 tag 重写到 HEAD 并强制推送 —— 这是对已发布 ref 的历史改写，
-只有在 release 说明里写着 "built from <sha>"、而产物实际来自更新的提交时才需要。
-不加这个参数时脚本只上传资产、不动 tag。
-
-> 注意：`gh release create` 创建的 release 与 git tag 是两回事。移动 tag 不会移动
-> release 页面，给 release 加资产也不会改变 tag。
-
-### 5. 两个平台发同一个版本
-
-构建阶段不动版本号，所以两个平台的产物可以同版本先各建各的；版本号是**发布成功之后**
-才自增的，因此 Windows 的构建要在 macOS 的 publish 之前完成：
-
-```bash
-# 1) macOS 构建（产物 MonoSub-2.0.0.dmg）
-./scripts/release/release.sh
-```
-
-```powershell
-# 2) Windows 构建（产物 monosub_2.0.0.0_x64.msix），此时 tauri.conf.json 还是 2.0.0
-powershell -File scripts\windows\build-msix.ps1
-```
-
-```bash
-# 3) macOS 发布：创建 release v2.0.0 并上传 DMG，随后版本号变成 2.0.1
-#    （如果这时 dist/ 里已经有 MSIX，它会被一起传上去，第 4 步就可以跳过）
-./scripts/publish/publish.sh
-```
-
-```powershell
-# 4) Windows 补资产：产物是 2.0.0，用 -Version 明确指定，别用配置里的 2.0.1
-powershell -File scripts\windows\publish-msix.ps1 -Version 2.0.0
-```
-
-`publish` 认的是**产物版本**，不是配置版本 —— 配置文件在上一轮发布结束时已经被改成
-下一版了。发错了版本也不需要重新构建：`--recreate`（macOS）或 `-Version`（Windows）
-可以重来。
-
----
-
-## 额外进阶
-
-* 如果打包或交叉编译的过程中发生报错、依赖缓存不对，可以使用通用的清理工具：
-```bash
-bun run clean        # (或者直接 rm -rf dist/* target/*)
-./scripts/utils/clean-temp-files.sh
-```
-
-* 版本号三处（`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`package.json`）
-  的读写与自增都在 `scripts/utils/` 里：`version-utils.sh` 提供函数，
-  `bump-version.sh` 是命令行入口（由 publish 在发版成功后调用）。
-
-* 如果在新设的系统环境做开发、跑不动项目代码的时候，请执行：
-```bash
-./scripts/setup/verify-setup.sh
-```
-该脚本会智能识别你是否漏装了某些必要依赖环境（例如 Rust，FFmpeg）。
+- **一切都 pin。** 每个下载都带 SHA-256。空 pin 表示「还没算」，会跳过校验，
+  而不是让一个本该可行的构建失败。
+- **幂等。** 产物已匹配时重跑是空操作，所以构建可以每次都调拉取脚本。
+- **失败要响。** 缺 DLL、校验和不匹配都中止；绝不让一个只在用户运行时才坏的
+  包发出去。
+- **不要手改 `resources/MANIFEST.txt`** —— 它是生成的。

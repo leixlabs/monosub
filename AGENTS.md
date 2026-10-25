@@ -179,30 +179,25 @@ monosub/
 │   ├── Cargo.toml
 │   └── tauri.conf.json
 │
-├── scripts/
-│   ├── build/
-│   │   ├── build-macos-app.sh   # (release, macOS) build+package → dist/MonoSub-<v>.dmg
-│   │   ├── fetch-audiocpp.sh    # Pinned download + SHA256 of CLI + VAD model
-│   │   ├── fetch-llamacpp.sh    # Pinned download + SHA256 of llama-server + dylibs
-│   │   ├── fetch-ytdlp.sh       # Pinned download + SHA256 of yt-dlp + its licences
-│   │   ├── prepare-ffmpeg.sh
-│   │   └── prepare-resources.sh # Runs the fetches, then regenerates MANIFEST
-│   ├── release/                 # (release) local artifacts only — never touches GitHub
-│   │   ├── release.sh           # Build + collect + validate the DMG into dist/
-│   │   └── sign-app.sh          # Signs bundled binaries, then the app
-│   ├── publish/                 # (publish) dist/ → GitHub Releases — never builds
-│   │   └── publish.sh
-│   ├── windows/                 # PowerShell (Windows-only; see the Store section)
-│   │   ├── prepare-resources.ps1 # Fetches the Windows binaries, regenerates MANIFEST
-│   │   ├── build-msix.ps1        # (release) → dist\monosub_<version>.0_x64.msix
-│   │   ├── check-msix-package.ps1 # spec §5.7 checklist over the built package
-│   │   ├── add-execution-alias.ps1 # Declares monosub-cli's App Execution Alias
-│   │   └── publish-msix.ps1      # (publish) uploads the MSIX to a GitHub release
-│   └── utils/
-│       ├── version-utils.sh
-│       ├── bump-version.sh      # Patch bump + sync; called by publish, never by build
-│       ├── check-i18n-keys.mjs  # Asserts both locales match en.json
-│       └── clean-temp-files.sh
+├── scripts/                     # Node (ESM); one language, platform branches inside
+│   ├── lib/                     # shared helpers + three standalone tools
+│   │   ├── log.mjs  platform.mjs  paths.mjs  shell.mjs  fs.mjs
+│   │   ├── net.mjs              # Pinned download + SHA256 with retries
+│   │   ├── archive.mjs          # zip reader/extractor (pure JS) + tar.gz
+│   │   ├── version.mjs          # tauri.conf.json is the source of truth
+│   │   ├── xml.mjs              # minimal AppxManifest editing
+│   │   ├── bump-version.mjs     # Patch bump + sync; called by publish, never by build
+│   │   ├── check-i18n-keys.mjs  # Asserts both locales match en.json
+│   │   └── clean-temp-files.mjs
+│   ├── release/                 # local artifacts only — never touches GitHub
+│   │   ├── release.mjs          # Read version → package → inventory dist/
+│   │   ├── package.mjs          # macOS → dist/MonoSub-<v>.dmg, Windows → .msix
+│   │   ├── prepare-resources.mjs # Fetches the runtime binaries, regenerates MANIFEST
+│   │   ├── verify.mjs           # DMG: ad-hoc signature + engine smoke test
+│   │   │                        # MSIX: spec §5.7 checklist over the built package
+│   │   └── bundle-ffmpeg.mjs    # macOS only: relink ffmpeg + its dylibs
+│   └── publish/                 # dist/ → GitHub Releases — never builds
+│       └── publish.mjs
 │
 ├── docs/tech-spec/              # Refactor spec, PoC, task list, accuracy report
 ├── landing_page/
@@ -232,7 +227,7 @@ bun install
 
 # 2. Fetch the bundled runtimes: ffmpeg, audiocpp_cli + silero VAD, llama-server
 #    + dylibs, and yt-dlp (URL import). One command, all of them.
-./scripts/build/prepare-resources.sh
+node scripts/release/prepare-resources.mjs
 ```
 
 ### Development Workflow
@@ -303,11 +298,14 @@ Three traps when writing or running a scenario:
 ```bash
 bun run build         # Frontend only (tsc -b && vite build)
 bun run tauri build   # Full native bundle (runs `build` via beforeBuildCommand)
-bun run build:dmg     # macOS DMG + signing (scripts/build/build-macos-app.sh)
-bun run release:dmg   # Same, wrapped with version/artifact checks (scripts/release/release.sh)
-bun run publish:macos # Upload dist/ to GitHub Releases (scripts/publish/publish.sh)
-bun run build:msix    # Windows MSIX for the Microsoft Store (Windows 11 only)
-bun run publish:msix  # Attach the MSIX to an existing release (Windows only)
+
+# The scripts below are Node and branch on the host platform, so the same command
+# produces a DMG on macOS and an MSIX on Windows.
+bun run release       # build + package + verify (scripts/release/release.mjs)
+bun run release:package # package only, no dist/ inventory
+bun run publish       # Upload dist/ to GitHub Releases (scripts/publish/publish.mjs)
+bun run publish:macos # ... restricted to dist/*.dmg
+bun run publish:msix  # ... restricted to dist/*.msix
 ```
 
 There is a single build flow — the old `lite`/`full` split is gone, because there is
@@ -320,11 +318,11 @@ point: `release` produces artifacts locally (`dist/`), `publish` uploads whateve
 in `dist/` to GitHub. A failed build must never leave a tagged release with no
 assets, and a failed upload must never cost another 15-minute build.
 
-- `scripts/release/release.sh` — build, package, sign-check; no `gh`, no network.
-- `scripts/publish/publish.sh` — `gh release create/upload`, notes, `--recreate` /
+- `scripts/release/release.mjs` — build, package, verify; no `gh`, no network.
+- `scripts/publish/publish.mjs` — `gh release create/upload`, notes, `--recreate` /
   `--add-assets`; never builds. Takes `--version` because the version in
   `tauri.conf.json` is the *next* release's once a publish has bumped it.
-- The patch bump (`scripts/utils/bump-version.sh`) happens **after** a successful
+- The patch bump (`scripts/lib/bump-version.mjs`) happens **after** a successful
   publish, never before a build: the tag must equal the version baked into the app,
   so bumping first yields `MonoSub-2.0.1.dmg` under tag `v2.0.0`.
 
@@ -334,27 +332,21 @@ The Store package is built on Windows 11 x64 only: Tauri cannot cross-compile a
 Windows target from macOS (MSVC link + WebView2 SDK), and `winapp` requires Windows.
 See `docs/tech-spec/microsoft-store-publish-spec.md` for the submission flow.
 
-Windows scripts live in `scripts/windows/`, kept separate from the macOS flows in
-`scripts/build/`, `scripts/release/` and `scripts/publish/`. Do not merge them: the
-toolchains, the artifact formats (DMG vs MSIX) and the signing models all differ, so
-a change made for one platform in a shared file can silently break the other.
-`scripts/utils/` is the only shared code. They are **PowerShell**, not bash: the whole
-Windows path can only run on Windows and every tool it drives (winapp, `tauri.cmd`,
-cargo, System32 `curl.exe`) is a native Windows process, so one runtime means one path
-convention and one error model. `scripts/utils/version-utils.sh` stays bash because
-macOS uses it.
+The Windows flow runs the same Node scripts — there is no separate Windows tree any
+more. `scripts/lib/platform.mjs` reports `windows`, `release/package.mjs` takes the
+MSIX branch and `release/prepare-resources.mjs` fetches the Windows binaries. What
+still differs is documented below, not split into a parallel set of files: the same
+command produces a DMG on macOS and an MSIX on Windows.
 
 ```powershell
-powershell -File scripts\windows\prepare-resources.ps1   # Windows binaries into resources\bin
-powershell -File scripts\windows\build-msix.ps1          # (release) → dist\monosub_<version>.0_x64.msix
-powershell -File scripts\windows\publish-msix.ps1        # (publish) upload to an existing GitHub release
+node scripts\release\release.mjs   # → dist\monosub_<version>.0_x64.msix
+node scripts\publish\publish.mjs   # upload to GitHub Releases
 ```
 
-`bun run build:msix` is the same build and forwards its flags (`bun run build:msix
---sign`, `--skip-resources`); `bun run publish:msix` is the upload. The scripts take
-PowerShell parameters (`-Sign`, `-SkipResources`, `-Tag`, `-Version`); leading dashes
-and case do not matter, but a hyphen *inside* a name does, so `-SkipResources` and
-`--skip-resources` are both declared (an `[Alias]`).
+`bun run release` is the same build and forwards its flags (`bun run release --
+--sign`, `bun run release -- --skip-resources`); `bun run publish:msix` is the upload.
+Flags are POSIX-style and order does not matter; an unknown flag aborts rather than
+being ignored.
 
 Six things about the Windows path that are easy to get wrong:
 
@@ -366,9 +358,9 @@ Six things about the Windows path that are easy to get wrong:
   entry. MSIX installs under a version-stamped
   `C:\Program Files\WindowsApps\monosub_<version>_x64__<hash>\`, so a PATH entry
   naming that folder dies at the next update; `%LOCALAPPDATA%\Microsoft\WindowsApps`
-  is already on PATH and Windows re-points the alias. `build-msix.ps1` declares it
-  via `scripts/windows/add-execution-alias.ps1`, and `check-msix-package.ps1`
-  verifies it. **The Extension must be inside `<Application>\<Extensions>`, not
+  is already on PATH and Windows re-points the alias. `release/package.mjs` declares
+  it and `release/verify.mjs` checks the packaged manifest for it. **The Extension
+  must be inside `<Application>\<Extensions>`, not
   directly under `<Application>`** — measured with makeappx, the direct child form
   fails the schema with `C00CE014`, and an alias outside that node is ignored by
   the runtime with no error. Settings ▸ System therefore shows **no install
@@ -851,12 +843,12 @@ real video. Only `ytdlp::run` and `resolve::run` spawn a process, and only `mod.
 ### yt-dlp: bundled, pinned, and what the invocation may not do
 
 - **Bundled and pinned: 2026.08.19 + SHA256, no self-update.**
-  `scripts/build/fetch-ytdlp.sh` downloads the official platform executable, verifies it and
+  `scripts/release/prepare-resources.mjs` downloads the official platform executable, verifies it and
   installs it as `resources/bin/yt-dlp-<target-triple>` (macOS: `yt-dlp_macos`, one
   Universal file serving both triples). Bilibili's extractor changes quickly, so a
   user-installed yt-dlp produces "the version is wrong" reports nobody can diagnose.
   `MONOSUB_YTDLP_PATH` overrides the path for debugging and hot-fixing only. Like every
-  bundled binary it is signed by `sign-app.sh`, and it runs as a `kill_on_drop` child with
+  bundled binary it is verified by `release/verify.mjs`, and it runs as a `kill_on_drop` child with
   `stdin` closed.
 - **Constant argv, pinned by tests** (`site/ytdlp.rs::build_argv`): `--ignore-config` (a
   user's yt-dlp config can change the output template, format or subtitle options, and every
@@ -1316,9 +1308,9 @@ that would hand every engine a directory with no models in it. It is accepted on
 | `docs/tech-spec/translation-design.md` | Translation design |
 | `docs/tech-spec/translation-poc.md` | Measured llama.cpp / HY-MT behaviour (pins, speed, format) |
 | `src-tauri/tests/fixtures/` | Subtitle goldens (+ their generator) |
-| `scripts/build/fetch-audiocpp.sh` | Pinned upstream binary + VAD download |
-| `scripts/build/fetch-llamacpp.sh` | Pinned llama.cpp `llama-server` + dylib download |
-| `scripts/build/fetch-ytdlp.sh` | Pinned yt-dlp download (+ its LICENSE / THIRD_PARTY_LICENSES.txt) |
+| `scripts/release/prepare-resources.mjs` | Pinned upstream binaries + VAD download |
+| (same script, macOS branch) | Pinned llama.cpp `llama-server` + dylib download |
+| `scripts/release/prepare-resources.mjs` | Pinned yt-dlp download (+ its LICENSE / THIRD_PARTY_LICENSES.txt) |
 | `src-tauri/src/site/clipboard.rs` | `classify`: clipboard text → one `ClipboardHit`, or nothing (pure) |
 | `src/lib/clipboardWatch.ts` | Clipboard polling hook: focus-aware cadence, per-text dismissal |
 | `src/lib/tray.ts` | Menu-bar mirror: `buildStatusRows` / `buildTitle` from `files`, coalesced pushes |
@@ -1344,7 +1336,7 @@ that would hand every engine a directory with no models in it. It is accepted on
 - Import order: React → Third-party → Local → Types
 - `@/` alias for imports from `src/`
 - Zustand with persistence for settings
-- Keep both locales (`en.json`, `zh-CN.json`) in sync (see `scripts/utils/check-i18n-keys.mjs`)
+- Keep both locales (`en.json`, `zh-CN.json`) in sync (see `scripts/lib/check-i18n-keys.mjs`)
 
 ### Rust
 
@@ -1868,7 +1860,7 @@ What still matters is honesty about provenance:
 - `yt-dlp` is **Unlicense**, but statically bundles third-party code, so **two** files
   ship: `resources/licenses/yt-dlp-LICENSE` and
   `resources/licenses/yt-dlp-THIRD_PARTY_LICENSES.txt` (both fetched by
-  `fetch-ytdlp.sh`). The binary is bundled as `bin/yt-dlp-<target-triple>` and is used
+  `prepare-resources.mjs`). The binary is bundled as `bin/yt-dlp-<target-triple>` and is used
   only against Bilibili; YouTube support is deferred, not shipped
   (`docs/tech-spec/url-import-design.md` §10).
 - **HY-MT1.5-1.8B** is *not* bundled: it is downloaded on demand and recorded for
@@ -1897,17 +1889,17 @@ What still matters is honesty about provenance:
 
 **audiocpp_cli missing / not executable:**
 ```bash
-./scripts/build/fetch-audiocpp.sh
+node scripts/release/prepare-resources.mjs
 ```
 
 **llama-server missing / translation reports `engineMissing`:**
 ```bash
-./scripts/build/fetch-llamacpp.sh
+node scripts/release/prepare-resources.mjs
 ```
 
 **yt-dlp missing / URL import reports `urlImport.engineMissing`:**
 ```bash
-./scripts/build/fetch-ytdlp.sh
+./scripts/release/prepare-resources.mjs
 ```
 
 **Something failed and you need the log:** Settings ▸ 系统 ▸ 日志目录 shows the path and

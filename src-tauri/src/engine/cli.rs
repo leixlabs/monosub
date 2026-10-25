@@ -18,10 +18,49 @@ use crate::engine::catalog::RunMode;
 use crate::paths::AppPaths;
 
 /// Where a `--backend` value came from; P1-9 retries `metal` failures on `cpu`.
+///
+/// `Cuda` is what Windows ships. CPU inference is far too slow to be usable —
+/// recognising a one-hour recording runs for many minutes — so the Windows
+/// package bundles the CUDA engine only (see scripts/build/prepare-resources.mjs)
+/// and [`Backend::platform_default`] picks `Cuda` there. There is deliberately no
+/// automatic CPU retry for `Cuda`: the point of shipping CUDA is that the slow
+/// path never happens silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     Metal,
+    Cuda,
     Cpu,
+}
+
+impl Backend {
+    /// The backend this platform's bundled engine is built for.
+    ///
+    /// macOS: Metal. Windows: CUDA — see the note on [`Backend`]. Linux: CPU,
+    /// which is the only backend with any coverage there today.
+    pub fn platform_default() -> Self {
+        if cfg!(target_os = "macos") {
+            Backend::Metal
+        } else if cfg!(target_os = "windows") {
+            Backend::Cuda
+        } else {
+            Backend::Cpu
+        }
+    }
+
+    /// True where a `metal` failure is worth one CPU retry.
+    ///
+    /// Only macOS: it is the one platform where the same binary carries both
+    /// backends and where the retry has ever been observed to help.
+    pub fn has_cpu_fallback(self) -> bool {
+        matches!(self, Backend::Metal)
+    }
+}
+
+impl std::fmt::Display for Backend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Same spelling as `--backend`, so a log line and the argv agree.
+        f.write_str(backend_flag(*self))
+    }
 }
 
 /// A finished or running CLI invocation request.
@@ -369,6 +408,7 @@ fn reject_streaming_with_batch_input(invocation: &CliInvocation) -> Result<(), E
 fn backend_flag(backend: Backend) -> &'static str {
     match backend {
         Backend::Metal => "metal",
+        Backend::Cuda => "cuda",
         Backend::Cpu => "cpu",
     }
 }
@@ -427,7 +467,7 @@ fn resolve_binary(
     if let Some(found) = dev_resources_dir(cwd)
         .map(|dir| dir.join("bin"))
         .as_deref()
-        .and_then(|dir| find_executable(dir, &candidates))
+        .and_then(|dir| find_executable(dir, &candidates, binary_name))
     {
         tracing::debug!(binary = binary_name, path = ?found, "Found dev binary");
         return Ok(found);
@@ -439,7 +479,7 @@ fn resolve_binary(
     if let Some(found) = resources
         .map(|dir| dir.join("bin"))
         .as_deref()
-        .and_then(|dir| find_executable(dir, &candidates))
+        .and_then(|dir| find_executable(dir, &candidates, binary_name))
     {
         tracing::debug!(binary = binary_name, path = ?found, "Found bundled binary");
         return Ok(found);
@@ -455,7 +495,7 @@ fn resolve_binary(
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
         .as_deref()
-        .and_then(|dir| find_executable(dir, &candidates))
+        .and_then(|dir| find_executable(dir, &candidates, binary_name))
     {
         tracing::debug!(binary = binary_name, path = ?found, "Found binary beside the executable");
         return Ok(found);
@@ -475,10 +515,22 @@ fn dev_resources_dir(root: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// First candidate that exists under `dir` and is executable.
-fn find_executable(dir: &Path, candidates: &[String]) -> Option<PathBuf> {
+/// Probes `<dir>/<candidate>` and then `<dir>/<binary-name>/<candidate>`.
+///
+/// The second form is the Windows layout: each engine ships in a directory of its
+/// own, because both CUDA builds carry a `ggml-cuda.dll` compiled against a
+/// different CUDA toolkit and a flat `bin\` would let one overwrite the other.
+/// Windows resolves a process's imports from the directory its executable was
+/// loaded from, so the `.exe` has to sit next to its own DLLs — and that is also
+/// why no PATH or manifest entry is needed to find them.
+///
+/// The flat form stays first: it is the macOS layout (audio.cpp is static there
+/// and llama's dylibs are flat), and it is what every existing checkout has.
+fn find_executable(dir: &Path, candidates: &[String], binary_name: &str) -> Option<PathBuf> {
+    let nested = dir.join(binary_name);
     candidates
         .iter()
-        .map(|candidate| dir.join(candidate))
+        .flat_map(|candidate| [dir.join(candidate), nested.join(candidate)])
         .find(|path| is_executable_file(path))
 }
 
@@ -813,7 +865,7 @@ mod tests {
         let dir = dev_resources_dir(Some(&repo_root()))
             .expect("repo root is a dev checkout")
             .join("bin");
-        let Some(found) = find_executable(&dir, &binary_candidates(CLI_BINARY)) else {
+        let Some(found) = find_executable(&dir, &binary_candidates(CLI_BINARY), CLI_BINARY) else {
             eprintln!("skip: {} is absent (run the platform's resource script: scripts/build/prepare-resources.sh on macOS, scripts/windows/prepare-resources.ps1 on Windows)", dir.display());
             return;
         };
@@ -862,14 +914,14 @@ mod tests {
         for name in &candidates {
             let sibling = exe_dir.join(name);
             if is_executable_file(&sibling) {
-                assert_eq!(find_executable(&exe_dir, &candidates).as_ref(), Some(&sibling));
+                assert_eq!(find_executable(&exe_dir, &candidates, CLI_BINARY).as_ref(), Some(&sibling));
                 return;
             }
         }
 
         // No sibling present: the probe must answer `None` rather than invent a
         // path, so resolution falls through to PATH as it always has.
-        assert_eq!(find_executable(&exe_dir, &candidates), None);
+        assert_eq!(find_executable(&exe_dir, &candidates, CLI_BINARY), None);
     }
 
     /// The env override short-circuits the search, as in `commands::video`.
@@ -928,7 +980,7 @@ mod tests {
         let dir = dev_resources_dir(Some(&repo_root()))
             .expect("repo root is a dev checkout")
             .join("bin");
-        let Some(found) = find_executable(&dir, &binary_candidates(LLAMACPP_BINARY)) else {
+        let Some(found) = find_executable(&dir, &binary_candidates(LLAMACPP_BINARY), LLAMACPP_BINARY) else {
             eprintln!("skip: bundled {LLAMACPP_BINARY} not present (run ./scripts/build/fetch-llamacpp.sh)");
             return;
         };
@@ -1111,7 +1163,7 @@ mod spawn_tests {
 
     /// The bundled binary and model are gitignored, so skip with a reason elsewhere.
     fn bundled_cli() -> Option<PathBuf> {
-        let cli = find_executable(&resources().join("bin"), &binary_candidates(CLI_BINARY));
+        let cli = find_executable(&resources().join("bin"), &binary_candidates(CLI_BINARY), CLI_BINARY);
         let vad_ok = vad_dir().join(VAD_MODEL_FILE).is_file();
         match (cli, vad_ok) {
             (Some(cli), true) => Some(cli),

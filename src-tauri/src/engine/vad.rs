@@ -445,6 +445,7 @@ mod tests {
             "--backend".to_string(),
             match invocation.backend {
                 Backend::Metal => "metal",
+                Backend::Cuda => "cuda",
                 Backend::Cpu => "cpu",
             }
             .to_string(),

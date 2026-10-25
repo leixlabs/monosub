@@ -1851,14 +1851,19 @@ fn memory_from_request(value: Option<&str>) -> crate::engine::plan::MemoryBudget
 #[cfg(test)]
 use crate::engine::plan::apply_model_overrides;
 
-/// The frontend does not send `device` today; `auto`/absent means "the engine
-/// picks", which on macOS is Metal (engine retries CPU itself). Other platforms
-/// stay on CPU until the Phase 4 platform work.
+/// The frontend does not send `device` today; `auto`/absent means "the platform
+/// picks", which is `Backend::platform_default` — Metal on macOS, CUDA on Windows.
+///
+/// Windows has no CPU fallback: the package bundles the CUDA engine only, and a
+/// silent fall back to the slow path is the one outcome worth avoiding. An
+/// explicit `cpu` is still honoured, because that is a choice the user made in
+/// settings rather than a fallback.
 fn resolve_backend(device: Option<&str>) -> Backend {
     match device.map(|value| value.trim().to_lowercase()) {
         Some(value) if value == "cpu" => Backend::Cpu,
-        _ if cfg!(target_os = "macos") => Backend::Metal,
-        _ => Backend::Cpu,
+        Some(value) if value == "cuda" => Backend::Cuda,
+        Some(value) if value == "metal" => Backend::Metal,
+        _ => Backend::platform_default(),
     }
 }
 
@@ -2931,17 +2936,14 @@ mod tests {
     }
 
     #[test]
-    fn backend_defaults_to_metal_on_macos_and_honours_cpu() {
+    fn backend_defaults_to_the_platform_backend_and_honours_explicit_values() {
         assert_eq!(resolve_backend(Some("cpu")), Backend::Cpu);
         assert_eq!(resolve_backend(Some("CPU")), Backend::Cpu);
-        let expected = if cfg!(target_os = "macos") {
-            Backend::Metal
-        } else {
-            Backend::Cpu
-        };
-        assert_eq!(resolve_backend(None), expected);
-        assert_eq!(resolve_backend(Some("auto")), expected);
-        assert_eq!(resolve_backend(Some("cuda")), expected);
+        assert_eq!(resolve_backend(Some("metal")), Backend::Metal);
+        assert_eq!(resolve_backend(Some("cuda")), Backend::Cuda);
+        // The default is the platform's: Metal on macOS, CUDA on Windows.
+        assert_eq!(resolve_backend(None), Backend::platform_default());
+        assert_eq!(resolve_backend(Some("auto")), Backend::platform_default());
     }
 
     #[test]

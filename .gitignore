@@ -34,7 +34,6 @@ core-engine/env/
 core-engine/.venv/
 *.egg-info/
 dist/
-!scripts/build/
 core-engine/dist/
 core-engine/build/
 core-engine/*.spec
@@ -64,8 +63,8 @@ src-tauri/resources/*
 *.wav
 *.mp3
 
-# Windows MSIX staging (scripts/windows/build-msix.ps1) and its dev cert.
-# Root-anchored so the tracked scripts/build/ directory is not affected.
+# Windows MSIX staging (scripts/release/package.mjs) and its dev cert.
+# Root-anchored so a directory named build/ anywhere else is not affected.
 /build/
 *.pfx
 
