@@ -493,40 +493,67 @@ cargo build --release --bin monosub-cli
 
 ### 7.2 A：随 DMG 发布
 
-用 tauri 的 `externalBin`（它会自动追加 target triple 后缀）：
+**实现走的是 `resources/**/*`，不是 `externalBin`。** 本节最初设想的
+`externalBin`（产物落到 `Contents/MacOS/monosub-cli`）没有采用：
+`build-macos-app.sh` 把 CLI 编到 `src-tauri/resources/bin/monosub-cli-<triple>`，
+与 `audiocpp_cli` / `llama-server` / `yt-dlp` 同一个目录，靠 `tauri.conf.json` 已有的
+`"resources": ["resources/**/*"]` 带进包。**没有 `externalBin` 配置。**
 
-```jsonc
-// tauri.conf.json
-"bundle": {
-  "externalBin": ["binaries/monosub-cli"]
-}
-```
+这么做的理由有三个，都不是审美问题：
 
-构建前把产物放到 `src-tauri/binaries/monosub-cli-aarch64-apple-darwin`
-（`build-macos-app.sh` 里加一步；`prepare-resources.sh` 不动，因为它管的是下载来的
-第三方二进制）。
+1. 签名循环已经覆盖那个目录（`sign-app.sh` 遍历
+   `Contents/Resources/resources/bin/*`），CLI 进去就自动被重签，不需要补一段专用代码。
+   走 `externalBin` 反而要额外加签名步骤，漏了就 Gatekeeper 拦。
+2. 运行时 `engine::cli::resolve_binary` 本来就在 `resources/bin/` 里找引擎；CLI 放同一处，
+   它找到 `audiocpp_cli` 和 `models.json` 的规则与 App 完全一致。
+3. 两个平台同一个布局。Windows 的 MSIX 也是
+   `resources\bin\monosub-cli-<triple>.exe`，`paths.rs` 与 `engine/cli.rs` 只需一套探测。
 
-装进 App 后的位置是 `Contents/MacOS/monosub-cli`。用户要能在终端直接用，需要：
+装进 App 后的位置是
+`/Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli-aarch64-apple-darwin`
+（Intel 机器是 `x86_64-apple-darwin`）。用户要能在终端直接用，需要：
 
 ```bash
-ln -s /Applications/MonoSub.app/Contents/MacOS/monosub-cli /usr/local/bin/monosub-cli
+ln -s /Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli-aarch64-apple-darwin /usr/local/bin/monosub-cli
 ```
 
-**App 不能自动改 PATH**（Apple 不允许，且沙箱/权限上也做不到）。做法：
+这条命令**不在前端硬编码**。`src/lib/config.ts` 的 `cliInstallCommand()` 用
+`cli_info` 命令返回的真实路径拼接：路径里含版本无关但 triple 相关的文件名，中英文本地化不了的
+也正是不变的约定。硬编码过一次，写的是 `Contents/MacOS/monosub-cli`——一个任何构建都
+不会产生的路径，复制出去就是 `No such file or directory`。
 
-- 在 `Settings → 系统` 加一行"命令行工具"，显示可复制的 `ln -s` 命令 + 一个"复制"按钮
-  （复用 `ErrorDetailsDialog` 里的 `writeClipboard` 写法）。
-- 不做自动安装，不往 `/usr/local/bin` 偷偷写东西。
+**Windows 不用 PATH，用 App Execution Alias。** MSIX 装在
+`C:\Program Files\WindowsApps\monosub_<版本>_x64__<发布者哈希>\`，路径带版本号，
+往 PATH 里加安装目录**下次更新就失效**。所以 `build-msix.ps1` 用
+`scripts/windows/add-execution-alias.ps1` 在清单里声明（注意外面的 `<Extensions>`：
+直接挂在 `<Application>` 下 schema 校验会失败，makeappx 实测报 `C00CE014`）：
+
+```xml
+<Extensions>
+  <uap3:Extension Category="windows.appExecutionAlias"
+                  Executable="resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe"
+                  EntryPoint="Windows.FullTrustApplication">
+    <uap3:AppExecutionAlias>
+      <desktop:ExecutionAlias Alias="monosub-cli.exe" />
+    </uap3:AppExecutionAlias>
+  </uap3:Extension>
+</Extensions>
+```
+
+Windows 把别名放进 `%LOCALAPPDATA%\Microsoft\WindowsApps`（默认就在 PATH 上），
+每次更新自动重指。因此 **Windows 上这张卡片不显示安装命令**，只说明已经可用。
+
+**App 不能自动改 PATH**（Apple 不允许，且沙箱/权限上也做不到），所以 macOS/Linux
+只显示可复制的 `ln -s`，由用户自己执行；不做自动安装，不往 `/usr/local/bin` 偷偷写东西。
 
 ### 7.3 签名
 
-`scripts/release/sign-app.sh` 已经遍历 `Contents/Resources/resources/bin/*` 逐个重签。
-`externalBin` 落在 `Contents/MacOS/`，**不在那个循环里**，需要补一段：
+`scripts/release/sign-app.sh` 遍历 `Contents/Resources/resources/bin/*` 逐个重签，
+CLI 落在同一个目录，因此**不需要额外的签名步骤**（这也是 §7.2 选 `resources/bin/`
+而不是 `externalBin` 的原因之一）。包内冒烟测试同样覆盖它：
 
 ```bash
-CLI_BIN="$APP_PATH/Contents/MacOS/monosub-cli"
-[ -f "$CLI_BIN" ] && codesign --force --options runtime --timestamp \
-    --sign "$APPLE_SIGNING_IDENTITY" "$CLI_BIN"
+CLI_BIN=$(find "$RESOURCE_BIN_DIR" -maxdepth 1 -name 'monosub-cli-*' -type f | head -1)
 ```
 
 漏了这一步的表现是：公证通过但用户第一次运行时被 Gatekeeper 拦下（`killed: 9`）。
@@ -547,8 +574,9 @@ CLI_BIN="$APP_PATH/Contents/MacOS/monosub-cli"
 | R2 | 抽 `core::pipeline::transcribe()`，GUI 侧变成薄适配（emit 事件） | 事件契约不变；`Steps` 4/5 分母测试仍绿 |
 | R3 | `BackendSettings` 加 `recognitionPlan` / `translation`；`resolve_model_plan` 写盘 | 旧 settings.json 读出来不报错；新增往返测试 |
 | R4 | `src/bin/monosub-cli.rs`：参数解析（clap）→ 读 settings → 求解 → 调 pipeline → stdout 输出 | 单元测试覆盖参数解析与退出码映射；本机实测 |
-| R5 | `externalBin` + `build-macos-app.sh` + `sign-app.sh` 补签 | 打包后 `MonoSub.app/Contents/MacOS/monosub-cli` 存在且可执行 |
-| R6 | Settings → 系统 加“配置文件”行 +“命令行工具”卡片（显示 `ln -s` 命令） | pilot 场景可断言 |
+| R5 | `resources/**/*` 随包（**不是** `externalBin`，见 §7.2）+ `build-macos-app.sh` 编 CLI 到 `resources/bin/` | 打包后 `Resources/resources/bin/monosub-cli-<triple>` 存在且可执行；`sign-app.sh` 的目录循环已覆盖它 |
+| R5b | Windows：`build-msix.ps1` 编 CLI 进包 + `add-execution-alias.ps1` 声明 `windows.appExecutionAlias` | `check-msix-package.ps1` 验证文件在包内、别名在清单里且是 `<Application>\<Extensions>` 的子元素 |
+| R6 | Settings → 系统 加“配置文件”行 +“命令行工具”卡片（状态与命令均来自 `cli_info`） | pilot 场景可断言 |
 | R7 | 删 `bin/monosub`；更新 AGENTS.md / README | `grep` 无残留 |
 
 ---
@@ -836,12 +864,27 @@ write_settings_at(&path, &settings)
 配置文件     /Users/lei/Library/Application Support/dev.leix.monosub/settings.json   [显示]
              配置与模型是两件事：这里只放设置，模型在「存储位置」里单独配置。
 
-命令行工具   (即将提供)
-             MonoSub 将提供一个命令行入口，与 App 共用同一条管线与同一个模型。
-             ln -s /Applications/MonoSub.app/Contents/MacOS/monosub-cli /usr/local/bin/monosub-cli  [复制]
+命令行工具   (已随包提供)
+             monosub-cli 与 App 共用同一条管线与同一个模型…
+             /Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli-aarch64-apple-darwin
+             执行一次下面的命令，即可在终端里直接使用 monosub-cli：
+             ln -sf '/Applications/…/bin/monosub-cli-aarch64-apple-darwin' /usr/local/bin/monosub-cli  [复制]
 ```
 
-第二块**明确标注「即将提供」**：CLI 尚未实现（R4 未完成），写成已可用就是撒谎。
+> **这张卡片后来改了两次，两个错误都值得记下来。**
+>
+> 1. 「即将提供」在 R4 落地后没有撤掉，于是 README 说 CLI 可用、界面说还没提供。
+>    状态徽章现在由数据决定：`cli_info` 返回了二进制路径就是「已随包提供」，
+>    否则是「当前安装不含此工具」——Microsoft Store 包早期确实不含它。
+> 2. `ln -s` 的命令是**硬编码的字符串**，写的是 `Contents/MacOS/monosub-cli`。
+>    那是最初 §7.2 里 `externalBin` 方案的位置，而实现改走
+>    `Contents/Resources/resources/bin/` 之后没有人回来改这一行。复制出去直接
+>    `No such file or directory`，而且没有任何测试会覆盖一个常量。
+>
+> 现在路径来自后端（`cli_info`，读的是 `AppPaths::resources` 与
+> `engine::cli::monosub_cli_file_name()`），命令由 `cliInstallCommand()` 按平台拼。
+> 硬编码的 `CLI_INSTALL_COMMAND` 常量已删除：只要它还在，就一定会再次和实际情况脱节。
+
 「复制」按钮复用 `ErrorDetailsDialog` 的 `writeClipboard`（`navigator.clipboard` +
 `execCommand` 回退）。
 
@@ -851,11 +894,16 @@ write_settings_at(&path, &settings)
 |---|---|
 | `config_file_path` | `settings.json` 的绝对路径（文件不存在也返回路径） |
 | `reveal_config_file` | 在文件管理器里定位它；不存在时打开父目录。复用 `commands::opener::reveal_in_file_manager`，不自己写平台分支 |
+| `cli_info` | `{path, binDir, fileName, platform, usesExecutionAlias}`。`path` 为 `null` 表示本次安装不含 CLI，这是正常答案而不是错误 |
 
-`src/lib/config.ts` 是前端包装，另导出 `CLI_INSTALL_COMMAND` 常量。
+`src/lib/config.ts` 是前端包装，导出 `getCliInfo()` 与 `cliInstallCommand(info)`。
 
-> 为什么不自动装到 PATH：Apple 不允许 app 改 PATH，沙箱下也做不到。所以只显示
-> 可复制的命令，由用户自己执行。
+> 为什么不自动装到 PATH：Apple 不允许 app 改 PATH，沙箱下也做不到。所以 macOS/Linux
+> 只显示可复制的命令，由用户自己执行。
+>
+> Windows 不适用这条：MSIX 的 App Execution Alias 由系统维护，
+> `%LOCALAPPDATA%\Microsoft\WindowsApps` 本来就在 PATH 上，更新时自动重指。
+> 往 PATH 里写安装目录反而会在下次更新后失效（见 §7.2）。
 
 ### 11.7 R4 已完成（2026-10-22）
 

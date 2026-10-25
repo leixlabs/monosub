@@ -64,7 +64,7 @@ src-tauri/resources/*
 *.wav
 *.mp3
 
-# Windows MSIX staging (scripts/windows/build-msix.sh) and its dev cert.
+# Windows MSIX staging (scripts/windows/build-msix.ps1) and its dev cert.
 # Root-anchored so the tracked scripts/build/ directory is not affected.
 /build/
 *.pfx

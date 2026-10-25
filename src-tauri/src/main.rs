@@ -79,6 +79,7 @@ fn main() {
             log_frontend_error,
             config_file_path,
             reveal_config_file,
+            cli_info,
             download_model,
             cancel_model_download,
             remove_model,

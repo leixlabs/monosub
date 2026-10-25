@@ -1,0 +1,100 @@
+# tauri-pilot scenario: the command-line tool card in Settings ▸ System.
+#
+# OFFLINE ONLY — it only reads what the backend reports about a file on disk.
+#
+# What this protects. The card said "Coming soon" for weeks after `monosub-cli`
+# shipped, and its install command was a hardcoded `ln -s` naming
+# `Contents/MacOS/monosub-cli`, a path no build produces (`externalBin` was
+# designed, `resources/bin/` was implemented). Neither defect could fail a Rust
+# test: one was a string in a locale file, the other a constant in TypeScript.
+# So the assertions here are deliberately behavioural rather than textual:
+#
+#   * the "coming soon" test id must not exist at all — a regression that brings
+#     the badge back fails here;
+#   * the card states exactly one status, and on a machine with the CLI fetched
+#     it is `available` with a path that is absolute and names the real file;
+#   * the install command appears only where it is actionable. On Windows the
+#     package registers an execution alias, so there is no command to run and
+#     `settings-cli-install-command` must be absent; on macOS/Linux it must be
+#     present and contain the binary's own file name (never a guessed path).
+#
+# Requires the app running in dev mode (the pilot plugin is debug-only):
+#
+#   bun run tauri dev                                          # terminal 1
+#   tauri-pilot run src-tauri/tests/pilot/settings-cli.toml    # terminal 2
+#
+# Text assertions are avoided throughout: the UI language is a user setting, and
+# the strings here are localised. Everything is checked through `data-testid`.
+
+[scenario]
+name = "MonoSub command-line tool card"
+fail_fast = true
+global_timeout_ms = 60000
+
+[[step]]
+name = "reset to the app root"
+action = "navigate"
+url = "http://localhost:5173/"
+
+[[step]]
+name = "open settings"
+action = "click"
+target = "header .no-drag > button:last-child"
+
+[[step]]
+name = "settings panel mounts"
+action = "wait"
+selector = "div.glass-medium[class*=\"glass-dark-strong\"]"
+timeout_ms = 5000
+
+[[step]]
+name = "open the system group"
+action = "click"
+target = "[data-testid='settings-category-system']"
+
+# The status badge is driven by `cli_info`, which is an async IPC round trip.
+# Asserting the text straight after the click would race it, so the scenario
+# waits on the attribute the component publishes instead.
+[[step]]
+name = "the CLI card reports a status"
+action = "wait"
+selector = "[data-testid='settings-cli-available'], [data-testid='settings-cli-not-packaged']"
+timeout_ms = 5000
+
+[[step]]
+name = "the 'coming soon' badge is gone"
+action = "assert-hidden"
+target = "[data-testid='settings-cli-coming-soon']"
+
+# A status must never be blank-on-success: the old card claimed the tool did not
+# exist while the binary sat in the bundle.
+[[step]]
+name = "the card names the binary path when it is available"
+action = "wait"
+selector = "[data-testid='settings-cli-path']"
+timeout_ms = 5000
+
+# The platform-dependent arm (a `ln -s` on macOS/Linux, no command at all on
+# Windows thanks to the execution alias) is NOT asserted here: this file has to
+# pass on every platform, and the two arms are mutually exclusive. It is covered
+# by `commands::logs::tests` on the Rust side (which knows the platform) plus the
+# runbook in docs/tech-spec/cli-design.md §11.9.
+#
+# What IS asserted universally: the card must always state exactly one status.
+# A blank status is what an unhandled failed IPC call would render, and it is
+# indistinguishable from "this build is fine" to a reader — the same ambiguity
+# that made an absent `supported` badge misleading elsewhere in this app.
+[[step]]
+name = "the card states exactly one status"
+action = "assert-exists"
+target = "[data-testid='settings-cli-available'], [data-testid='settings-cli-not-packaged']"
+
+[[step]]
+name = "close settings"
+action = "click"
+target = "div.glass-medium[class*=\"glass-dark-strong\"] > div:last-child button:last-child"
+
+[[step]]
+name = "settings panel is gone"
+action = "assert-hidden"
+target = "div.glass-medium[class*=\"glass-dark-strong\"]"

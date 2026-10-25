@@ -33,7 +33,14 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
 import { getLogDirectory, openLogsDirectory, reportFrontendError } from '@/lib/logging';
-import { CLI_INSTALL_COMMAND, getConfigFilePath, revealConfigFile, writeClipboard } from '@/lib/config';
+import {
+  cliInstallCommand,
+  getCliInfo,
+  getConfigFilePath,
+  revealConfigFile,
+  writeClipboard,
+  type CliInfo,
+} from '@/lib/config';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { GlassSwitch } from '@/components/ui/glass-switch';
@@ -279,6 +286,14 @@ export function Settings() {
   const [cliCopied, setCliCopied] = useState(false);
   const [cliCopyError, setCliCopyError] = useState('');
   const cliCopyTimerRef = useRef<number | null>(null);
+  // Where the CLI actually is, read from the backend rather than assumed: the
+  // card names a real file and builds its command from that path.
+  const [cliInfo, setCliInfo] = useState<CliInfo | null>(null);
+  const [cliInfoError, setCliInfoError] = useState('');
+  const installCommand = useMemo(
+    () => (cliInfo ? cliInstallCommand(cliInfo) : null),
+    [cliInfo],
+  );
 
   useEffect(() => {
     // StrictMode mounts effects twice in development; re-arm the guard.
@@ -348,6 +363,18 @@ export function Settings() {
       .catch((error) => {
         console.error('[config_file_path] Failed:', error);
         if (!disposed && isMountedRef.current) setConfigFileError(String(error));
+      });
+
+    // The CLI card describes a file on disk, which an app update can add or
+    // remove, so it is read per open for the same reason as the two rows above.
+    setCliInfoError('');
+    void getCliInfo()
+      .then((info) => {
+        if (!disposed && isMountedRef.current) setCliInfo(info);
+      })
+      .catch((error) => {
+        console.error('[cli_info] Failed:', error);
+        if (!disposed && isMountedRef.current) setCliInfoError(String(error));
       });
 
     const setupListeners = async () => {
@@ -527,11 +554,13 @@ export function Settings() {
     }
   };
 
-  /** Copy the `ln -s` command. The chip says "copied" for two seconds. */
+  /** Copy the install command. The chip says "copied" for two seconds. */
   const handleCopyCliCommand = async () => {
+    if (installCommand === null) return;
+
     setCliCopyError('');
     try {
-      await writeClipboard(CLI_INSTALL_COMMAND);
+      await writeClipboard(installCommand);
       setCliCopied(true);
       if (cliCopyTimerRef.current !== null) window.clearTimeout(cliCopyTimerRef.current);
       cliCopyTimerRef.current = window.setTimeout(() => {
@@ -1069,14 +1098,25 @@ export function Settings() {
                   </div>
 
                   {/*
-                    Command-line tool. Marked "coming soon" because the binary is
-                    not built yet (cli-design §8 R4/R5) — showing an `ln -s` for a
-                    file that does not exist would send the user to a broken
-                    `monosub-cli: command not found`.
+                    Command-line tool. The "coming soon" badge is gone: the CLI
+                    shipped with R4, so a card claiming otherwise was the one
+                    piece of UI that contradicted the README.
 
-                    The command is a fixed string, and installing it is the user's
-                    copy-paste: the app may not modify PATH (not permitted, and not
-                    sandbox-permitted), so nothing is installed automatically.
+                    Every fact comes from `cli_info` (paths.rs / engine::cli), not
+                    from a constant here: the previous hardcoded `ln -s` named
+                    `Contents/MacOS/monosub-cli`, which is the `externalBin`
+                    layout the design sketched and no build implements. The
+                    bundled binary lives in `resources/bin/`.
+
+                    What the instruction *is* differs per platform because
+                    putting a command on PATH does:
+                    * Windows — the package declares an execution alias, so the
+                      command already works and there is nothing to install.
+                      Adding the install directory to PATH instead would break on
+                      the next update (MSIX installs under a version-stamped
+                      folder).
+                    * macOS / Linux — one `ln -s` into `/usr/local/bin`. The app
+                      still does not modify PATH itself; the user runs it.
                   */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1084,38 +1124,71 @@ export function Settings() {
                       <span className="text-sm font-semibold text-text-primary dark:text-gray-200">
                         {t('settings.system.cliTitle')}
                       </span>
-                      <GlassBadge variant="warning" size="sm" data-testid="settings-cli-coming-soon">
-                        {t('settings.system.cliComingSoon')}
-                      </GlassBadge>
+                      {cliInfo?.path && (
+                        <GlassBadge variant="success" size="sm" data-testid="settings-cli-available">
+                          {t('settings.system.cliAvailable')}
+                        </GlassBadge>
+                      )}
+                      {cliInfo && !cliInfo.path && (
+                        <GlassBadge variant="warning" size="sm" data-testid="settings-cli-not-packaged">
+                          {t('settings.system.cliNotPackaged')}
+                        </GlassBadge>
+                      )}
                     </div>
 
                     <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
                       {t('settings.system.cliHint')}
                     </p>
-                    <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
-                      {t('settings.system.cliInstallHint')}
-                    </p>
 
-                    <div className="flex items-center gap-2">
-                      <code
-                        className="min-w-0 flex-1 select-text break-all rounded-xl border border-divider bg-black/[0.04] px-3 py-2 font-mono text-xs text-text-primary dark:border-white/10 dark:bg-black/40 dark:text-gray-200"
-                        data-testid="settings-cli-install-command"
-                      >
-                        {CLI_INSTALL_COMMAND}
-                      </code>
-                      <GlassButton
-                        variant="outline"
-                        size="sm"
-                        data-testid="settings-cli-copy"
-                        onClick={() => void handleCopyCliCommand()}
-                      >
-                        {cliCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        {cliCopied ? t('settings.system.cliCopied') : t('settings.system.cliCopy')}
-                      </GlassButton>
-                    </div>
+                    {cliInfoError && (
+                      <p className="text-xs text-danger break-all">{cliInfoError}</p>
+                    )}
 
-                    {cliCopyError && (
-                      <p className="text-xs text-danger break-all">{cliCopyError}</p>
+                    {cliInfo?.path && (
+                      <p
+                        className="text-xs text-text-secondary dark:text-gray-400 break-all"
+                        title={cliInfo.path}
+                        data-testid="settings-cli-path"
+                      >
+                        {cliInfo.path}
+                      </p>
+                    )}
+
+                    {/* Windows: nothing to install, so say that rather than
+                        showing an empty command box. */}
+                    {installCommand === null && cliInfo?.path && cliInfo.usesExecutionAlias && (
+                      <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                        {t('settings.system.cliAliasHint')}
+                      </p>
+                    )}
+
+                    {installCommand !== null && (
+                      <>
+                        <p className="text-xs text-text-secondary dark:text-gray-400 leading-relaxed">
+                          {t('settings.system.cliInstallHint')}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <code
+                            className="min-w-0 flex-1 select-text break-all rounded-xl border border-divider bg-black/[0.04] px-3 py-2 font-mono text-xs text-text-primary dark:border-white/10 dark:bg-black/40 dark:text-gray-200"
+                            data-testid="settings-cli-install-command"
+                          >
+                            {installCommand}
+                          </code>
+                          <GlassButton
+                            variant="outline"
+                            size="sm"
+                            data-testid="settings-cli-copy"
+                            onClick={() => void handleCopyCliCommand()}
+                          >
+                            {cliCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                            {cliCopied ? t('settings.system.cliCopied') : t('settings.system.cliCopy')}
+                          </GlassButton>
+                        </div>
+
+                        {cliCopyError && (
+                          <p className="text-xs text-danger break-all">{cliCopyError}</p>
+                        )}
+                      </>
                     )}
                   </div>
 

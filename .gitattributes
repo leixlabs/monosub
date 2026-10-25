@@ -12,3 +12,9 @@ src-tauri/tests/fixtures/** -text
 # Scripts run under Git Bash / a POSIX shell on every platform; CRLF in them
 # breaks `#!/bin/bash` and here-documents.
 *.sh text eol=lf
+
+# PowerShell scripts need no eol rule: Windows PowerShell 5.1 accepts LF, and
+# CRLF is its native form, so either checkout runs. They DO need a UTF-8 BOM
+# (committed as part of the file) — without it, 5.1 decodes the source as the
+# OEM code page and every non-ASCII string in it arrives mangled.
+*.ps1 text

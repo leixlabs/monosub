@@ -26,6 +26,11 @@ pub const CONFIG_DIR_ENV: &str = "MONOSUB_CONFIG_DIR";
 /// Env override for the bundled-resources root (`models.json`, `bin/`).
 pub const RESOURCES_DIR_ENV: &str = "MONOSUB_RESOURCES_DIR";
 
+/// The file that proves a directory is a resources root rather than just some
+/// parent directory. Used by [`resolve_resources_root`] when a candidate can
+/// only be identified by its contents.
+const CATALOGUE_FILE: &str = "models.json";
+
 /// Bundle identifier from `tauri.conf.json`, used to derive the per-app
 /// directories. It must match the app's own identifier or the CLI would read a
 /// different `settings.json` than the GUI writes.
@@ -178,12 +183,22 @@ fn read_models_dir_from(config_dir: &Path) -> Option<PathBuf> {
 ///
 /// Order: `MONOSUB_RESOURCES_DIR` → `<cwd>/src-tauri/resources` (dev checkout) →
 /// `<exe_dir>/resources` (`tauri dev` copies resources next to the binary) →
-/// `<exe_dir>/../Resources/resources` (macOS bundle).
+/// `<exe_dir>/../Resources/resources` (macOS GUI bundle) →
+/// `<exe_dir>/..` (a binary that ships inside `resources/bin/`).
 ///
-/// The GUI used to gate the last two on `app.is_some()`; that gate is gone
-/// because the probes are existence checks — when the directory is not there,
-/// the next candidate is tried anyway, so dropping the gate cannot change which
-/// path wins for a real app, and lets a CLI resolve the same layout.
+/// That last branch is why `monosub-cli` can run at all. The bundled CLI is
+/// installed at `<root>/resources/bin/monosub-cli-<triple>`, so its own
+/// directory is the *bin* folder and the resources root is one level up. None of
+/// the earlier probes match that depth, and the previous code fell through to
+/// the compile-time `CARGO_MANIFEST_DIR` fallback — a path on the build machine.
+/// The result was a CLI that launched, then could not find `models.json` (it
+/// cannot plan), nor the VAD model or the engine binaries next to it. This is
+/// not Windows-specific: the macOS DMG has the same layout.
+///
+/// The GUI used to gate the exe-relative probes on `app.is_some()`; that gate is
+/// gone because the probes are existence checks — when the directory is not
+/// there, the next candidate is tried anyway, so dropping the gate cannot change
+/// which path wins for a real app, and lets a CLI resolve the same layout.
 pub fn resolve_resources_root() -> PathBuf {
     if let Some(overridden) = env_path(RESOURCES_DIR_ENV) {
         return overridden;
@@ -195,14 +210,33 @@ pub fn resolve_resources_root() -> PathBuf {
         candidates.push(cwd.join("src-tauri").join("resources"));
     }
 
+    // `<exe_dir>/../..` is weaker evidence than the probes above: it is only a
+    // resources root if it actually holds the catalogue. Without this check a
+    // dev build would match `target/` (the grandparent of `target/debug/monosub`)
+    // and resolve a directory with no models in it.
+    let mut exe_inside_resources: Option<PathBuf> = None;
+
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
             candidates.push(exe_dir.join("resources"));
-            // macOS bundle: Contents/MacOS/monosub → Contents/Resources/resources
+            // macOS GUI bundle: Contents/MacOS/monosub → Contents/Resources/resources
             if let Some(contents) = exe_dir.parent() {
                 candidates.push(contents.join("Resources").join("resources"));
             }
+            // A binary that ships inside the resources tree: exe_dir is
+            // `<root>/bin`, so `<root>` — the directory holding `models.json`
+            // and `bin/` — is exactly one level up.
+            if let Some(root) = exe_dir.parent() {
+                if root.join(CATALOGUE_FILE).is_file() {
+                    exe_inside_resources = Some(root.to_path_buf());
+                }
+            }
         }
+    }
+
+    // Last, after every stronger probe: a binary shipped inside resources/bin/.
+    if let Some(root) = exe_inside_resources {
+        candidates.push(root);
     }
 
     // Fall back to the dev-checkout default so a caller that cannot see any of
@@ -317,6 +351,57 @@ mod tests {
             root.join("models.json").is_file(),
             "no models.json under {root:?}; a CLI run from this checkout could not plan"
         );
+    }
+
+    /// A binary that ships inside `resources/bin/` must find the resources root
+    /// one level up — the layout both the DMG and the MSIX produce for
+    /// `monosub-cli`. Before this branch existed the CLI launched and then could
+    /// not find `models.json`, so it could not plan at all.
+    ///
+    /// `resolve_resources_root` reads the real `current_exe()`, so the branch is
+    /// exercised through its predicate instead: the fixture lays out the shipped
+    /// shape and asserts the rule identifies it.
+    #[test]
+    fn a_binary_inside_the_resources_tree_resolves_the_root_one_level_up() {
+        let root = std::env::temp_dir().join(format!(
+            "monosub-paths-inside-resources-{}",
+            std::process::id()
+        ));
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(root.join(CATALOGUE_FILE), "{}").unwrap();
+
+        // The shipped layout: <root>/bin/monosub-cli-<triple>
+        let exe_dir = bin.as_path();
+        let candidate = exe_dir.parent();
+
+        assert_eq!(candidate, Some(root.as_path()));
+        assert!(
+            candidate.unwrap().join(CATALOGUE_FILE).is_file(),
+            "the probe must accept a directory that really holds the catalogue"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The same probe must reject a grandparent that merely exists. A dev build
+    /// at `target/debug/monosub` has `target/` one level up, and resolving that
+    /// would hand every engine a directory with no models in it.
+    #[test]
+    fn a_parent_without_the_catalogue_is_not_a_resources_root() {
+        let root = std::env::temp_dir().join(format!(
+            "monosub-paths-no-catalogue-{}",
+            std::process::id()
+        ));
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+
+        assert!(
+            !bin.parent().unwrap().join(CATALOGUE_FILE).is_file(),
+            "an empty parent must not be mistaken for a resources root"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

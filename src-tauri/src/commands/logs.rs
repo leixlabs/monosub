@@ -13,6 +13,9 @@
 //!   directory are two unrelated locations (`crate::paths`) that users
 //!   routinely conflate; showing the first one is what makes the difference
 //!   visible.
+//! * [`cli_info`] answers the same "where is it, really" question for the
+//!   bundled `monosub-cli`, from the resolvers the app itself uses rather than
+//!   from a string in the frontend that no build can keep true.
 
 use std::path::{Path, PathBuf};
 
@@ -128,6 +131,66 @@ pub async fn reveal_config_file(app: AppHandle) -> Result<String, String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// What Settings ▸ System needs to describe the command-line tool truthfully.
+///
+/// The card used to hardcode one macOS command; guessed text is how it ended up
+/// naming a path (`Contents/MacOS/monosub-cli`) that no build ever produced.
+/// The facts therefore come from the same resolvers the app itself uses:
+///
+/// * `path` — the bundled binary, or `None` when this build does not ship one
+///   (the Microsoft Store package deliberately has a single entry point).
+/// * `bin_dir` — `resources/bin/`, which is also what the instructions add to
+///   `PATH`. Always present in a checkout; reported when it exists.
+/// * `alias` — on Windows the Store package registers an execution alias, so
+///   the command is already on `PATH` and no instruction is needed at all.
+///
+/// A missing file is **not** an error: "this build does not include the CLI" is
+/// an answer the card must be able to state.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliInfo {
+    /// Absolute path of the bundled `monosub-cli-<triple>` binary.
+    pub path: Option<String>,
+    /// Absolute `resources/bin` directory the binary lives in.
+    pub bin_dir: Option<String>,
+    /// The binary's file name, `<name>-<target-triple>` (+ `.exe` on Windows).
+    pub file_name: String,
+    /// `windows` / `macos` / `linux` — the card differs per platform because
+    /// putting a command on `PATH` does.
+    pub platform: String,
+    /// Windows only: an execution alias is registered by the package manifest,
+    /// so `monosub-cli` already resolves without touching `PATH`.
+    pub uses_execution_alias: bool,
+}
+
+/// Describe the command-line tool for Settings ▸ System.
+pub async fn cli_info_inner(paths: &crate::paths::AppPaths) -> CliInfo {
+    let file_name = crate::engine::cli::monosub_cli_file_name();
+    let bin_dir = paths.resources.join("bin");
+    let binary = bin_dir.join(&file_name);
+
+    let path = binary
+        .is_file()
+        .then(|| binary.to_string_lossy().into_owned());
+
+    CliInfo {
+        path,
+        bin_dir: bin_dir
+            .is_dir()
+            .then(|| bin_dir.to_string_lossy().into_owned()),
+        file_name,
+        platform: std::env::consts::OS.to_string(),
+        uses_execution_alias: cfg!(target_os = "windows"),
+    }
+}
+
+/// Describe the command-line tool for Settings ▸ System.
+#[tauri::command]
+pub async fn cli_info(app: AppHandle) -> Result<CliInfo, String> {
+    let paths = crate::paths::AppPaths::from_app(&app).map_err(|error| error.to_string())?;
+    Ok(cli_info_inner(&paths).await)
+}
+
 /// Truncate on a character boundary — `&s[..n]` would panic on a CJK message.
 fn truncate_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
@@ -184,6 +247,95 @@ pub async fn log_frontend_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The CLI card must describe the real file. A `cli_info` that reported the
+    /// path of a binary which does not exist is exactly the bug the card had
+    /// before (a hardcoded `ln -s`), just moved into Rust.
+    #[tokio::test]
+    async fn cli_info_reports_the_path_only_when_the_binary_exists() {
+        let root = std::env::temp_dir().join(format!(
+            "monosub-cli-info-{}",
+            std::process::id()
+        ));
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+
+        let paths = crate::paths::AppPaths {
+            resources: root.clone(),
+            models_root: root.join("models"),
+            config_dir: root.join("cfg"),
+            data_dir: root.join("data"),
+        };
+
+        // Nothing installed yet: the build simply does not ship the CLI, which is
+        // an answer — not an error and not a guessed path.
+        let absent = cli_info_inner(&paths).await;
+        assert_eq!(absent.path, None, "a missing binary must not be reported as present");
+        assert_eq!(absent.bin_dir.as_deref(), Some(bin.to_string_lossy().as_ref()));
+
+        // Now put the file where the packaging scripts put it.
+        let file = bin.join(crate::engine::cli::monosub_cli_file_name());
+        std::fs::write(&file, b"stub").unwrap();
+
+        let present = cli_info_inner(&paths).await;
+        assert_eq!(
+            present.path.as_deref(),
+            Some(file.to_string_lossy().as_ref()),
+            "the card must name the file the bundle actually contains"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The reported file name must carry the target triple and (on Windows) the
+    /// `.exe` suffix — the card shows this name, and a wrong one sends the user
+    /// to a path that does not exist.
+    #[tokio::test]
+    async fn cli_info_names_the_file_the_bundlers_install() {
+        let root = std::env::temp_dir().join(format!(
+            "monosub-cli-name-{}",
+            std::process::id()
+        ));
+        let paths = crate::paths::AppPaths {
+            resources: root.clone(),
+            models_root: root.join("models"),
+            config_dir: root.join("cfg"),
+            data_dir: root.join("data"),
+        };
+
+        let info = cli_info_inner(&paths).await;
+        assert_eq!(info.file_name, crate::engine::cli::monosub_cli_file_name());
+        assert!(
+            info.file_name.starts_with("monosub-cli-"),
+            "the bundlers install `<name>-<triple>`: {}",
+            info.file_name
+        );
+
+        #[cfg(target_os = "windows")]
+        assert!(info.file_name.ends_with(".exe"), "{}", info.file_name);
+    }
+
+    /// Windows reaches the CLI through an execution alias, so the card must not
+    /// offer an install command there; every other platform gets one. Getting
+    /// this backwards either hides a needed instruction or shows a PATH edit that
+    /// the next MSIX update would invalidate.
+    #[tokio::test]
+    async fn cli_info_reports_the_alias_only_where_the_package_declares_one() {
+        let root = std::env::temp_dir().join(format!(
+            "monosub-cli-alias-{}",
+            std::process::id()
+        ));
+        let paths = crate::paths::AppPaths {
+            resources: root.clone(),
+            models_root: root.join("models"),
+            config_dir: root.join("cfg"),
+            data_dir: root.join("data"),
+        };
+
+        let info = cli_info_inner(&paths).await;
+        assert_eq!(info.uses_execution_alias, cfg!(target_os = "windows"));
+        assert_eq!(info.platform, std::env::consts::OS);
+    }
 
     #[test]
     fn truncate_chars_keeps_short_values_and_marks_long_ones() {

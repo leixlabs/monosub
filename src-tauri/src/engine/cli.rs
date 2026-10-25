@@ -101,9 +101,29 @@ const VAD_MODEL_FILE: &str = "silero_vad_16k.safetensors";
 /// stderr kept for error reporting (spec §5.1).
 const STDERR_TAIL_LINES: usize = 50;
 
+/// The base name of the `monosub-cli` binary installed next to the bundled
+/// engines. The GUI lists it to tell the user whether the CLI is present; the
+/// binary itself is a separate `[[bin]]` and never needs to be resolved here.
+pub const MONOSUB_CLI_BINARY: &str = "monosub-cli";
+
 /// Resolve the bundled `audiocpp_cli-<target-triple>` binary.
 pub fn resolve_cli_path(paths: &AppPaths) -> Result<PathBuf, EngineError> {
     resolve_bundled_binary(CLI_BINARY, CLI_PATH_ENV, paths)
+}
+
+/// The file name the packaging scripts install `monosub-cli` under.
+///
+/// `<name>-<target-triple>` on Unix, with `.exe` after the triple on Windows —
+/// the same `<name>-<triple>` convention every bundled binary follows, so
+/// Settings names the file the bundle actually contains instead of guessing.
+pub fn monosub_cli_file_name() -> String {
+    let suffixed = format!("{}-{}", MONOSUB_CLI_BINARY, target_triple());
+
+    #[cfg(target_os = "windows")]
+    return format!("{}.exe", suffixed);
+
+    #[cfg(not(target_os = "windows"))]
+    return suffixed;
 }
 
 /// Resolve the bundled `llama-server-<target-triple>` binary used for local
@@ -422,6 +442,22 @@ fn resolve_binary(
         .and_then(|dir| find_executable(dir, &candidates))
     {
         tracing::debug!(binary = binary_name, path = ?found, "Found bundled binary");
+        return Ok(found);
+    }
+
+    // 3. the executable's own directory. `monosub-cli` is itself installed into
+    //    `resources/bin/`, so when it resolves `audiocpp_cli` the answer sits
+    //    next to it — and branch 2 can miss it whenever `MONOSUB_RESOURCES_DIR`
+    //    or the caller-supplied root points somewhere else than the binary's
+    //    neighbourhood. Without this the CLI launched from a package could not
+    //    find the engine it was shipped with.
+    if let Some(found) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(Path::to_path_buf))
+        .as_deref()
+        .and_then(|dir| find_executable(dir, &candidates))
+    {
+        tracing::debug!(binary = binary_name, path = ?found, "Found binary beside the executable");
         return Ok(found);
     }
 
@@ -767,13 +803,20 @@ mod tests {
 
     /// The committed checkout must contain the binary under the exact
     /// `audiocpp_cli-<target-triple>` name that resolution looks for.
+    ///
+    /// The binary is gitignored and fetched by `prepare-resources.sh`, so a
+    /// fresh clone has no `resources/bin/` at all. A green suite there is the
+    /// documented contract (AGENTS.md: "tests that need the bundled binary or
+    /// model must skip with a reason, not fail"), so this skips instead.
     #[test]
     fn dev_bin_dir_resolves_committed_cli_binary() {
         let dir = dev_resources_dir(Some(&repo_root()))
             .expect("repo root is a dev checkout")
             .join("bin");
-        let found = find_executable(&dir, &binary_candidates(CLI_BINARY))
-            .expect("committed audiocpp_cli is discoverable");
+        let Some(found) = find_executable(&dir, &binary_candidates(CLI_BINARY)) else {
+            eprintln!("skip: {} is absent (run the platform's resource script: scripts/build/prepare-resources.sh on macOS, scripts/windows/prepare-resources.ps1 on Windows)", dir.display());
+            return;
+        };
 
         assert_eq!(found, committed_cli_path());
         assert!(is_executable_file(&found), "{}", found.display());
@@ -783,12 +826,50 @@ mod tests {
     /// does not depend on the test process cwd.
     #[test]
     fn resolve_binary_finds_committed_cli_in_dev_checkout() {
+        if !committed_cli_path().is_file() {
+            eprintln!("skip: bundled audiocpp_cli is not fetched");
+            return;
+        }
+
         let resolved = resolve_binary(CLI_BINARY, None, None, Some(&repo_root()))
             .expect("dev checkout resolution succeeds");
 
         assert_eq!(resolved, committed_cli_path());
         assert!(resolved.is_file(), "{}", resolved.display());
         assert!(is_executable_file(&resolved), "{}", resolved.display());
+    }
+
+    /// A binary next to the running executable is found, which is the case
+    /// `monosub-cli` needs: it is itself installed into `resources/bin/`, so
+    /// `audiocpp_cli` sits beside it and neither the dev-root branch nor the
+    /// caller-supplied resources root has to agree about where that is.
+    ///
+    /// The probe reads the real `current_exe()` (the test binary, in
+    /// `target/debug/deps/`), so this asserts the rule the branch applies rather
+    /// than faking the process image: a sibling file is found, and a missing one
+    /// is not.
+    #[test]
+    fn a_binary_beside_the_executable_is_discoverable() {
+        let exe_dir = std::env::current_exe()
+            .expect("test binary has a path")
+            .parent()
+            .expect("test binary lives in a directory")
+            .to_path_buf();
+        let candidates = binary_candidates(CLI_BINARY);
+
+        // Nothing is guaranteed to sit beside the test binary — but when it does,
+        // the lookup that now runs after the resources probes must see it.
+        for name in &candidates {
+            let sibling = exe_dir.join(name);
+            if is_executable_file(&sibling) {
+                assert_eq!(find_executable(&exe_dir, &candidates).as_ref(), Some(&sibling));
+                return;
+            }
+        }
+
+        // No sibling present: the probe must answer `None` rather than invent a
+        // path, so resolution falls through to PATH as it always has.
+        assert_eq!(find_executable(&exe_dir, &candidates), None);
     }
 
     /// The env override short-circuits the search, as in `commands::video`.
@@ -871,6 +952,11 @@ mod tests {
     #[test]
     fn dev_resources_dir_resolves_committed_vad_and_catalog() {
         let resources = dev_resources_dir(Some(&repo_root())).expect("dev checkout resources");
+
+        if !resources.join("models").join("silero_vad").join(VAD_MODEL_FILE).is_file() {
+            eprintln!("skip: silero VAD is not fetched (run the platform's resource script: scripts/build/prepare-resources.sh on macOS, scripts/windows/prepare-resources.ps1 on Windows)");
+            return;
+        }
 
         let vad_dir = validate_vad_dir(resources.join("models").join("silero_vad"))
             .expect("bundled silero VAD resolves");

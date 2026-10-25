@@ -191,6 +191,12 @@ monosub/
 │   │   ├── sign-app.sh          # Signs bundled binaries, then the app
 │   │   ├── bump-version.sh
 │   │   └── release.sh
+│   ├── windows/                 # PowerShell (Windows-only; see the Store section)
+│   │   ├── prepare-resources.ps1 # Fetches the Windows binaries, regenerates MANIFEST
+│   │   ├── build-msix.ps1        # → dist\monosub_<version>.0_x64.msix
+│   │   ├── check-msix-package.ps1 # spec §5.7 checklist over the built package
+│   │   ├── add-execution-alias.ps1 # Declares monosub-cli's App Execution Alias
+│   │   └── release-msix.ps1      # Uploads the MSIX to a GitHub release
 │   └── utils/
 │       ├── version-utils.sh
 │       ├── check-i18n-keys.mjs  # Asserts both locales match en.json
@@ -312,25 +318,55 @@ Windows scripts live in `scripts/windows/`, kept separate from the macOS flows i
 `scripts/build/` and `scripts/release/`. Do not merge them: the toolchains, the
 artifact formats (DMG vs MSIX) and the signing models all differ, so a change made
 for one platform in a shared file can silently break the other. `scripts/utils/`
-is the only shared code.
+is the only shared code. They are **PowerShell**, not bash: the whole Windows path
+can only run on Windows and every tool it drives (winapp, `tauri.cmd`, cargo,
+System32 `curl.exe`) is a native Windows process, so one runtime means one path
+convention and one error model. `scripts/utils/version-utils.sh` stays bash because
+macOS uses it.
 
-```bash
-./scripts/windows/prepare-resources.sh   # Windows binaries into resources/bin
-./scripts/windows/build-msix.sh          # → dist/monosub_<version>.0_x64.msix
-./scripts/windows/release-msix.sh --tag v2.0.0 # upload to a GitHub release
+```powershell
+powershell -File scripts\windows\prepare-resources.ps1   # Windows binaries into resources\bin
+powershell -File scripts\windows\build-msix.ps1          # → dist\monosub_<version>.0_x64.msix
+powershell -File scripts\windows\release-msix.ps1 -Tag v2.0.0   # upload to a GitHub release
 ```
 
-Four things about the Windows path that are easy to get wrong:
+`bun run build:msix` is the same build and forwards its flags (`bun run build:msix
+--sign`, `--skip-resources`). The scripts take PowerShell parameters (`-Sign`,
+`-SkipResources`, `-Tag`); leading dashes and case do not matter, but a hyphen
+*inside* a name does, so `-SkipResources` and `--skip-resources` are both declared
+(an `[Alias]`).
+
+Six things about the Windows path that are easy to get wrong:
 
 - The bundled binaries are named `<name>-x86_64-pc-windows-msvc.exe` — the target
   triple comes **before** the extension. `engine::cli::binary_candidates` appends
   those `.exe` forms on Windows; `commands::video` had always done so separately,
   which is why only the ffmpeg path resolved before.
+- `monosub-cli` reaches a terminal through an **App Execution Alias**, not a PATH
+  entry. MSIX installs under a version-stamped
+  `C:\Program Files\WindowsApps\monosub_<version>_x64__<hash>\`, so a PATH entry
+  naming that folder dies at the next update; `%LOCALAPPDATA%\Microsoft\WindowsApps`
+  is already on PATH and Windows re-points the alias. `build-msix.ps1` declares it
+  via `scripts/windows/add-execution-alias.ps1`, and `check-msix-package.ps1`
+  verifies it. **The Extension must be inside `<Application>\<Extensions>`, not
+  directly under `<Application>`** — measured with makeappx, the direct child form
+  fails the schema with `C00CE014`, and an alias outside that node is ignored by
+  the runtime with no error. Settings ▸ System therefore shows **no install
+  command** on Windows, only that the tool is available.
 - `resources/bin/` holds the macOS and Windows binaries side by side; the triple in
   the name keeps them apart. They are gitignored, so each platform's resource
   script fetches only its own set.
+- **There are two `DisplayName`s and only one is the name a user reads.** The Start
+  menu and tile use `<Application>\<VisualElements DisplayName>`; Settings → Apps uses
+  `<Properties>\<DisplayName>`. `winapp manifest generate` derives both from the
+  lowercase package name, and the old bash script patched only the Properties one —
+  so the built package said `MonoSub` in Settings and `monosub` in the Start menu
+  (measured on a real build). `build-msix.ps1` sets both and
+  `check-msix-package.ps1` asserts both, with `-ceq` rather than `-eq`: PowerShell's
+  string `-eq` is case-insensitive, so the first version of that check passed a
+  package whose name really was lowercase.
 - The MSIX is unsigned by default because the Store re-signs every package, and a
-  self-signed one is rejected at submission. `--sign` produces a second, dev-signed
+  self-signed one is rejected at submission. `-Sign` produces a second, dev-signed
   copy for local `Add-AppxPackage` verification only.
 - The golden subtitle fixtures are byte-compared, so `.gitattributes` marks them
   `-text`. Without that, `core.autocrlf=true` checks them out as CRLF on Windows and
@@ -1198,6 +1234,21 @@ The installed app already looks like this: `settings.json` sits under the config
 its `modelsDir` points somewhere else entirely (here, into the repo). So "the models are
 next to the config file" is wrong, and hard-coding `~/.monosub` would be a second settings
 location; `MONOSUB_CONFIG_DIR=~/.monosub` is the supported way to get that literal path.
+
+**Where the CLI finds its own resources.** The bundled binary is installed *inside* the
+resources tree, at `<root>/bin/monosub-cli-<triple>` (`resources/bin/` in the app, with
+`models.json` one level up). `AppPaths::resolve_resources_root` therefore probes
+`<exe_dir>/..` when it holds `models.json`, and `engine::cli::resolve_binary` probes the
+executable's own directory for `audiocpp_cli`. Both branches are load-bearing and both were
+missing: a `ln -s`-ed CLI used to launch and then resolve its resources from the
+*compile-time* `CARGO_MANIFEST_DIR` — a path on the build machine — so it could not find
+the catalogue, the VAD model, or the engine binaries. Nothing in the error message said
+"wrong resources root"; it failed later, on a missing model.
+
+The `<exe_dir>/..` probe is the weakest candidate and runs **last**, after every path that
+proves itself by layout: `target/debug/monosub` has `target/` as its parent, and matching
+that would hand every engine a directory with no models in it. It is accepted only when
+`models.json` is actually there.
 
 ---
 

@@ -88,13 +88,21 @@ models/  models.json  licenses/  MANIFEST.txt
 
 | 期望文件名 | 来源 | 说明 |
 | --- | --- | --- |
-| `audiocpp_cli-x86_64-pc-windows-msvc.exe` | 自行构建（audiocpp_cli 的 MSVC 目标） | 版本/能力与 macOS 版一致；**入口程序** |
-| `ffmpeg-x86_64-pc-windows-msvc.exe` | BtbN 或 gyan.dev 的 Windows 官方构建 | 与 macOS 版行为对齐（libx264、libopus、libmp3lame 等） |
+| `audiocpp_cli-x86_64-pc-windows-msvc.exe` | audio.cpp 官方 `bin-windows-x64-cpu-portable` 发布包 | 版本/能力与 macOS 版一致；**识别引擎** |
+| `ffmpeg-x86_64-pc-windows-msvc.exe` | gyan.dev `essentials_build`（静态） | 与 macOS 版行为对齐（libx264、libopus、libmp3lame 等） |
 | `ffprobe-x86_64-pc-windows-msvc.exe` | 同上 | — |
-| `lib/*.dll`（如 libavcodec.dll 等） | 随 ffmpeg 构建 | 若 ffmpeg 为静态构建则不需要 |
-| `libggml*.dll`、llama 相关 DLL | audiocpp_cli 构建产物 | 若 audiocpp_cli **动态链接** ggml/llama 则必须；静态链接可省略 |
+| `llama-server-x86_64-pc-windows-msvc.exe` | llama.cpp 官方 `bin-win-cpu-x64` 发布包 | **翻译引擎**；它的 DLL 必须平铺在 `bin/` 下（`@loader_path` 是它唯一的 RPATH） |
+| `yt-dlp-x86_64-pc-windows-msvc.exe` | yt-dlp 官方单文件发布 | URL 导入 |
+| `*.dll` | 上述三个发布包自带 | 平铺在 `bin/`：`llama-server` 是 `llama-server-impl.dll` 的薄壳，audiocpp 的 portable 构建还需要 MSVC 运行时 |
 | `models/**`、`models.json`、`licenses/**` | 原样保留（gguf 模型跨平台） | 无需改动 |
-| `MANIFEST.txt` | 用 Windows 侧等效脚本重新生成 | 由 `prepare-resources.sh` 生成，勿手工编辑 |
+| `MANIFEST.txt` | 用 Windows 侧等效脚本重新生成 | 由 `scripts/windows/prepare-resources.ps1` 生成，勿手工编辑 |
+
+> 这一整张表都由 `scripts/windows/prepare-resources.ps1` 自动完成（含 SHA256 校验），
+> 手工放置只用于调试。实测确认的发布包形状：audiocpp 的 portable 包**不含 ggml DLL**
+> （静态链接，只需 MSVC 运行时那 9 个）；llama.cpp 的 `bin-win-cpu-x64` 包**含 29 个 DLL**
+> （`ggml-cpu-*.dll` 按 CPU 微架构各一份，`llama-server-impl.dll` 是真正干活的那个）。
+> 两者合起来正好 38 个 DLL —— 这也是 `check-msix-package.ps1` 要求「至少 10 个」的
+> 依据：少一个家族就说明某个发布包没装进来。
 
 ### 4.3 验证运行时二进制
 
@@ -140,23 +148,133 @@ winapp init
 
 产出：根目录 `Package.appxmanifest` + `Assets/`（商店图标）。可打开 manifest 核对 DisplayName / Publisher / Capabilities。
 
-> 双二进制说明：项目含 `monosub`（GUI）与 `monosub-cli` 两个 binary，商店包只装 GUI，入口 `monosub.exe` 即可。
+> 双二进制说明：项目含 `monosub`（GUI）与 `monosub-cli` 两个 binary。**两个都进包**：
+> GUI 是入口程序（`monosub.exe`），CLI 放在
+> `resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe`，并通过
+> `windows.appExecutionAlias` 暴露为命令 `monosub-cli.exe`——见 §5.2b。
+
+### 5.2b 命令行工具与 App Execution Alias
+
+`monosub-cli` 也进包，位置与 macOS 对称：
+
+```
+resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe
+```
+
+它必须能在终端里直接敲 `monosub-cli`，而这**不能靠改 PATH 实现**。MSIX 安装在
+
+```
+C:\Program Files\WindowsApps\monosub_<版本>_x64__<发布者哈希>\
+```
+
+路径里带版本号，所以任何把安装目录写进用户 PATH 的做法**下次更新就失效**。正确机制是
+App Execution Alias：
+
+```xml
+<uap3:Extension Category="windows.appExecutionAlias"
+                Executable="resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe"
+                EntryPoint="Windows.FullTrustApplication">
+  <uap3:AppExecutionAlias>
+    <desktop:ExecutionAlias Alias="monosub-cli.exe" />
+  </uap3:AppExecutionAlias>
+</uap3:Extension>
+```
+
+要点（每一条踩错都会静默失效）：
+
+| 要点 | 原因 |
+|---|---|
+| `Extension` 必须在 `<Application>` 的 **`<Extensions>`** 里 | 直接挂在 `<Application>` 下 schema 校验就失败（`C00CE014`，makeappx 实测）；挂在别处则运行时不报错、只是完全不生效 |
+| `Executable` 是**包内相对路径**，允许子目录 | 别名指向 `resources\bin\` 下的真实二进制 |
+| `Alias` 必须以 `.exe` 结尾 | 否则 shell 不解析 |
+| 用户看到的两个 `DisplayName` 是两个元素 | Start 菜单/磁贴读 `<Application>\<VisualElements DisplayName>`，设置→应用读 `<Properties>\<DisplayName>`；生成器两个都取小写包名，只改一个就会在 Start 菜单里显示 `monosub`（实测，旧 bash 版只改了 Properties 那个） |
+| `EntryPoint="Windows.FullTrustApplication"` | 缺了它激活时**不转发命令行参数** |
+| `<Package>` 上声明 `xmlns:uap3` / `xmlns:desktop`，并加进 `IgnorableNamespaces` | 缺命名空间清单校验直接失败 |
+| 别名目录 `%LOCALAPPDATA%\Microsoft\WindowsApps` 默认就在 PATH 上 | 所以用户**不需要执行任何命令**；Settings 在 Windows 上也就不显示安装命令 |
+
+`scripts/windows/build-msix.ps1` 在打包前调用
+`scripts/windows/add-execution-alias.ps1` 声明它（XML DOM，幂等，失败即中止）。
+`scripts/windows/check-msix-package.ps1` 会验证文件在包内、别名在清单里，并且
+**确实是 `<Application>\<Extensions>` 的子元素**（用真实 XML 解析，不是字符串匹配）。
+
+> **实测记录 1**：`add-execution-alias.ps1` 第一版在声明 `uap3` 之后才建
+> `XmlNamespaceManager`，`SelectNodes('uap3:…')` 直接抛
+> 「未定义命名空间前缀 uap3」。脚本中止且**没有写出半成品清单**——这是刻意的：
+> 一个半改的清单能顺利打包、直到认证阶段才失败，那是最糟的失败点。
+>
+> **实测记录 2**：第二版把 `uap3:Extension` 直接 `AppendChild` 到 `<Application>`。
+> 这在 XML 上合法、在 DOM 上"成功"，但 `CT_Application` 的子元素是
+> `VisualElements` / `ApplicationContentUriRules` / `Extensions` 三者之一，
+> Extension 不是它的兄弟。用 SDK 的 makeappx 校验：
+>
+> ```
+> <Application><uap3:Extension .../></Application>
+>   → error C00CE014: The app manifest must be valid as per schema
+> <Application><Extensions><uap3:Extension .../></Extensions></Application>
+>   → 打包通过
+> ```
+>
+> 所以脚本现在先找 `<Extensions>`、没有就建一个再 append；检查脚本也改为
+> 只认 `./Extensions/Extension[@Category="windows.appExecutionAlias"]`——
+> 只认 `./Extension` 会漏掉正确形状，只认 `//Extension` 又会放过错误形状。
+>
+> **实测记录 3**：检查脚本原先从 bash 里 `powershell -Command` 内嵌一段 XPath，
+> 用 `\"` 转义引号。PowerShell 的转义符是反引号不是反斜杠，内嵌片段收到的是字面
+> `\"`，**每次**解析失败并落到 `catch` 分支输出 `unparseable`，于是这一项恒判失败。
+> 这也是整条 Windows 链路改成 PowerShell 的原因之一：不再跨语言转义。
+
+### 5.2c 为什么 Windows 侧脚本是 PowerShell
+
+`scripts/windows/` 下全部是 `.ps1`。这条链路只能在 Windows 上跑，而它驱动的每个工具
+（`winapp`、`node_modules\.bin\tauri.cmd`、`cargo`、System32 的 `curl.exe`）都是原生
+Windows 进程；bash 版本为了 PowerShell 能力（XML DOM、证书、zip）反过来要 shell out，
+每一条缝都是一次转义或路径约定的机会。
+
+`package.json` 的 `build:msix` 因此是
+`powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/windows/build-msix.ps1`。
+直接写 `./scripts/windows/build-msix.ps1` 不行：bun 的 shell 不读 shebang，
+`CreateProcess` 对 `.ps1` 失败且拿不到错误信息，只会打印
+`bun: unknown error:` 并以 1 退出（实测）。同理，`bash ./x.sh` 这种写法在
+Windows 上虽然能跑，却把 Git Bash 变成了隐藏依赖。
+
+`-Sign` / `-SkipResources` / `-Tag` 是真正的 PowerShell 参数（`[switch]` / `[string]`），
+从 `bun run build:msix --sign` 或直接在 PowerShell 里都能用；bash 版本只能用
+`--sign` 这类手写字符串解析。
+
+两个实测细节：PowerShell 对参数名**大小写不敏感、也不在乎前面几个 `-`**，所以
+`--sign` / `-Sign` / `-sign` 都能绑定 `$Sign`；但名字**中间**的连字符不会被折叠，
+`--skip-resources` 会报 `NamedParameterNotFound`，因此带连字符的那几个必须显式写
+`[Alias('skip-resources')]`。反过来，`[Alias('sign')]` 这种只差大小写的别名本身
+就是错误（`ParameterNameConflictsWithAlias`）。
 
 ### 5.3 构建 release 可执行文件
 
+整条流程已脚本化，下面 5.3–5.5 是它内部做的事；日常只需要一条命令：
+
+```powershell
+powershell -File scripts\windows\build-msix.ps1
+# 或：bun run build:msix
+```
+
+手工等价步骤：
+
 ```powershell
 # 只构建 exe，跳过 NSIS/MSI 安装器（商店包不需要，且省去 NSIS 下载）
-npm run tauri -- build --no-bundle
+node_modules\.bin\tauri.cmd build --no-bundle
 # 产物：src-tauri\target\release\monosub.exe
 ```
 
-### 5.4 组装打包目录 dist
+> 用 `tauri.cmd` 而不是不带扩展名的 `tauri`：后者是 POSIX shell 脚本，
+> Windows 无法直接执行，正是本次改写要去掉的隐藏依赖。
+
+### 5.4 组装打包目录
+
+脚本用的是 `build\msix\app\`，不是 `dist\`：`dist\` 是 Vite 的前端产物目录，也是
+`release.sh` 收集产物的目录，把包内布局写进去会互相覆盖。
 
 ```powershell
-if not exist dist mkdir dist
-copy /Y src-tauri\target\release\monosub.exe dist\
-xcopy /E /I /Y src-tauri\resources dist\resources
-dir /s dist
+# 包内布局 = AppPaths::resolve_resources_root 期望的形状：
+#   <install>\monosub.exe + <install>\resources\
 ```
 
 > `resources/**/*` 是运行时资源（音频处理二进制 + 模型），**必须**进包，否则应用无法工作。
@@ -165,13 +283,16 @@ dir /s dist
 
 ```powershell
 # 生成与 manifest Publisher 匹配的自签名证书（首次）
-winapp cert generate --if-exists skip
+winapp cert generate --manifest build\msix\app\Package.appxmanifest `
+    --output build\msix\devcert.pfx --if-exists skip --export-cer
 
 # 打包（签名用的 devcert 仅供本地验证；商店提交后由微软重签，无需正式证书）
-winapp pack .\dist --cert .\devcert.pfx
+winapp package build\msix\app `
+    --manifest build\msix\app\Package.appxmanifest `
+    --output dist\monosub_2.0.0.0_x64.msix --no-sign
 ```
 
-产物：`monosub_2.0.0.0_x64.msix`（当前目录）。
+产物：`dist\monosub_2.0.0.0_x64.msix`。
 
 ### 5.6 本机安装验证
 
@@ -274,6 +395,7 @@ Add-AppxPackage .\monosub_2.0.0.0_x64.msix
 | --- | --- |
 | 产品名（Partner Center / manifest DisplayName） | monosub（显示名 MonoSub） |
 | 入口程序 | monosub.exe |
+| 命令行入口别名 | monosub-cli.exe → `resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe` |
 | Windows x64 目标三元组 | x86_64-pc-windows-msvc |
 | 资源二进制后缀规则 | `<名字>-x86_64-pc-windows-msvc.exe` |
 | 包版本（四段式） | 2.0.0.0（与 tauri.conf.json 的 2.0.0 对应） |
