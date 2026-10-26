@@ -116,6 +116,24 @@ are, use [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest).
 
 ---
 
+## 📄 License
+
+MonoSub's source is released under the **[PolyForm Small Business License 1.0.0](https://polyformproject.org/licenses/small-business/1.0.0)** —
+source-available, not open source.
+
+| Who | Commercial use |
+|---|---|
+| Individuals, hobby projects, anything non-commercial | ✅ Free |
+| Companies with **fewer than 100 people** and **under $1M revenue** | ✅ Free |
+| Companies above that threshold | 💬 Separate commercial licence required |
+
+**Model weights are not covered by this licence and are not distributed with MonoSub.** Every model is fetched from its publisher's own host, and each carries the licence its publisher chose — 16 of the 129 catalogue entries are non-commercial. The app shows each model's licence, with a link to the publisher's terms, before a download starts.
+
+Third-party components (FFmpeg, audio.cpp, llama.cpp, yt-dlp) are disclosed in
+[`src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md`](src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md).
+
+---
+
 ## FAQ
 
 ### macOS says "MonoSub is damaged and can't be opened"

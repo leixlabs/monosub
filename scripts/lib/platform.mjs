@@ -70,6 +70,20 @@ export function bundledName(binary) {
 }
 
 /**
+ * `monosub-cli<exe>` — the one bundled binary **without** a target triple.
+ *
+ * The engines keep the suffix because `engine::cli::resolve_bundled_binary`
+ * resolves them and tries both forms. The CLI is different: it is the file the
+ * user runs, and the Windows portable instructions put `resources/bin` on
+ * `PATH`. There, `monosub-cli-x86_64-pc-windows-msvc.exe` answers no
+ * `monosub-cli` lookup, so the name has to be the command.
+ *
+ * Mirrors `engine::cli::monosub_cli_file_name()`; `verify.mjs` asserts the two
+ * agree with what actually landed in the package.
+ */
+export const cliName = `monosub-cli${exeSuffix}`;
+
+/**
  * Abort when the current host is not one of `allowed`.
  *
  * Used by the handful of steps that genuinely have no cross-platform form

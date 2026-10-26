@@ -150,8 +150,14 @@ winapp init
 
 > 双二进制说明：项目含 `monosub`（GUI）与 `monosub-cli` 两个 binary。**两个都进包**：
 > GUI 是入口程序（`monosub.exe`），CLI 放在
-> `resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe`，并通过
+> `resources\bin\monosub-cli.exe`，并通过
 > `windows.appExecutionAlias` 暴露为命令 `monosub-cli.exe`——见 §5.2b。
+>
+> **已变更（2026-10-26）**：CLI 落地名去掉了 `-x86_64-pc-windows-msvc` 后缀
+> （`engine::cli::monosub_cli_file_name()` 与 `scripts/lib/platform.mjs` 的 `cliName`
+> 均已同步）。它是唯一由用户直接敲的二进制，
+> 便携/自编译场景把 `resources\bin` 加进 PATH 后，带三元组后缀的文件对 `monosub-cli`
+> 这个查询完全无效。本文下面出现的 `monosub-cli-<triple>.exe` 均按 `monosub-cli.exe` 理解。
 
 ### 5.2b 命令行工具与 App Execution Alias
 

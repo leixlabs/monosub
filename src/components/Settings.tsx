@@ -57,6 +57,7 @@ import {
   modelManifestSize,
   recognitionModels,
   removeModel,
+  sortByAvailability,
   translationModels,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
@@ -74,7 +75,13 @@ import {
  */
 type SettingsCategory = 'files' | 'models' | 'translate' | 'urlImport' | 'system';
 
-const RELEASES_URL = 'https://github.com/leixlabs/monosub/releases';
+/**
+ * The only external link the About card offers. MonoSub is source-available
+ * (PolyForm Small Business): the repository is where the source is read and
+ * where the licence lives, so this is the address worth showing — not a
+ * release/download page, and not an update check.
+ */
+const REPO_URL = 'https://github.com/leixlabs/monosub';
 
 /** How long the CLI card's copy button keeps its "copied" label. */
 const COPIED_RESET_MS = 2000;
@@ -96,16 +103,6 @@ const LEGACY_CATEGORY_MAP: Record<string, SettingsCategory> = {
   notifications: 'system',
   about: 'system',
 };
-
-interface GithubReleaseUpdateResult {
-  currentVersion: string;
-  latestVersion: string;
-  latestTag: string;
-  releaseName?: string | null;
-  releaseUrl: string;
-  publishedAt?: string | null;
-  hasUpdate: boolean;
-}
 
 interface ModelRowProps {
   model: ModelStatus;
@@ -294,9 +291,10 @@ export function Settings() {
   const isMountedRef = useRef(true);
   const ignoreDownloadErrorRef = useRef<string | null>(null);
   const [appVersion, setAppVersion] = useState('');
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
-  const [updateResult, setUpdateResult] = useState<GithubReleaseUpdateResult | null>(null);
-  const [updateError, setUpdateError] = useState('');
+  // About card: the repository row's copy chip, and a link that would not open.
+  const [repoCopied, setRepoCopied] = useState(false);
+  const [repoError, setRepoError] = useState('');
+  const repoCopyTimerRef = useRef<number | null>(null);
   // Log directory row (Settings ▸ System): the path is read once per open, and
   // a failure to open it is shown in place rather than only in the log.
   const [logDirectory, setLogDirectory] = useState('');
@@ -317,6 +315,15 @@ export function Settings() {
     () => (cliInfo ? cliInstallCommand(cliInfo) : null),
     [cliInfo],
   );
+  /**
+   * What the user types, derived from the bundled file name so the card cannot
+   * disagree with the package: `monosub-cli.exe` → `monosub-cli` (a terminal
+   * resolves either, but the `.exe` is noise in an instruction).
+   */
+  const cliCommand = useMemo(
+    () => (cliInfo?.fileName ?? 'monosub-cli').replace(/\.exe$/i, ''),
+    [cliInfo],
+  );
 
   useEffect(() => {
     // StrictMode mounts effects twice in development; re-arm the guard.
@@ -331,6 +338,10 @@ export function Settings() {
     if (cliCopyTimerRef.current !== null) {
       window.clearTimeout(cliCopyTimerRef.current);
       cliCopyTimerRef.current = null;
+    }
+    if (repoCopyTimerRef.current !== null) {
+      window.clearTimeout(repoCopyTimerRef.current);
+      repoCopyTimerRef.current = null;
     }
   }, []);
 
@@ -629,39 +640,51 @@ export function Settings() {
     }
   };
 
-  const handleCheckUpdate = async () => {
-    setIsCheckingUpdate(true);
-    setUpdateError('');
-
+  /**
+   * Open the repository in the system browser.
+   *
+   * `open_external_url` is what the app uses everywhere else; the `window.open`
+   * fallback exists because a WebView without the opener shell (a dev server,
+   * for instance) throws instead. Failure is surfaced in the card as well as
+   * logged, because the address is also printed there — a dead button with a
+   * copyable URL next to it is worse than a button that says why it failed.
+   */
+  const handleOpenRepoUrl = async () => {
+    setRepoError('');
     try {
-      const result = await invoke<GithubReleaseUpdateResult>('check_github_release_update');
-      setUpdateResult(result);
-    } catch (error) {
-      // The panel renders this string under `settings.about.checkFailed`, and the
-      // "Open Download Page" button beside the check button still points at
-      // RELEASES_URL, so a 404 or a dead network costs the version comparison
-      // but never the download link. The log entry is for the release build,
-      // where the WebView console does not exist.
-      const message = String(error);
-      setUpdateError(message);
-      console.error('[check_github_release_update] Failed:', error);
-      reportFrontendError(error, { context: 'check_github_release_update' });
-    } finally {
-      setIsCheckingUpdate(false);
-    }
-  };
-
-  const handleOpenReleasePage = async () => {
-    const target = updateResult?.releaseUrl || RELEASES_URL;
-    try {
-      await invoke('open_external_url', { url: target });
+      await invoke('open_external_url', { url: REPO_URL });
     } catch (error) {
       console.error('[open_external_url] Failed:', error);
       try {
-        window.open(target, '_blank');
+        window.open(REPO_URL, '_blank');
       } catch (fallbackError) {
         console.error('[window.open] Failed:', fallbackError);
+        reportFrontendError(error, { context: 'Settings open repository URL' });
+        setRepoError(t('settings.about.openFailed'));
       }
+    }
+  };
+
+  /** Copy the repository address. The chip says "copied" for two seconds. */
+  const handleCopyRepoUrl = async () => {
+    setRepoError('');
+    try {
+      await writeClipboard(REPO_URL);
+      setRepoCopied(true);
+      if (repoCopyTimerRef.current !== null) window.clearTimeout(repoCopyTimerRef.current);
+      repoCopyTimerRef.current = window.setTimeout(() => {
+        repoCopyTimerRef.current = null;
+        setRepoCopied(false);
+      }, COPIED_RESET_MS);
+    } catch (error) {
+      if (repoCopyTimerRef.current !== null) {
+        window.clearTimeout(repoCopyTimerRef.current);
+        repoCopyTimerRef.current = null;
+      }
+      setRepoCopied(false);
+      console.error('[repo copy] Failed:', error);
+      reportFrontendError(error, { context: 'Settings copy repository URL' });
+      setRepoError(t('settings.about.copyFailed'));
     }
   };
 
@@ -693,9 +716,18 @@ export function Settings() {
   ), []);
 
   // The catalogue mixes both engines; split it once per render pass so the two
-  // lists and their headers stay in step with the loaded models.
-  const recognition = useMemo(() => recognitionModels(models), [models]);
-  const translation = useMemo(() => translationModels(models), [models]);
+  // lists and their headers stay in step with the loaded models. Both are
+  // ordered installed-first: this pane is where a user checks what they have and
+  // fetches what they lack, so a downloaded model must not sit below dozens of
+  // entries that still need a download.
+  const recognition = useMemo(
+    () => sortByAvailability(recognitionModels(models), downloadingId),
+    [models, downloadingId],
+  );
+  const translation = useMemo(
+    () => sortByAvailability(translationModels(models), downloadingId),
+    [models, downloadingId],
+  );
 
   const handleUILanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
@@ -709,25 +741,6 @@ export function Settings() {
     return supportedLanguages.find((lang) => lang.code === normalized) ?? supportedLanguages[1];
   }, [i18n.language]);
   const uiLanguageLabel = t('bottomBar.language').replace(/[:：]\s*$/, '');
-  const updatePublishedDisplay = useMemo(() => {
-    const publishedAt = updateResult?.publishedAt;
-    if (!publishedAt) {
-      return '';
-    }
-
-    const publishedMs = Date.parse(publishedAt);
-    if (Number.isNaN(publishedMs)) {
-      return publishedAt;
-    }
-
-    return new Intl.DateTimeFormat(i18n.language || undefined, {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(publishedMs));
-  }, [i18n.language, updateResult?.publishedAt]);
 
   if (!isOpen) return null;
 
@@ -1193,14 +1206,20 @@ export function Settings() {
                       <p className="text-xs text-danger break-all">{cliInfoError}</p>
                     )}
 
+                    {/* The command, not the file's absolute path. The path is a
+                        build artefact inside the bundle (`…/resources/bin/…`)
+                        and changes with every install, while the name is what a
+                        terminal actually resolves — the execution alias on
+                        Windows, the `ln -s` target on macOS. It stays reachable
+                        as the chip's tooltip for anyone debugging a build. */}
                     {cliInfo?.path && (
-                      <p
-                        className="text-xs text-text-secondary dark:text-gray-400 break-all"
+                      <code
+                        className="inline-block max-w-full select-text truncate rounded-lg border border-divider bg-black/[0.04] px-2 py-1 font-mono text-xs text-text-primary dark:border-white/10 dark:bg-black/40 dark:text-gray-200"
                         title={cliInfo.path}
-                        data-testid="settings-cli-path"
+                        data-testid="settings-cli-command"
                       >
-                        {cliInfo.path}
-                      </p>
+                        {cliCommand}
+                      </code>
                     )}
 
                     {/* Windows: nothing to install, so say that rather than
@@ -1241,7 +1260,7 @@ export function Settings() {
                     )}
                   </div>
 
-                  {/* About + updates */}
+                  {/* About + source */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
                     <div className="flex items-center justify-between gap-4">
                       <div>
@@ -1253,71 +1272,57 @@ export function Settings() {
                         </p>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <GlassButton
-                          variant="primary"
-                          size="sm"
-                          onClick={() => void handleCheckUpdate()}
-                          disabled={isCheckingUpdate}
-                        >
-                          {isCheckingUpdate ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <RefreshCw className="w-4 h-4" />
-                          )}
-                          {isCheckingUpdate ? t('settings.about.checkingUpdate') : t('settings.about.checkUpdate')}
-                        </GlassButton>
+                      <GlassButton
+                        variant="primary"
+                        size="sm"
+                        onClick={() => void handleOpenRepoUrl()}
+                        data-testid="settings-view-source"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        {t('settings.about.viewSource')}
+                      </GlassButton>
+                    </div>
 
+                    {/* The address itself, so the button is never the only way
+                        out: it can be read, selected or copied even when the
+                        opener is unavailable. */}
+                    <div className="space-y-1.5">
+                      <p className="text-xs text-text-secondary dark:text-gray-400">
+                        {t('settings.about.repository')}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={REPO_URL}
+                          onClick={(event) => {
+                            // The WebView must not navigate to it: opening is
+                            // the opener's job, and that keeps the app window.
+                            event.preventDefault();
+                            void handleOpenRepoUrl();
+                          }}
+                          className="min-w-0 flex-1 select-text break-all text-xs text-primary hover:underline"
+                          data-testid="settings-repo-url"
+                        >
+                          {REPO_URL}
+                        </a>
                         <GlassButton
                           variant="outline"
                           size="sm"
-                          onClick={() => void handleOpenReleasePage()}
+                          onClick={() => void handleCopyRepoUrl()}
+                          data-testid="settings-repo-copy"
                         >
-                          <ExternalLink className="w-4 h-4" />
-                          {t('settings.about.openReleasePage')}
+                          {repoCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          {repoCopied ? t('settings.about.copied') : t('settings.about.copy')}
                         </GlassButton>
                       </div>
                     </div>
 
-                    {updateError && (
-                      <p className="text-xs text-danger break-all">
-                        {t('settings.about.checkFailed')}: {updateError}
-                      </p>
+                    {repoError && (
+                      <p className="text-xs text-danger break-all">{repoError}</p>
                     )}
 
-                    {updateResult && (
-                      <div className="p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-2">
-                        <p className="text-sm font-semibold text-text-primary dark:text-white">
-                          {updateResult.hasUpdate
-                            ? t('settings.about.newVersionAvailable', { version: updateResult.latestTag || updateResult.latestVersion })
-                            : t('settings.about.upToDate')}
-                        </p>
-                        <p className="text-xs text-text-secondary dark:text-gray-400">
-                          {t('settings.about.latestVersion')}: v{updateResult.latestVersion}
-                        </p>
-                        {updatePublishedDisplay && (
-                          <p className="text-xs text-text-secondary dark:text-gray-400">
-                            {t('settings.about.publishedAt')}: {updatePublishedDisplay}
-                          </p>
-                        )}
-                        {updateResult.hasUpdate && (
-                          <GlassButton
-                            variant="primary"
-                            size="sm"
-                            onClick={() => void handleOpenReleasePage()}
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            {t('settings.about.openReleasePage')}
-                          </GlassButton>
-                        )}
-                      </div>
-                    )}
-
-                    {!updateResult && !updateError && (
-                      <p className="text-xs text-text-secondary dark:text-gray-400">
-                        {t('settings.about.hint')}
-                      </p>
-                    )}
+                    <p className="text-xs text-text-secondary dark:text-gray-400">
+                      {t('settings.about.hint')}
+                    </p>
                   </div>
                 </section>
               )}

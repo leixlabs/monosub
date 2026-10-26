@@ -4,6 +4,7 @@ import { FileItem } from './FileItem';
 import { UrlImportItem } from './UrlImportItem';
 import { Film, Subtitles } from 'lucide-react';
 import { addPathsToQueue } from '@/lib/fileImport';
+import { CudaNotice } from './CudaNotice';
 
 export function FileList() {
   const { t } = useTranslation();
@@ -103,6 +104,11 @@ export function FileList() {
           <p className="text-sm text-text-tertiary dark:text-gray-500">
             {t('fileList.addVideos')}
           </p>
+
+          {/* Windows only, and only when it has something to say: the CUDA build
+              is the sole engine there, so a missing driver is worth flagging
+              *before* the first file fails. Renders nothing elsewhere. */}
+          <CudaNotice />
 
           {/* Features */}
           <div className="mt-8 flex items-center justify-center gap-6 text-xs text-text-tertiary dark:text-gray-500">

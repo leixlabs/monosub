@@ -187,7 +187,7 @@ fn read_models_dir_from(config_dir: &Path) -> Option<PathBuf> {
 /// `<exe_dir>/..` (a binary that ships inside `resources/bin/`).
 ///
 /// That last branch is why `monosub-cli` can run at all. The bundled CLI is
-/// installed at `<root>/resources/bin/monosub-cli-<triple>`, so its own
+/// installed at `<root>/resources/bin/monosub-cli`, so its own
 /// directory is the *bin* folder and the resources root is one level up. None of
 /// the earlier probes match that depth, and the previous code fell through to
 /// the compile-time `CARGO_MANIFEST_DIR` fallback — a path on the build machine.
@@ -371,7 +371,7 @@ mod tests {
         std::fs::create_dir_all(&bin).unwrap();
         std::fs::write(root.join(CATALOGUE_FILE), "{}").unwrap();
 
-        // The shipped layout: <root>/bin/monosub-cli-<triple>
+        // The shipped layout: <root>/bin/monosub-cli
         let exe_dir = bin.as_path();
         let candidate = exe_dir.parent();
 

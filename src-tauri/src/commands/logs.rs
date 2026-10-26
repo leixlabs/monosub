@@ -149,11 +149,12 @@ pub async fn reveal_config_file(app: AppHandle) -> Result<String, String> {
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliInfo {
-    /// Absolute path of the bundled `monosub-cli-<triple>` binary.
+    /// Absolute path of the bundled `monosub-cli` binary.
     pub path: Option<String>,
     /// Absolute `resources/bin` directory the binary lives in.
     pub bin_dir: Option<String>,
-    /// The binary's file name, `<name>-<target-triple>` (+ `.exe` on Windows).
+    /// The binary's file name, `monosub-cli` (+ `.exe` on Windows) — no target
+    /// triple, because this name is what the user types in a terminal.
     pub file_name: String,
     /// `windows` / `macos` / `linux` — the card differs per platform because
     /// putting a command on `PATH` does.
@@ -287,9 +288,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The reported file name must carry the target triple and (on Windows) the
-    /// `.exe` suffix — the card shows this name, and a wrong one sends the user
-    /// to a path that does not exist.
+    /// The reported file name must be exactly what the bundlers install: bare
+    /// `monosub-cli` (+ `.exe` on Windows), **without** the target triple. The
+    /// card shows this name and the user may put its directory on `PATH`, where
+    /// a suffixed file would answer no `monosub-cli` lookup at all.
     #[tokio::test]
     async fn cli_info_names_the_file_the_bundlers_install() {
         let root = std::env::temp_dir().join(format!(
@@ -306,13 +308,15 @@ mod tests {
         let info = cli_info_inner(&paths).await;
         assert_eq!(info.file_name, crate::engine::cli::monosub_cli_file_name());
         assert!(
-            info.file_name.starts_with("monosub-cli-"),
-            "the bundlers install `<name>-<triple>`: {}",
+            !info.file_name.contains("x86_64-") && !info.file_name.contains("aarch64-"),
+            "the CLI is typed by the user, so it must carry no target triple: {}",
             info.file_name
         );
 
         #[cfg(target_os = "windows")]
-        assert!(info.file_name.ends_with(".exe"), "{}", info.file_name);
+        assert_eq!(info.file_name, "monosub-cli.exe");
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(info.file_name, "monosub-cli");
     }
 
     /// Windows reaches the CLI through an execution alias, so the card must not

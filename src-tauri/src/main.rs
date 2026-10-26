@@ -80,6 +80,7 @@ fn main() {
             config_file_path,
             reveal_config_file,
             cli_info,
+            cuda_status,
             download_model,
             cancel_model_download,
             remove_model,

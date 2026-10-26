@@ -299,6 +299,33 @@ export const recognitionModels = (models: ModelStatus[]): ModelStatus[] =>
 export const translationModels = (models: ModelStatus[]): ModelStatus[] =>
   models.filter(isTranslationModel);
 
+/**
+ * Order a catalogue slice the way Settings shows it: **installed first**, then
+ * the model whose transfer is in flight, then everything still to download.
+ *
+ * Both model lists in Settings exist to answer "what can I use, and what do I
+ * still have to fetch" — a model the user already has should never sit below
+ * pages of entries they do not. Sorting here (not in each component) keeps the
+ * two panes from drifting apart, and it is stable inside each group, so the
+ * catalogue order — and any downstream "default is the first one" reading — is
+ * preserved.
+ *
+ * `downloadingId` is optional: a caller without download state (or with none in
+ * flight) simply gets the installed/not-installed split.
+ */
+export const sortByAvailability = (
+  models: ModelStatus[],
+  downloadingId: string | null = null,
+): ModelStatus[] => {
+  const downloading = (model: ModelStatus) => model.id === downloadingId;
+
+  return [
+    ...models.filter((model) => model.installed),
+    ...models.filter((model) => !model.installed && downloading(model)),
+    ...models.filter((model) => !model.installed && !downloading(model)),
+  ];
+};
+
 export const listModels = async (): Promise<ModelStatus[]> => {
   const raw = await invoke<unknown>('list_models');
   return Array.isArray(raw) ? raw.map(normalizeModelStatus) : [];

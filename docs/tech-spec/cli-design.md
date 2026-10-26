@@ -509,9 +509,18 @@ cargo build --release --bin monosub-cli
 3. 两个平台同一个布局。Windows 的 MSIX 也是
    `resources\bin\monosub-cli-<triple>.exe`，`paths.rs` 与 `engine/cli.rs` 只需一套探测。
 
+> **已变更（2026-10-26）**：本节写的 `monosub-cli-<triple>` 文件名已不再使用。CLI 是
+> 唯一由用户直接敲的二进制，而 Windows 便携/自编译的做法是把 `resources/bin` 加进
+> `PATH` —— 在那里 `monosub-cli-x86_64-pc-windows-msvc.exe` 对 `monosub-cli` 这个
+> 查询完全无效。现在落地名就是 `monosub-cli`（Windows 为 `monosub-cli.exe`），
+> 见 `engine::cli::monosub_cli_file_name()` 与 `scripts/lib/platform.mjs` 的 `cliName`。
+> 引擎（`audiocpp_cli` / `llama-server` / `yt-dlp` / `ffmpeg`）仍保留 `-<triple>`，
+> 因为只有 `resolve_bundled_binary` 解析它们，而它会同时试两种写法。下文路径示例请
+> 按此理解。
+
 装进 App 后的位置是
-`/Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli-aarch64-apple-darwin`
-（Intel 机器是 `x86_64-apple-darwin`）。用户要能在终端直接用，需要：
+`/Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli`
+（Intel 机器同为 `monosub-cli`）。用户要能在终端直接用，需要：
 
 ```bash
 ln -s /Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli-aarch64-apple-darwin /usr/local/bin/monosub-cli

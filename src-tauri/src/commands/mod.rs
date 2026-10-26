@@ -1,4 +1,5 @@
 pub mod external;
+pub mod gpu;
 pub mod logs;
 pub mod models;
 pub mod opener;
@@ -9,6 +10,7 @@ pub mod update;
 pub mod video;
 
 pub use external::*;
+pub use gpu::*;
 pub use logs::*;
 pub use models::*;
 pub use plan::*;

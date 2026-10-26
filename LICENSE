@@ -1,6 +1,6 @@
-# PolyForm Noncommercial License 1.0.0
+# PolyForm Small Business License 1.0.0
 
-https://polyformproject.org/licenses/noncommercial/1.0.0
+https://polyformproject.org/licenses/small-business/1.0.0
 
 Required Notice: Copyright MonoSub contributors (https://github.com/leixdev/monosub)
 
@@ -10,11 +10,11 @@ In order to get any license under these terms, you must agree to them as both st
 
 ## Copyright License
 
-The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose. However, you may only distribute the software according to [Distribution License](https://polyformproject.org/licenses/noncommercial/1.0.0#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](https://polyformproject.org/licenses/noncommercial/1.0.0#changes-and-new-works-license).
+The licensor grants you a copyright license for the software to do everything you might do with the software that would otherwise infringe the licensor's copyright in it for any permitted purpose. However, you may only distribute the software according to [Distribution License](https://polyformproject.org/licenses/small-business/1.0.0#distribution-license) and make changes or new works based on the software according to [Changes and New Works License](https://polyformproject.org/licenses/small-business/1.0.0#changes-and-new-works-license).
 
 ## Distribution License
 
-The licensor grants you an additional copyright license to distribute copies of the software. Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](https://polyformproject.org/licenses/noncommercial/1.0.0#changes-and-new-works-license).
+The licensor grants you an additional copyright license to distribute copies of the software. Your license to distribute covers distributing the software with changes and new works permitted by [Changes and New Works License](https://polyformproject.org/licenses/small-business/1.0.0#changes-and-new-works-license).
 
 ## Notices
 
@@ -30,21 +30,13 @@ The licensor grants you an additional copyright license to make changes and new 
 
 The licensor grants you a patent license for the software that covers patent claims the licensor can license, or becomes able to license, that you would infringe by using the software.
 
-## Noncommercial Purposes
-
-Any noncommercial purpose is a permitted purpose.
-
-## Personal Uses
-
-Personal use for research, experiment, and testing for the benefit of public knowledge, personal study, private entertainment, hobby projects, amateur pursuits, or religious observance, without any anticipated commercial application, is use for a permitted purpose.
-
-## Noncommercial Organizations
-
-Use by any charitable organization, educational institution, public research organization, public safety or health organization, environmental protection organization, or government institution is use for a permitted purpose regardless of the source of funding or obligations resulting from the funding.
-
 ## Fair Use
 
 You may have "fair use" rights for the software under the law. These terms do not limit them.
+
+## Small Business
+
+Use of the software for the benefit of your company is use for a permitted purpose if your company has fewer than 100 total individuals working as employees and independent contractors, and less than 1,000,000 USD (2019) total revenue in the prior tax year. Adjust this revenue threshold for inflation according to the United States Bureau of Labor Statistics' consumer price index for all urban consumers, U.S. city average, for all items, not seasonally adjusted, with 1982–1984=100 reference base.
 
 ## No Other Rights
 
@@ -60,7 +52,7 @@ The first time you are notified in writing that you have violated any of these t
 
 ## No Liability
 
-***As far as the law allows, the software comes as is, without warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
+***As far as the law allows, the software comes as is, without any warranty or condition, and the licensor will not be liable to you for any damages arising out of these terms or the use or nature of the software, under any kind of legal claim.***
 
 ## Definitions
 
@@ -68,28 +60,34 @@ The **licensor** is the individual or entity offering these terms, and the **sof
 
 **You** refers to the individual or entity agreeing to these terms.
 
-**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization. **Control** means ownership of substantially all assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise. Control can be direct or indirect.
+**Your company** is any legal entity, sole proprietorship, or other kind of organization that you work for, plus all organizations that have control over, are under the control of, or are under common control with that organization. **Control** means ownership of substantially all the assets of an entity, or the power to direct its management and policies by vote, contract, or otherwise. Control can be direct or indirect.
 
 **Your licenses** are all the licenses granted to you for the software under these terms.
 
-**Use** means anything you do with the software that requires one of your licenses.
+**Use** means anything you do with the software requiring one of your licenses.
 
 ---
 
-## Scope: this licence covers MonoSub's own source code only
+## Scope: what this licence covers, and what it does not
+
+**This licence covers MonoSub's own source code.** It permits commercial use by
+anyone whose company stays under the Small Business threshold above — fewer than
+100 people, under 1,000,000 USD revenue. A company above that threshold needs a
+separate commercial licence from the copyright holder.
 
 **Model weights are not covered by this licence and are not distributed with
 MonoSub.** MonoSub ships no model files. Weights are fetched from each model's
-own upstream host (Hugging Face, ModelScope, NGC, …) at run time, only after
-the user explicitly asks for that model. Obtaining them is the user's act, and
-each model carries the licence its upstream publisher chose — including
-licences that forbid commercial use.
+own upstream host (Hugging Face, ModelScope, NGC, …) at run time, only after the
+user explicitly asks for that model. Obtaining them is the user's act, and each
+model carries the licence its upstream publisher chose — including licences that
+forbid commercial use.
 
 The upstream licence of every catalogue model is shown in the app before a
 download begins, together with a link to the publisher's own licence page.
 **Checking that a model's terms allow your intended use is the user's
 responsibility**, and it matters most for the models whose licences restrict or
-exclude commercial use. See §Model licences below.
+exclude commercial use — 16 of the 129 catalogue entries are non-commercial, and
+8 publish no licence at all.
 
 MonoSub also runs third-party components that carry their own licences:
 FFmpeg / FFprobe (LGPL), audio.cpp (Apache-2.0), llama.cpp (MIT) and yt-dlp
@@ -97,7 +95,7 @@ FFmpeg / FFprobe (LGPL), audio.cpp (Apache-2.0), llama.cpp (MIT) and yt-dlp
 fetched at release time by scripts/release/prepare-resources.mjs.
 
 Full texts, upstream URLs, build flags and the attribution notices those
-licences require are in:
+licences require — including the per-model commercial-use classification — are in:
 
     src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md
 

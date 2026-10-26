@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { log, die } from '../lib/log.mjs';
-import { hostPlatform, targetTriple, bundledName } from '../lib/platform.mjs';
+import { hostPlatform, targetTriple, cliName } from '../lib/platform.mjs';
 import {
     projectRoot,
     scriptsDir,
@@ -113,12 +113,12 @@ function buildMacOs() {
     log.success('前端 (Vite) 构建就绪');
 
     log.step('5. 编译命令行工具 (monosub-cli)...');
-    // The CLI lands in resources/bin/ with the same `<name>-<triple>` naming every
-    // other bundled binary uses, so `resources/**/*` carries it into the app,
-    // sign-app's loop re-signs it and `engine::cli` resolves it — no externalBin,
-    // no extra code.
+    // The CLI lands in resources/bin/ under its **bare** name (`monosub-cli`),
+    // unlike the engines: this is the file a user types, and on PATH a
+    // `<name>-<triple>` file answers nothing. `resources/**/*` carries it into
+    // the app, sign-app's loop re-signs it — no externalBin, no extra code.
     const cliSource = path.join(srcTauriDir, 'src', 'bin', 'monosub-cli.rs');
-    const cliTarget = path.join(binDir, bundledName('monosub-cli'));
+    const cliTarget = path.join(binDir, cliName);
     if (isFile(cliSource)) {
         run('cargo', [
             'build',
@@ -207,11 +207,10 @@ function buildWindows() {
     log.ok(`Built ${exePath}`);
 
     // `tauri build` compiles only the bundle's entry point, so the second binary
-    // is built explicitly. It lands under resources\bin\ with the
-    // `<name>-<triple>.exe` name every other bundled binary uses, which is what
-    // `engine::cli` resolves and what the execution alias points at.
+    // is built explicitly. It lands under resources\bin\ as **`monosub-cli.exe`**
+    // — no target triple: that bare name is what the execution alias points at
+    // and what a terminal (or a PATH entry) has to resolve.
     log.step('2b. Building the command-line tool ...');
-    const cliName = bundledName('monosub-cli');
     const cliBuilt = path.join(srcTauriDir, 'target', 'release', 'monosub-cli.exe');
     const cliSource = path.join(srcTauriDir, 'src', 'bin', 'monosub-cli.rs');
     if (!isFile(cliSource)) die('Missing src\\bin\\monosub-cli.rs - the Store package declares its alias');

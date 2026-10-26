@@ -1009,7 +1009,7 @@ supported video, shows a dismissible pill with one import button.
 | `remove_model` | Delete a model directory |
 | `open_models_dir` | Create + **open** the models folder itself (not `-R` in its parent) |
 | `activate_license` / `validate_license` / `deactivate_license` | Polar licensing |
-| `check_github_release_update` | Update check |
+| `check_github_release_update` | Update check — kept in the backend, but **no UI calls it**: Settings ▸ System ▸ About points at the repository instead (see below) |
 | `update_tray_menu` | Localise the tray's Show / Hide / Quit labels (progress rows are preserved) |
 | `update_tray_progress` | `progress: {title?, rows[]}`; the menu-bar text + the greyed progress rows a left click shows |
 | `resolve_model_plan` | Solve `Requirements` → `ModelPlan`; drives the Settings preview |
@@ -1021,6 +1021,7 @@ supported video, shows a dismissible pill with one import button.
 | `log_directory` | Absolute path of the rolling log directory (Settings ▸ 系统 shows it) |
 | `open_logs_dir` | Create the log directory and open it in the system file manager |
 | `log_frontend_error` | `level`, `message`, `context?`; writes a core-flow frontend failure into the same log file |
+| `cuda_status` | `commands::gpu`; probes `nvidia-smi` and answers "can the CUDA engine run here" (`applicable` is false off Windows). Drives the line under the file list's empty state — **advisory only**, nothing blocks on it |
 
 The catalogue contains both engines, but only audio.cpp entries can fill a recognition
 plan; `translate` entries are grouped separately by `role` in the UI.
@@ -1252,7 +1253,7 @@ next to the config file" is wrong, and hard-coding `~/.monosub` would be a secon
 location; `MONOSUB_CONFIG_DIR=~/.monosub` is the supported way to get that literal path.
 
 **Where the CLI finds its own resources.** The bundled binary is installed *inside* the
-resources tree, at `<root>/bin/monosub-cli-<triple>` (`resources/bin/` in the app, with
+resources tree, at `<root>/bin/monosub-cli` (`resources/bin/` in the app, with
 `models.json` one level up). `AppPaths::resolve_resources_root` therefore probes
 `<exe_dir>/..` when it holds `models.json`, and `engine::cli::resolve_binary` probes the
 executable's own directory for `audiocpp_cli`. Both branches are load-bearing and both were
@@ -1319,6 +1320,8 @@ that would hand every engine a directory with no models in it. It is accepted on
 | `src/lib/clipboardWatch.ts` | Clipboard polling hook: focus-aware cadence, per-text dismissal |
 | `src/lib/tray.ts` | Menu-bar mirror: `buildStatusRows` / `buildTitle` from `files`, coalesced pushes |
 | `src-tauri/src/commands/logs.rs` | `log_directory` / `open_logs_dir` / `log_frontend_error` |
+| `src-tauri/src/commands/gpu.rs` | `cuda_status`: `nvidia-smi` probe → driver / GPU / compute-capability verdict (pure `parse_nvidia_smi` + `judge`) |
+| `src/components/CudaNotice.tsx` | The one line under the empty state; hidden unless the backend says `applicable` |
 | `src-tauri/src/commands/opener.rs` | The **only** way to open a path: `open_directory` (`open <dir>`) vs `reveal_in_file_manager` (file ⇒ `open -R`), awaited + exit-status checked |
 | `src/lib/logging.ts` | `reportFrontendError` (5 s per-message dedupe) + the `window.onerror` / `unhandledrejection` hooks |
 | `src-tauri/src/commands/tray.rs` | Menu-bar state + `layout`: status rows, separator, localised actions |
@@ -1885,9 +1888,17 @@ useEffect(() => {
 
 ## Licensing / Attribution
 
-**MonoSub's own source is PolyForm Noncommercial 1.0.0** — see the root `LICENSE`.
+**MonoSub's own source is PolyForm Small Business 1.0.0** — see the root `LICENSE`.
 It is *source-available*, not open source: keep that distinction in any user-facing
 copy.
+
+Commercial use is permitted out of the box for any company under the threshold
+(fewer than 100 people, under 1,000,000 USD revenue); above it a separate
+commercial licence is required. That threshold is what makes "a company bought this
+and uses it for paid work" a licensed case instead of an open question — do not
+swap it back to a non-commercial licence and assume it is equivalent. It is not:
+under a non-commercial licence every business user is unlicensed while the product
+is sold to them anyway, which is the worst of both.
 
 Model licences are recorded for *attribution* **and** for a commercial-use verdict;
 neither is a gate on which models may be listed. The app never re-hosts weights — it

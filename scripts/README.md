@@ -119,9 +119,25 @@ toolkit 编的，平铺在一个 `bin\` 里时后装的会静默覆盖先装的�
 或 manifest。`engine::cli::find_executable` 会再探一层 `<dir>/<binary-name>/`，
 `Backend::platform_default()` 在 Windows 上返回 `Cuda`，都是同一件事的两半。
 
-CUDA 13.x 意味着 Pascal 及更早（GTX 10 系以下）被排除 —— NVIDIA 在 CUDA 13 里
-移除了这些架构 —— 而它是覆盖 Blackwell（RTX 50 系，sm_120）的版本，CUDA 12.x
-不覆盖。机器上没有 NVIDIA 显卡时，`prepare-resources.mjs` 只警告不中止。
+覆盖范围是 **Turing（RTX 20 系）→ Blackwell（RTX 50 系）**：
+
+| 构建 | 架构列表 | 覆盖 |
+|------|----------|------|
+| audio.cpp cuda13.3 | `75;80;86;89;90;120` | Turing → Blackwell |
+| llama.cpp cuda13.4 | ggml 默认（CTK 13）：`75/80/86/89/90` + `120` | 同上 |
+
+**Pascal（GTX 10 系）及更老是有意不支持的，这不是运行时限制而是编译器限制**：
+CUDA 13.0 Release Notes §2.5.2 明确 removed offline compilation and library support
+for Maxwell / Pascal / Volta，所以 13.x 的 fatbin 里不可能有 sm_61 的内核——在
+GTX 1080 上会直接报 `no kernel image is available for execution on the device`，
+不是"慢一点"。CUDA 12.4 曾经作为默认试过（`61-virtual;70;75;80;86;89;90`），
+能覆盖 Pascal→Hopper，但代价是 50 系没有原生 sm_120 内核、只能跑 compute_90 PTX
+由驱动 JIT，而且 fatbin 大 1.3 GB。权衡后选择放弃 8 年前的卡，换 50 系原生内核。
+
+另一个理由在驱动：CUDA 13 随 **R580 分支**发布，而那正是最后一个支持 7.5 之前 GPU
+的分支。
+
+机器上没有 NVIDIA 显卡时，`prepare-resources.mjs` 只警告不中止。
 
 macOS 不受影响：那边 audio.cpp 是静态链接，llama 的 dylib 本来就平铺在 `bin/`，
 没有冲突，后端仍是 `metal`。

@@ -108,6 +108,23 @@ MonoSub 是一个公开仓库。上面提到的所有功能都能从这个仓库
 
 ---
 
+## 📄 许可协议
+
+源码采用 **[PolyForm Small Business License 1.0.0](https://polyformproject.org/licenses/small-business/1.0.0)**（源码公开，非开源）。
+
+| 使用方 | 商用 |
+|---|---|
+| 个人、业余项目、任何非商业用途 | ✅ 免费 |
+| **少于 100 人**且**年营收低于 100 万美元**的公司 | ✅ 免费 |
+| 超过上述门槛的公司 | 💬 需单独购买商业授权 |
+
+**模型权重不在本许可范围内，也不随 MonoSub 分发。** 每个模型都从发布方自己的服务器获取，各自适用发布方选择的许可 —— 目录 129 个条目中有 16 个禁止商用。下载开始前，应用会展示该模型的许可证名称并给出发布方条款链接。
+
+三方组件（FFmpeg、audio.cpp、llama.cpp、yt-dlp）的许可披露见
+[`src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md`](src-tauri/resources/licenses/THIRD-PARTY-NOTICES.md)。
+
+---
+
 ## 常见问题
 
 ### macOS 提示 "MonoSub 已损坏，无法打开"

@@ -24,7 +24,20 @@
     "addVideos": "拖到窗口即可添加",
     "featureAsr": "自动语音识别",
     "featureSegment": "智能断句",
-    "featureExport": "多格式导出"
+    "featureExport": "多格式导出",
+    "cuda": {
+      "ready": "CUDA 加速已就绪 · {{gpu}}",
+      "title": "未检测到可用的 CUDA",
+      "reasonNoDriver": "没有找到 NVIDIA 驱动（缺少 nvidia-smi）。Windows 版只提供 CUDA 推理，装好驱动后才能开始转写。",
+      "reasonNoGpu": "驱动已安装，但它报告没有可用的 NVIDIA 显卡。Windows 版只提供 CUDA 推理。",
+      "reasonTooOld": "{{gpu}} 的算力为 {{capability}}，低于当前构建要求的最低值 {{minimum}}。",
+      "reasonProbeFailed": "显卡检测没有成功：{{detail}}",
+      "hint": "CUDA 运行库已随 App 附带，只需安装或更新显卡驱动。",
+      "tooOldHint": "当前版本需要 Turing 架构（RTX 20 系 / GTX 16 系）或更新的 NVIDIA 显卡；换驱动无法解决。",
+      "installDriver": "安装驱动",
+      "recheck": "重新检测",
+      "thisGpu": "当前显卡"
+    }
   },
   "fileItem": {
     "pending": "等待处理",
@@ -107,15 +120,13 @@
       "title": "关于",
       "appVersion": "软件版本",
       "unknownVersion": "未知",
-      "checkUpdate": "检查更新",
-      "checkingUpdate": "检查中...",
-      "checkFailed": "检查更新失败",
-      "newVersionAvailable": "发现新版本：{{version}}",
-      "upToDate": "当前已是最新版本",
-      "latestVersion": "最新版本",
-      "publishedAt": "发布时间",
-      "openReleasePage": "打开下载页面",
-      "hint": "点击“检查更新”后，将从 GitHub Releases 获取最新版本信息。"
+      "viewSource": "查看源码",
+      "repository": "项目仓库",
+      "copy": "复制",
+      "copied": "已复制",
+      "copyFailed": "复制地址失败",
+      "openFailed": "无法打开链接，可复制地址后在浏览器中打开。",
+      "hint": "MonoSub 源码公开：完整代码与所采用的许可协议都在上面的仓库里。"
     },
     "resetDefaults": "重置默认",
     "done": "完成",

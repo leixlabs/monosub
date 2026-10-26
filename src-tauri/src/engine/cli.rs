@@ -152,17 +152,19 @@ pub fn resolve_cli_path(paths: &AppPaths) -> Result<PathBuf, EngineError> {
 
 /// The file name the packaging scripts install `monosub-cli` under.
 ///
-/// `<name>-<target-triple>` on Unix, with `.exe` after the triple on Windows —
-/// the same `<name>-<triple>` convention every bundled binary follows, so
-/// Settings names the file the bundle actually contains instead of guessing.
+/// **Deliberately bare — no `-<target-triple>` suffix**, unlike the engines. This
+/// is the one bundled binary a *user* types: the portable/self-built Windows
+/// instructions put `resources/bin` on `PATH`, and a file called
+/// `monosub-cli-x86_64-pc-windows-msvc.exe` answers no `monosub-cli` lookup at
+/// all. The engines keep the suffix because only [`resolve_bundled_binary`]
+/// resolves them, and it tries both forms; nothing resolves the CLI for the
+/// user, so its name has to be the command.
 pub fn monosub_cli_file_name() -> String {
-    let suffixed = format!("{}-{}", MONOSUB_CLI_BINARY, target_triple());
-
     #[cfg(target_os = "windows")]
-    return format!("{}.exe", suffixed);
+    return format!("{}.exe", MONOSUB_CLI_BINARY);
 
     #[cfg(not(target_os = "windows"))]
-    return suffixed;
+    return MONOSUB_CLI_BINARY.to_string();
 }
 
 /// Resolve the bundled `llama-server-<target-triple>` binary used for local
@@ -515,22 +517,29 @@ fn dev_resources_dir(root: Option<&Path>) -> Option<PathBuf> {
 }
 
 /// First candidate that exists under `dir` and is executable.
-/// Probes `<dir>/<candidate>` and then `<dir>/<binary-name>/<candidate>`.
 ///
-/// The second form is the Windows layout: each engine ships in a directory of its
+/// Probes **`<dir>/<binary-name>/<candidate>` first**, then `<dir>/<candidate>`.
+///
+/// The nested form is the Windows layout: each engine ships in a directory of its
 /// own, because both CUDA builds carry a `ggml-cuda.dll` compiled against a
 /// different CUDA toolkit and a flat `bin\` would let one overwrite the other.
 /// Windows resolves a process's imports from the directory its executable was
 /// loaded from, so the `.exe` has to sit next to its own DLLs — and that is also
 /// why no PATH or manifest entry is needed to find them.
 ///
-/// The flat form stays first: it is the macOS layout (audio.cpp is static there
-/// and llama's dylibs are flat), and it is what every existing checkout has.
+/// **Nested must come first.** A leftover flat copy of the same binary — the
+/// pre-subdirectory layout left a CPU-only `audiocpp_cli-<triple>.exe` in
+/// `bin\` — otherwise wins the lookup and the app runs an engine with no CUDA
+/// backend at all, failing with "CUDA backend requested but it is not registered
+/// in this build" only after a file has been queued. The flat form is still
+/// probed for the binaries that genuinely live there (`ffmpeg`, `ffprobe`,
+/// `yt-dlp`, `monosub-cli`) and for macOS, where audio.cpp is static and llama's
+/// dylibs are flat.
 fn find_executable(dir: &Path, candidates: &[String], binary_name: &str) -> Option<PathBuf> {
     let nested = dir.join(binary_name);
     candidates
         .iter()
-        .flat_map(|candidate| [dir.join(candidate), nested.join(candidate)])
+        .flat_map(|candidate| [nested.join(candidate), dir.join(candidate)])
         .find(|path| is_executable_file(path))
 }
 
@@ -626,12 +635,21 @@ mod tests {
             .to_path_buf()
     }
 
+    /// Where `prepare-resources` installs the engine: its own directory on
+    /// Windows (beside the CUDA runtime it cannot start without), flat on macOS
+    /// where audio.cpp is a static binary.
     fn committed_cli_path() -> PathBuf {
-        repo_root()
+        let bin = repo_root()
             .join("src-tauri")
             .join("resources")
-            .join("bin")
-            .join(committed_binary_file_name(CLI_BINARY))
+            .join("bin");
+        let name = committed_binary_file_name(CLI_BINARY);
+
+        #[cfg(target_os = "windows")]
+        return bin.join(CLI_BINARY).join(name);
+
+        #[cfg(not(target_os = "windows"))]
+        return bin.join(name);
     }
 
     /// The name the resource scripts install a bundled binary under, which is
@@ -874,6 +892,31 @@ mod tests {
         assert!(is_executable_file(&found), "{}", found.display());
     }
 
+    /// A leftover flat copy must never win over the engine's own directory.
+    ///
+    /// This is a regression guard for a real failure: the pre-subdirectory
+    /// layout left a CPU-only `audiocpp_cli-<triple>.exe` in `bin\`, the flat
+    /// lookup won, and the app ran an engine that reported "CUDA backend
+    /// requested but it is not registered in this build".
+    #[test]
+    fn the_engine_directory_beats_a_flat_leftover() {
+        let root = std::env::temp_dir().join(format!("monosub-engine-order-{}", std::process::id()));
+        let bin = root.join("bin");
+        let nested = bin.join(CLI_BINARY);
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let name = committed_binary_file_name(CLI_BINARY);
+        std::fs::write(nested.join(&name), b"cuda build").unwrap();
+        std::fs::write(bin.join(&name), b"cpu-only leftover").unwrap();
+
+        let found = find_executable(&bin, &binary_candidates(CLI_BINARY), CLI_BINARY)
+            .expect("one of the two must resolve");
+
+        assert_eq!(found, nested.join(&name), "the flat copy must not shadow the engine directory");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// `resolve_cli_path`'s dev branch, driven from the repo root so the result
     /// does not depend on the test process cwd.
     #[test]
@@ -985,10 +1028,14 @@ mod tests {
             return;
         };
 
-        assert_eq!(
-            found,
-            dir.join(committed_binary_file_name(LLAMACPP_BINARY))
-        );
+        // Same layout rule as the ASR engine: its own directory on Windows,
+        // flat on macOS.
+        #[cfg(target_os = "windows")]
+        let expected = dir.join(LLAMACPP_BINARY).join(committed_binary_file_name(LLAMACPP_BINARY));
+        #[cfg(not(target_os = "windows"))]
+        let expected = dir.join(committed_binary_file_name(LLAMACPP_BINARY));
+
+        assert_eq!(found, expected);
         assert!(is_executable_file(&found), "{}", found.display());
     }
 

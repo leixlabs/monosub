@@ -23,11 +23,10 @@
 //   bin\msvcp140*.dll, bin\vcruntime140*.dll                    MSVC runtime, flat
 //
 // Both engines are ggml-based and both ship a CUDA build, so both carry a
-// `ggml-cuda.dll` — 258 MB from audio.cpp (CUDA 13.3), 149 MB from llama.cpp
-// (CUDA 13.4). They are not interchangeable: different ggml ABIs, different CUDA
-// toolkits, and their cuBLAS/cuFFT redistributables differ too. Flat in one
-// `bin\` the second install silently overwrote the first, and whichever engine
-// lost the race could not start.
+// `ggml-cuda.dll` — a couple of hundred MB each, with their own cuBLAS/cuFFT
+// redistributables beside them. They are not interchangeable: different ggml
+// ABIs, different CUDA toolkits. Flat in one `bin\` the second install silently
+// overwrote the first, and whichever engine lost the race could not start.
 //
 // Subdirectories work because Windows resolves a process's imports from the
 // directory its executable was loaded from first, so an `.exe` next to its own
@@ -44,9 +43,27 @@
 // `Backend::platform_default()` in src-tauri/src/engine/cli.rs. There is no CPU
 // build to download and no CPU retry when a CUDA run fails.
 //
-// CUDA 13.x does mean Pascal and older (GTX 10-series and below) are out: NVIDIA
-// dropped those architectures in CUDA 13. It is the version that covers Blackwell
-// (RTX 50-series, sm_120), which CUDA 12.x does not.
+// ## Why CUDA 13, and what it costs
+//
+// Coverage is Turing (RTX 20-series) through Blackwell (RTX 50-series):
+//
+//   audio.cpp 13.3 -> 75;80;86;89;90;120      (pinned in its release workflow)
+//   llama.cpp 13.4 -> 75/80/86/89/90 + 120    (ggml's default list for CTK 13)
+//
+// **Pascal (GTX 10-series) is not supported, deliberately.** This is a compiler
+// limit, not a runtime one: CUDA 13.0 release notes §2.5.2 state that offline
+// compilation and library support for Maxwell / Pascal / Volta were removed, so
+// no 13.x build can contain an sm_61 kernel — a GTX 1080 would fail with "no
+// kernel image is available for execution on the device" rather than merely run
+// slowly. CUDA 12.4 was tried as the default for reach and reverted: what it
+// buys is cards that are eight years old and slow at ASR anyway, while costing
+// the RTX 50 series its native kernels (~1.3 GB larger fatbin: 12.4 carries
+// PTX for five architectures, and sm_120 has to be JIT-compiled at first run).
+//
+// The second reason is the driver: CUDA 13 ships with the R580 branch, the last
+// branch that supports pre-7.5 GPUs at all. A 13.x package therefore asks for a
+// newer driver than a 12.x one — acceptable for a card generation that already
+// requires a recent driver to work well.
 
 import path from 'node:path';
 import fs from 'node:fs';
@@ -301,12 +318,59 @@ async function fetchYtDlpMacOs() {
 // ---------------------------------------------------------------------------
 
 async function prepareWindows() {
+    pruneStaleFlatEngines();
     await fetchAudioCppWindows();
     await fetchLlamaCppWindows();
     copyMsvcRuntimeFlat();
     await fetchFfmpegWindows();
     await fetchYtDlpWindows();
     smokeTestWindows();
+}
+
+/**
+ * Delete the flat engine files the pre-subdirectory layout left in `bin\`.
+ *
+ * This is not tidiness, it was a real failure: a stale CPU-only
+ * `audiocpp_cli-<triple>.exe` sat in `bin\` next to the CUDA copy in
+ * `bin\audiocpp_cli\`, and the resolver's flat-first order picked it — the app
+ * then died with "CUDA backend requested but it is not registered in this build"
+ * after the user had already queued a file. The resolver now prefers the nested
+ * directory, and this guard removes the shadow so no future order change can
+ * resurrect it.
+ *
+ * A flat DLL is only removed when the same name exists inside an engine
+ * directory — otherwise it is something else's dependency (the flat MSVC runtime
+ * that ffmpeg needs, for one). That is why `msvcp*`/`vcruntime*`/`vcomp*` are
+ * excluded by construction: they are not in `ENGINE_DLL_PREFIXES`.
+ */
+const ENGINE_DLL_PREFIXES = ['llama', 'ggml', 'mtmd', 'libomp'];
+
+function pruneStaleFlatEngines() {
+    let removed = 0;
+
+    for (const entry of fs.readdirSync(binDir, { withFileTypes: true })) {
+        if (!entry.isFile()) continue;
+        const file = entry.name;
+        const full = path.join(binDir, file);
+
+        // 1. A flat copy of an engine executable. Always stale: both engines now
+        //    live in their own directory and load their DLLs from there.
+        const isFlatEngineExe = ['audiocpp_cli', 'llama-server'].some(
+            (engine) => file.startsWith(engine) && file.endsWith('.exe'),
+        );
+
+        // 2. A flat support DLL that the engine directory also provides.
+        const isStaleDll = ENGINE_DLL_PREFIXES.some((prefix) => file.startsWith(prefix) && file.endsWith('.dll'))
+            && ['audiocpp_cli', 'llama-server'].some((engine) => isFile(path.join(binDir, engine, file)));
+
+        if (!isFlatEngineExe && !isStaleDll) continue;
+        remove(full);
+        removed += 1;
+    }
+
+    if (removed > 0) {
+        log.warn(`清理了 ${removed} 个遗留的扁平引擎文件（引擎只从各自子目录加载）`);
+    }
 }
 
 /** True when an engine directory holds the executable plus the CUDA runtime it cannot start without. */
@@ -324,6 +388,9 @@ async function fetchAudioCppWindows() {
     const dir = path.join(binDir, 'audiocpp_cli');
     const target = path.join(dir, bundledName('audiocpp_cli'));
 
+    // The versions in these probe prefixes are deliberate: a directory left
+    // behind by a different CUDA build must NOT count as installed, or a rebuild
+    // would happily ship the wrong runtime.
     if (engineInstalled(dir, target, ['ggml-cuda', 'cublas64_13', 'cudart64_13', 'cufft64_12'])) {
         log.ok(`audiocpp_cli already present, skipping (${targetTriple()}, cuda13.3)`);
         return;
@@ -374,8 +441,10 @@ async function fetchLlamaCppWindows() {
         return;
     }
 
-    // CUDA 13.4 is the closest track to audio.cpp's 13.3; they stay in separate
-    // directories precisely so the mismatch cannot matter.
+    // 13.4 is the closest track to audio.cpp's 13.3; they stay in separate
+    // directories precisely so the mismatch cannot matter. llama.cpp leaves the
+    // arch list to ggml's default, which for CTK 13 is 75/80/86/89/90 plus 120 —
+    // the same Turing-to-Blackwell span as audio.cpp.
     const build = {
         asset: `llama-${LLAMA_BUILD}-bin-win-cuda-13.4-x64.zip`,
         sha256: 'baea0383b4e040f601a6091348b0508531f77f6756bf7dec6689881470fd4614',

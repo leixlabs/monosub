@@ -143,7 +143,7 @@ it at all:
 
 - Earlier builds bundled gyan.dev's `essentials_build`, which is
   `--enable-gpl --enable-version3` — i.e. **GPLv3**.
-- MonoSub's own source is published under the PolyForm Noncommercial License
+- MonoSub's own source is published under the PolyForm Small Business License
   1.0.0 and the app is sold through the Mac App Store and Microsoft Store.
   Conveying a GPL binary there fails on two counts: §6 requires Corresponding Source
   (including build scripts) that we never shipped, and §10 forbids the further

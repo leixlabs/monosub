@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Languages, Download, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
@@ -10,6 +11,7 @@ import { GlassSwitch } from '@/components/ui/glass-switch';
 import {
   formatModelSize,
   modelManifestSize,
+  sortByAvailability,
   translationModels,
   type ModelStatus,
 } from '@/lib/models';
@@ -55,7 +57,14 @@ export function SettingsTranslation({
   const settings = useStore((state) => state.settings);
   const updateSettings = useStore((state) => state.updateSettings);
 
-  const available = translationModels(models);
+  // Installed first, then whatever is downloading, then the rest — the same rule
+  // the Models pane uses, from one shared helper so the two panes cannot drift.
+  // Ordering is stable inside each group, so the catalogue order — and therefore
+  // the default model — is unchanged.
+  const available = useMemo(
+    () => sortByAvailability(translationModels(models), downloadingId),
+    [models, downloadingId],
+  );
 
   // Endonyms, so the list is readable whatever the UI language is. Ordered like
   // `TRANSLATE_TARGET_LANGUAGES`, and exhaustive by type: adding a target without

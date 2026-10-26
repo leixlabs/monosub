@@ -26,7 +26,7 @@
 | ✅ 已修  | ~~使用 B 站商标~~ —— 界面文案已全部去除品牌名                              | `en.json`、`zh-CN.json`、`landing_page` 两语种                    | 已改为「网络视频 / 受支持的站点」          |
 | ✅ 已修  | ~~用第三方商标替平台下断言~~（"Bilibili requires a login"）             | `en.json:335,349,352`                                        | 已改为中性表述                     |
 | 🟡 P2 | 读取浏览器 **bilibili.com cookie**，大概率违反平台 ToS                 | `SettingsUrlImport.tsx:108`                                  | 加风险提示                       |
-| ✅ 已修  | ~~仓库**根目录无 LICENSE** 文件~~                                 | `LICENSE`、`package.json`、`Cargo.toml`                        | 已补 **PolyForm Noncommercial 1.0.0**，三方组件指向 notices |
+| ✅ 已修  | ~~仓库**根目录无 LICENSE** 文件~~                                 | `LICENSE`、`package.json`、`Cargo.toml`                        | 已补 **PolyForm Small Business 1.0.0**，三方组件指向 notices |
 
 ---
 
@@ -415,17 +415,19 @@ OpenMDW-1.1 的署名义务**均已履行**。
 
 原状态：公开仓库无 LICENSE，法律上默认「保留所有权利」，他人无任何使用权限。
 
-**最终采用 PolyForm Noncommercial 1.0.0**（2026-10-26），不是 MIT：
+**最终采用 PolyForm Small Business 1.0.0**（2026-10-26），不是 MIT，也不是 Noncommercial：
 
-- SPDX 标识符 `PolyForm-Noncommercial-1.0.0`，同步写入 `package.json` 与 `src-tauri/Cargo.toml`
+- SPDX 标识符 `PolyForm-Small-Business-1.0.0`，同步写入 `package.json` 与 `src-tauri/Cargo.toml`
 - 文件内含 `Required Notice:` 行 —— PolyForm 的 Notices 条款要求接收方同时拿到该行
 - 末尾声明：该许可证只覆盖 MonoSub 自身代码；模型权重不在其中，也不随应用分发
 
-**为什么不用 MIT**：MIT 允许任何人合法地重新编译并免费再分发，与商店付费版正面竞争。PolyForm Noncommercial 让源码保持公开（source-available）而不放弃收入。
+**为什么不用 MIT**：MIT 允许任何人合法地重新编译并免费再分发，与付费版正面竞争。PolyForm 让源码保持公开（source-available）而不放弃收入。
+
+**为什么从 Noncommercial 改 Small Business**：Noncommercial 下**任何**商业使用都不被授权，包括愿意付费的自由职业者和小工作室。而产品本身就是卖给这类人的 —— 结果是「持续销售、却禁止买家按规定使用」，最坏时可能被主张构成默示许可（implied license）。Small Business 用一条可查的规模门槛替代：**100 人以下且年营收 100 万美元以下**可免费商用，超过才需要单独商业授权。既接住了绝大多数真实付费用户，又留下企业收费的闸门。
 
 **为什么现在才补**：原稿标注的冲突前提已经消失 —— GPL 问题在 §1 解决（FFmpeg 换 LGPL 构建，且以独立子进程调用，构成聚合）。
 
-> ⚠️ 必须接受的代价：PolyForm Noncommercial 只授予**非商业**用途。企业用户拿它做付费工作不在授权范围内。这是有意设计，但也意味着商店版的实际买家是个人用户；要覆盖商业客户需另发商业授权。对外文案不要自称「开源 / open source」—— 准确说法是「源码公开 / source-available」。
+> 对外文案不要自称「开源 / open source」—— 准确说法是「源码公开 / source-available」。超过门槛的公司需另签商业授权，那份合同**无权覆盖**模型权重（见 `LICENSE` 末尾的 Scope 段）。
 
 ---
 
@@ -511,7 +513,7 @@ OpenMDW-1.1 的署名义务**均已履行**。
 | 4a | 移除 `tier`，消除「推荐一个禁止商用的模型」（P1） | ✅ §4 |
 | 4b | `hy_mt` 的地域排除（P1） | 🟠 **未处理**，见 §4.2 |
 | 5 | UI 许可徽标 + 下载前确认弹窗（P1） | ✅ §6、§7 |
-| 6 | 根目录 LICENSE（P2） | ✅ PolyForm Noncommercial 1.0.0，见 §11 |
+| 6 | 根目录 LICENSE（P2） | ✅ PolyForm Small Business 1.0.0，见 §11 |
 | 7 | cookie 读取风险提示（P2） | 🟠 **未处理**，见 §10 |
 
 **剩余两项**都不大，但都需要产品决策而不是纯代码改动：`hy_mt` 要定「换默认模型还是做地域路由」；cookie 提示要定「是否保留读取浏览器 cookie 这个功能」。

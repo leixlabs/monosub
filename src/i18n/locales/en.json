@@ -24,7 +24,20 @@
     "addVideos": "Drag files here to add",
     "featureAsr": "Speech Recognition",
     "featureSegment": "Smart Segmentation",
-    "featureExport": "Multi-format Export"
+    "featureExport": "Multi-format Export",
+    "cuda": {
+      "ready": "CUDA acceleration ready · {{gpu}}",
+      "title": "CUDA is unavailable",
+      "reasonNoDriver": "No NVIDIA driver was found (nvidia-smi is missing). The Windows build runs on CUDA only, so transcription cannot start until one is installed.",
+      "reasonNoGpu": "A driver is installed but reports no NVIDIA GPU. The Windows build runs on CUDA only.",
+      "reasonTooOld": "{{gpu}} has compute capability {{capability}}, below the {{minimum}} this build requires.",
+      "reasonProbeFailed": "The GPU check did not succeed: {{detail}}",
+      "hint": "The CUDA runtime ships with MonoSub — the graphics driver is the only thing to install.",
+      "tooOldHint": "This build needs a Turing-class card (RTX 20-series / GTX 16-series) or newer; a driver update cannot add the missing kernels.",
+      "installDriver": "Install driver",
+      "recheck": "Check again",
+      "thisGpu": "this GPU"
+    }
   },
   "fileItem": {
     "pending": "Pending",
@@ -107,15 +120,13 @@
       "title": "About",
       "appVersion": "App Version",
       "unknownVersion": "Unknown",
-      "checkUpdate": "Check for Updates",
-      "checkingUpdate": "Checking...",
-      "checkFailed": "Update check failed",
-      "newVersionAvailable": "New version available: {{version}}",
-      "upToDate": "You are up to date",
-      "latestVersion": "Latest Version",
-      "publishedAt": "Published At",
-      "openReleasePage": "Open Download Page",
-      "hint": "Click \"Check for Updates\" to fetch the latest release from GitHub."
+      "viewSource": "View Source",
+      "repository": "Repository",
+      "copy": "Copy",
+      "copied": "Copied",
+      "copyFailed": "Could not copy the address",
+      "openFailed": "Could not open the link. Copy the address and open it in a browser.",
+      "hint": "MonoSub is source-available: the whole codebase, and the licence it ships under, live in the repository above."
     },
     "resetDefaults": "Reset Defaults",
     "done": "Done",

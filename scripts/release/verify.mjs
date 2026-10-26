@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { log, die } from '../lib/log.mjs';
-import { hostPlatform, targetTriple } from '../lib/platform.mjs';
+import { hostPlatform, targetTriple, cliName } from '../lib/platform.mjs';
 import { makeScratchDir, remove } from '../lib/fs.mjs';
 import { run, tryCapture, tryCaptureMerged } from '../lib/shell.mjs';
 import { listZip, readZipEntry } from '../lib/archive.mjs';
@@ -158,9 +158,11 @@ function verifyDmg(dmgPath) {
         }
         log.success('  llama-server 正常（dylib 加载通过）');
 
+        // Bare `monosub-cli`, no target triple: it is the name a user types, so
+        // the packaged file must answer exactly that lookup (see `cliName`).
         const cliBin = fs
             .readdirSync(resourceBinDir)
-            .find((entry) => entry.startsWith('monosub-cli-'));
+            .find((entry) => entry === cliName);
         if (cliBin) {
             runQuietOk(path.join(resourceBinDir, cliBin), ['--help'], 'monosub-cli');
             log.success('  monosub-cli 正常');
@@ -221,7 +223,7 @@ async function verifyMsix(msixPath) {
     requireEntry(`resources/bin/ffmpeg-${triple}.exe`, 'FFmpeg');
     requireEntry(`resources/bin/ffprobe-${triple}.exe`, 'FFprobe');
     requireEntry(`resources/bin/yt-dlp-${triple}.exe`, 'yt-dlp');
-    requireEntry(`resources/bin/monosub-cli-${triple}.exe`, 'Command-line tool');
+    requireEntry(`resources/bin/${cliName}`, 'Command-line tool');
     requireEntry('resources/models.json', 'Model catalogue');
     requireEntry('resources/models/silero_vad/silero_vad_16k.safetensors', 'Silero VAD model');
 
@@ -235,10 +237,32 @@ async function verifyMsix(msixPath) {
         addFailure(`Only ${dllCount} DLL(s) in the package; the engines cannot start`);
     }
 
+    // CUDA **13** specifically: a stale `cudart64_12.dll` here would mean a
+    // previous 12.4 experiment survived a rebuild, and the package would ship
+    // the build that has no Blackwell kernels.
+    // The engines live in their own directories. A flat copy of either
+    // executable is a leftover from the pre-subdirectory layout — and a stale
+    // CPU-only `audiocpp_cli-<triple>.exe` in `bin\` is exactly what once made
+    // the app run an engine with no CUDA backend.
+    const flatEngines = [...entries].filter((name) =>
+        /^resources\/bin\/(audiocpp_cli|llama-server)-[^/]*\.exe$/.test(name),
+    );
+    if (flatEngines.length > 0) {
+        addFailure(`Flat engine executable(s) in resources/bin: ${flatEngines.join(', ')} — the engines must only live in their own subdirectory`);
+    } else {
+        log.ok('No flat engine executables in resources/bin');
+    }
+
     requireEntry('resources/bin/audiocpp_cli/ggml-cuda.dll', 'audio.cpp CUDA backend');
     requireEntry('resources/bin/audiocpp_cli/cudart64_13.dll', 'audio.cpp CUDA runtime');
     requireEntry('resources/bin/audiocpp_cli/cublas64_13.dll', 'audio.cpp cuBLAS');
-    requireEntry('resources/bin/audiocpp_cli/cufft64_12.dll', 'audio.cpp cuFFT');
+    // cuFFT carries its own major (12 in the 13.x toolkits), so it is matched by
+    // family rather than by a number that tracks something else.
+    if ([...entries].some((name) => /^resources\/bin\/audiocpp_cli\/cufft64_\d+\.dll$/.test(name))) {
+        log.ok('audio.cpp cuFFT present');
+    } else {
+        addFailure('resources/bin/audiocpp_cli/cufft64_*.dll missing; audio.cpp cannot inverse-STFT');
+    }
     requireEntry('resources/bin/llama-server/ggml-cuda.dll', 'llama.cpp CUDA backend');
     requireEntry('resources/bin/llama-server/cudart64_13.dll', 'llama.cpp CUDA runtime');
     requireEntry('resources/bin/llama-server/cublas64_13.dll', 'llama.cpp cuBLAS');

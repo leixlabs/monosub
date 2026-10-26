@@ -591,10 +591,19 @@ export function FileItem({ file }: FileItemProps) {
               <span>{formatFileSize(file.size)}</span>
               <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
               <span>{settings.outputFormat.toUpperCase()}</span>
-              {/* Per-file speaker separation. Editable only while the run has
-                  not started: changing it mid-flight would not affect the
-                  request already sent to the engine. */}
-              {file.status === 'pending' && (
+              {/* Per-file speaker separation and translation. Editable until the
+                  run starts: changing them mid-flight would not affect the
+                  request already sent to the engine, so `processing` and the
+                  finished rows show nothing.
+
+                  `error` is editable on purpose. A failed row is exactly where
+                  the retry decision is made, and the missing-model prompt offers
+                  "start transcription" from its own dialog — with the switches
+                  hidden there, a retry reused whatever value the file was
+                  created with, and the row gave no way to see or change it. A
+                  run then logged `enable_diarization=true` for a user who was
+                  sure the switch was off. */}
+              {(file.status === 'pending' || file.status === 'error') && (
                 <>
                   <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
                   <span className="flex items-center gap-1.5">
