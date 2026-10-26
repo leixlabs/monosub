@@ -2,7 +2,9 @@
 //!
 //! Task: P1-14. See docs/tech-spec/refactor-audiocpp.md §5.2.
 //!
-//! Downloads stream into `<models_dir>/<target_directory>/<file>.part`, verify
+//! Downloads stream into
+//! `<models_dir>/<task>/<family>/<file>.part` — task being one of
+//! `asr` / `vad` / `align` / `diar` / `trans` — verify
 //! size (and sha256 when the manifest pins one) and are then renamed onto the
 //! final name, so a partial transfer never appears under the real name.
 //! `<models_dir>` is user-configurable (`crate::model_dir`).
@@ -85,7 +87,9 @@ pub struct ModelStatus {
     /// `llamacpp` translate model (translation-design §9).
     pub family: String,
     pub display_name: String,
-    /// Directory under `<app_data_dir>/models/` that `remove_model` deletes.
+    /// Upstream repository directory the entry came from. Storage is
+    /// `<models_dir>/<task>/<family>/`, not this — it identifies an upstream
+    /// release, which several catalogue ids share.
     pub target_directory: String,
     pub model_file: String,
     pub files: Vec<ModelFileStatus>,
@@ -331,25 +335,26 @@ pub async fn cancel_model_download(id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Delete `<app_data_dir>/models/<target_directory>` recursively.
+/// Delete this model's own files.
 ///
 /// A model that is not installed is a no-op. An in-flight download for the same
-/// id is cancelled first, otherwise it would recreate the directory it is
-/// writing into. The target directory is resolved and checked to live inside the
-/// models root before anything is deleted.
+/// id is cancelled first, otherwise it would recreate the file being deleted.
+/// Only the files this id's manifest lists are removed — see
+/// [`remove_model_files`] for why the directory itself must survive.
 #[tauri::command]
 pub async fn remove_model(app: AppHandle, id: String) -> Result<(), String> {
     cancel_in_flight(&id).await;
 
     let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
-    let dir = catalog::model_dir(&paths, &id).map_err(|e| e.to_string())?;
+    let spec = catalog::find(&paths, &id).map_err(|e| e.to_string())?;
+    let dir = catalog::install_dir(&paths, &spec);
     if !dir.exists() {
         tracing::info!(model = %id, path = %dir.display(), "remove_model: not installed");
         return Ok(());
     }
 
     let root = models_root(&paths)?;
-    remove_model_dir(&root, &dir)?;
+    remove_model_files(&root, &dir, &spec)?;
     tracing::info!(model = %id, path = %dir.display(), "Removed model files");
     Ok(())
 }
@@ -808,13 +813,21 @@ fn io_error(error: std::io::Error) -> DownloadError {
     DownloadError::Io(error.to_string())
 }
 
-/// Remove `dir` recursively, refusing to touch the models root itself or
-/// anything outside it. Returns `false` when `dir` does not exist.
-fn remove_model_dir(models_root: &Path, dir: &Path) -> Result<bool, String> {
+/// Canonicalise `dir` and confirm it sits strictly inside `models_root`,
+/// returning both so the caller prunes against the same canonical root.
+///
+/// The one guard every deletion here goes through: the directory names
+/// ultimately come from `models.json`, so the comparison is made on
+/// canonicalised paths rather than on strings — the only form in which `..`
+/// and a symlinked models root cannot disagree with what the filesystem is
+/// about to delete. `None` means `dir` is already gone.
+fn contained_target(
+    models_root: &Path,
+    dir: &Path,
+) -> Result<Option<(PathBuf, PathBuf)>, String> {
     if !dir.exists() {
-        return Ok(false);
+        return Ok(None);
     }
-
     let root = std::fs::canonicalize(models_root)
         .map_err(|e| format!("failed to resolve {}: {}", models_root.display(), e))?;
     let target = std::fs::canonicalize(dir)
@@ -827,10 +840,83 @@ fn remove_model_dir(models_root: &Path, dir: &Path) -> Result<bool, String> {
             root.display()
         ));
     }
+    Ok(Some((root, target)))
+}
 
-    std::fs::remove_dir_all(&target)
-        .map_err(|e| format!("failed to remove {}: {}", target.display(), e))?;
-    Ok(true)
+/// Delete the files this one model owns, then drop directories it emptied.
+///
+/// This deletes **files**, not the model's directory, and that difference is the
+/// whole point: storage is `<models_root>/<task>/<family>/<file>`, and a family
+/// directory holds every quant of that family — 34 of the 41 do, sharing one
+/// `mmproj` and tokenizer between them. Removing the directory, which is what
+/// this used to do, took the siblings with it and left the catalogoue reporting
+/// them installed until the next size check happened to look.
+///
+/// Each manifest file is therefore unlinked individually, together with its
+/// `.part` leftover: `cancel_in_flight` already tries to clean up, but a killed
+/// process never gets the chance, and leaving a partial behind means the next
+/// download starts from it — which this downloader refuses to do. A file that
+/// is already gone is not an error, because "installed" is a property of the
+/// sizes on disk and two models can legitimately share one.
+///
+/// Afterwards the family directory is dropped if emptying it left nothing, and
+/// then the task directory for the same reason, so that removing the last model
+/// in a family leaves no skeleton of empty folders where the user is looking.
+/// The models root itself is never a candidate.
+fn remove_model_files(
+    models_root: &Path,
+    dir: &Path,
+    spec: &ModelSpec,
+) -> Result<(), String> {
+    let Some((root, target)) = contained_target(models_root, dir)? else {
+        return Ok(());
+    };
+
+    for file in &spec.files {
+        let path = safe_join(&target, &file.path).map_err(|e| e.to_string())?;
+        for candidate in [path.clone(), part_path(&path)] {
+            match std::fs::remove_file(&candidate) {
+                Ok(()) => tracing::info!(path = %candidate.display(), "Removed model file"),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(format!(
+                        "failed to remove {}: {}",
+                        candidate.display(),
+                        error
+                    ))
+                }
+            }
+        }
+    }
+
+    prune_empty_dirs_up_to(&root, &target);
+    Ok(())
+}
+
+/// Remove `dir` and its ancestors below `root` for as long as they are empty.
+///
+/// Stops at the first non-empty directory instead of failing: another model's
+/// files being present is the normal case, not a fault. A directory that cannot
+/// be read is treated as non-empty on the same principle — whatever it holds is
+/// not ours to remove on a guess.
+fn prune_empty_dirs_up_to(root: &Path, dir: &Path) {
+    let mut current = dir;
+    loop {
+        if current == root || !current.starts_with(root) {
+            return;
+        }
+        let empty = std::fs::read_dir(current)
+            .map(|mut entries| entries.next().is_none())
+            .unwrap_or(false);
+        if !empty || std::fs::remove_dir(current).is_err() {
+            return;
+        }
+        tracing::info!(path = %current.display(), "Removed empty model directory");
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => return,
+        }
+    }
 }
 
 /// Emits progress at most once per interval, so a chunked transfer does not
@@ -1138,22 +1224,107 @@ mod tests {
         assert!(throttle.should_emit(start + Duration::from_millis(400)));
     }
 
+    /// A minimal recognition spec owning exactly the named files.
+    ///
+    /// Everything the deletion paths read; the rest is `Default`, which is what
+    /// the catalogue's own fixtures rely on.
+    fn spec_with(id: &str, files: &[&str]) -> ModelSpec {
+        ModelSpec {
+            id: id.to_string(),
+            family: "sense_asr".to_string(),
+            display_name: id.to_string(),
+            target_directory: "SenseVoice-Small-GGUF".to_string(),
+            model_file: files[0].to_string(),
+            files: files
+                .iter()
+                .map(|path| ModelFile {
+                    path: (*path).to_string(),
+                    urls: Vec::new(),
+                    size: 0,
+                    sha256: None,
+                })
+                .collect(),
+            ..ModelSpec::default()
+        }
+    }
+
     #[test]
-    fn remove_model_dir_deletes_the_model_directory_including_part_files() {
+    fn remove_model_files_deletes_only_this_models_files_and_its_part() {
         let workspace = TempDir::new("remove-ok");
         let models_root = workspace.path().join("models");
-        let dir = models_root.join("SenseVoice-Small-GGUF");
+        let dir = models_root.join("asr").join("sense_asr");
         std::fs::create_dir_all(&dir).expect("create model dir");
         std::fs::write(dir.join("model.gguf"), b"weights").expect("write model");
         std::fs::write(dir.join("model.gguf.part"), b"partial").expect("write part");
 
-        assert!(remove_model_dir(&models_root, &dir).unwrap());
-        assert!(!dir.exists());
-        assert!(models_root.exists());
+        remove_model_files(&models_root, &dir, &spec_with("m", &["model.gguf"]))
+            .expect("remove");
+
+        assert!(!dir.join("model.gguf").exists());
+        // A cancelled transfer must not survive the model it belonged to.
+        assert!(!dir.join("model.gguf.part").exists());
+        assert!(models_root.exists(), "models root must survive");
+    }
+
+    /// The reason deletion is per file: a family directory is shared. Removing
+    /// one quant used to take its siblings, the `mmproj` and the tokenizer with
+    /// it, while the catalogue still reported them installed.
+    #[test]
+    fn remove_model_files_leaves_sibling_quants_in_the_same_family_dir() {
+        let workspace = TempDir::new("remove-siblings");
+        let models_root = workspace.path().join("models");
+        let dir = models_root.join("asr").join("sense_asr");
+        std::fs::create_dir_all(&dir).expect("create family dir");
+        std::fs::write(dir.join("model-f16.gguf"), b"f16").expect("write f16");
+        std::fs::write(dir.join("model-q8_0.gguf"), b"q8").expect("write q8");
+        std::fs::write(dir.join("mmproj.gguf"), b"shared").expect("write mmproj");
+
+        remove_model_files(&models_root, &dir, &spec_with("q8", &["model-q8_0.gguf"]))
+            .expect("remove");
+
+        assert!(!dir.join("model-q8_0.gguf").exists(), "the removed quant");
+        assert!(dir.join("model-f16.gguf").exists(), "its sibling quant");
+        assert!(dir.join("mmproj.gguf").exists(), "shared auxiliary file");
+        assert!(dir.exists(), "the family directory itself");
     }
 
     #[test]
-    fn remove_model_dir_refuses_paths_outside_the_models_root() {
+    fn remove_model_files_prunes_directories_it_emptied_but_no_further() {
+        let workspace = TempDir::new("remove-prune");
+        let models_root = workspace.path().join("models");
+        let dir = models_root.join("asr").join("sense_asr");
+        std::fs::create_dir_all(&dir).expect("create family dir");
+        std::fs::write(dir.join("model.gguf"), b"weights").expect("write model");
+
+        remove_model_files(&models_root, &dir, &spec_with("m", &["model.gguf"]))
+            .expect("remove");
+
+        // Emptying the family drops it, and then the task directory above it.
+        assert!(!dir.exists());
+        assert!(!models_root.join("asr").exists());
+        assert!(models_root.exists(), "never prune the models root itself");
+    }
+
+    #[test]
+    fn remove_model_files_keeps_a_directory_that_still_holds_another_model() {
+        let workspace = TempDir::new("remove-keep-dir");
+        let models_root = workspace.path().join("models");
+        let dir = models_root.join("trans").join("hy_mt");
+        std::fs::create_dir_all(&dir).expect("create family dir");
+        std::fs::write(dir.join("removed.gguf"), b"gone").expect("write");
+        std::fs::write(dir.join("kept.gguf"), b"stays").expect("write");
+
+        remove_model_files(&models_root, &dir, &spec_with("removed", &["removed.gguf"]))
+            .expect("remove");
+
+        assert!(!dir.join("removed.gguf").exists());
+        assert!(dir.join("kept.gguf").exists());
+        assert!(dir.exists());
+        assert!(models_root.join("trans").exists());
+    }
+
+    #[test]
+    fn remove_model_files_refuses_paths_outside_the_models_root() {
         let workspace = TempDir::new("remove-guard");
         let models_root = workspace.path().join("models");
         let outside = workspace.path().join("elsewhere");
@@ -1161,21 +1332,29 @@ mod tests {
         std::fs::create_dir_all(&outside).expect("create outside dir");
         std::fs::write(outside.join("keep.txt"), b"keep").expect("write");
 
-        assert!(remove_model_dir(&models_root, &outside).is_err());
+        assert!(remove_model_files(&models_root, &outside, &spec_with("m", &["keep.txt"]))
+            .is_err());
         assert!(outside.join("keep.txt").exists());
 
         // The models root itself is never a deletion target.
-        assert!(remove_model_dir(&models_root, &models_root).is_err());
+        assert!(
+            remove_model_files(&models_root, &models_root, &spec_with("m", &["x"])).is_err()
+        );
         assert!(models_root.exists());
     }
 
     #[test]
-    fn remove_model_dir_is_a_noop_when_the_model_is_absent() {
+    fn remove_model_files_is_a_noop_when_the_model_is_absent() {
         let workspace = TempDir::new("remove-missing");
         let models_root = workspace.path().join("models");
         std::fs::create_dir_all(&models_root).expect("create models root");
 
-        assert!(!remove_model_dir(&models_root, &models_root.join("Missing")).unwrap());
+        remove_model_files(
+            &models_root,
+            &models_root.join("asr").join("Missing"),
+            &spec_with("m", &["model.gguf"]),
+        )
+        .expect("a missing model is not an error");
     }
 
     /// A route the local test server answers.

@@ -26,7 +26,7 @@ const en: Translation = {
   hero_shot_1: 'A queue of videos, each with its own speaker and translation switches',
   hero_shot_2: 'Batch processing — one file runs, the rest wait for a free slot',
   hero_shot_3: 'A finished file that also wrote its translated copy',
-  hero_shot_4: 'Copy a Bilibili link and the app offers to import it',
+  hero_shot_4: 'Copy a supported video link and the app offers to import it',
   hero_shot_5: 'Light and dark themes',
 
   // Screenshot showcase
@@ -39,7 +39,7 @@ const en: Translation = {
   showcase_queue_desc: 'Drop in as many files as you like. Each row carries its own speaker-separation and translation switch, the queue runs them up to your concurrency limit, and every step reports its own progress.',
   showcase_translate_desc: 'A local translation model rewrites the finished subtitles into a second language. It writes a separate file next to the original — the recognised subtitles are never touched, so a failed translation cannot lose your work.',
   showcase_speakers_desc: 'Speaker separation labels who said what, cue by cue, and the model picker answers four questions instead of asking you to choose a checkpoint: language scenario, speaker separation, word-level timing and memory budget.',
-  showcase_url_desc: 'Paste a Bilibili link and MonoSub fetches the platform subtitle if the video has one. If it does not, it downloads the audio and transcribes it locally instead — the same pipeline as a file you dragged in.',
+  showcase_url_desc: 'Paste a supported video link and MonoSub fetches the platform subtitle if the video has one. If it does not, it downloads the audio and transcribes it locally instead — the same pipeline as a file you dragged in.',
   shot_queue: 'The queue, with per-file switches',
   shot_batch: 'A batch in flight',
   shot_rowstates: 'Skipped, waiting, translated and partly untranslated rows',
@@ -81,7 +81,7 @@ const en: Translation = {
   feature_6_title: '🎯 Batch Processing',
   feature_6_desc: 'Queue multiple files at once and process them automatically. Perfect for creators and researchers with large libraries.',
   feature_7_title: '🔗 Import from a Link',
-  feature_7_desc: 'Paste a Bilibili link to take its platform subtitle, or let MonoSub download the audio and transcribe it locally.',
+  feature_7_desc: 'Paste a supported video link to take its platform subtitle, or let MonoSub download the audio and transcribe it locally.',
   feature_8_title: '⏱️ Word-Level Timestamps',
   feature_8_desc: 'Word-accurate cue boundaries plus a word/silence sidecar file, so a video can be cut on the transcript.',
 

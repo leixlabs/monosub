@@ -1491,8 +1491,36 @@ Rules that follow:
 
 ### Model Storage
 
-Models live under `<models_dir>/<target_directory>/`, mirroring upstream's
-`model_specs` layout so a user can drop files in by hand. `<models_dir>` defaults to
+Models live under `<models_dir>/<task>/<family>/<file>` — **three levels, and
+not upstream's layout**:
+
+```
+<models_dir>/
+├── asr/<family>/…      recognition checkpoints
+├── diar/<family>/…     speaker diarization
+├── vad/<family>/…      voice-activity models
+├── align/<family>/…    forced aligners (qwen3 word timestamps)
+└── trans/<family>/…    translation models (llama.cpp)
+```
+
+`<task>` comes from the entry's `roles` (`ModelSpec::task_root`), `<family>` from its
+`family`, and both are resolved in exactly one place — `ModelSpec::install_subdir` — so
+the catalogue, the downloader and the install checks cannot disagree. Note `translate`
+stores under `trans`: these are directories a user browses in Explorer/Finder, not just
+internal keys.
+
+Two things worth knowing before touching paths here:
+
+- **`models.json`'s `target_directory` is no longer a path component.** It is upstream's
+  repo directory (`SenseVoice-Small-GGUF`), shared by every quant of a release, so it
+  never identified one model. It is kept as upstream metadata only.
+- **A family directory holds many models.** Merging every quant of a family into one
+  directory is deliberate (shared `mmproj` / tokenizer downloaded once) but it means
+  `<models_dir>/<task>/<family>` is *not* one model's directory — which is why
+  `remove_model` deletes **files** (`remove_model_files`), then prunes only directories
+  it emptied. Deleting the directory takes sibling quants with it.
+
+`<models_dir>` defaults to
 `<app_data_dir>/models` and is **user-configurable** (Settings → 模型 → 存储位置,
 persisted to `<app_config_dir>/settings.json`, or `MONOSUB_MODELS_DIR`): models are
 0.2–1.2 GB each, so pointing at an existing folder must not require re-downloading.
@@ -1918,7 +1946,9 @@ succeeds by falling back to transcription and only flags `login_hint`.
 **Model missing:** the app reports `MODEL_NOT_INSTALLED`; download it from
 Settings → Models. A missing *translation* model reports the same sentinel with its id
 (`MODEL_NOT_INSTALLED:<id>`) and points at Settings → Translation. Models can also be
-placed manually under `<app_data_dir>/models/<target_directory>/`.
+placed by hand under `<models_dir>/<task>/<family>/`
+(`<models_dir>` is whatever Settings → 模型 → 存储位置 reports — default
+`<app_data_dir>/models`), naming `<file>` exactly as the manifest's `files[].path` says.
 
 **FFmpeg not found:**
 ```bash

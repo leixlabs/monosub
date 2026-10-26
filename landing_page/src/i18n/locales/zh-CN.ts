@@ -26,7 +26,7 @@ const zhCN: Translation = {
   hero_shot_1: '文件队列，每一行都有自己的说话人分离与翻译开关',
   hero_shot_2: '批量处理：一个文件在跑，其余等待空闲位置',
   hero_shot_3: '完成的行同时写出了翻译版本',
-  hero_shot_4: '复制一条 B 站链接，应用主动提示导入',
+  hero_shot_4: '复制一条受支持的视频链接，应用主动提示导入',
   hero_shot_5: '浅色与深色主题',
 
   // Screenshot showcase
@@ -39,7 +39,7 @@ const zhCN: Translation = {
   showcase_queue_desc: '想拖入多少文件都可以。每一行都有独立的说话人分离与翻译开关，队列按你设定的并发数依次处理，每个步骤都有各自的进度。',
   showcase_translate_desc: '本地翻译模型把完成后的字幕改写为第二种语言，并单独写成一个文件——识别出的原始字幕不会被改动，所以翻译失败也不会弄丢你的成果。',
   showcase_speakers_desc: '说话人分离逐条字幕标注"谁在何时说话"。选模型时只需回答四个问题：语种场景、是否分离说话人、是否需要词级时间戳、显存预算。',
-  showcase_url_desc: '粘贴一条 B 站链接，视频自带字幕时直接取用平台字幕；没有字幕时则下载音频在本地转写，走的仍是与本地文件完全相同的流程。',
+  showcase_url_desc: '粘贴一条受支持的视频链接，视频自带字幕时直接取用平台字幕；没有字幕时则下载音频在本地转写，走的仍是与本地文件完全相同的流程。',
   shot_queue: '队列，以及每一行的独立开关',
   shot_batch: '批量运行中',
   shot_rowstates: '跳过、等待空位、已翻译与部分未翻译的行',
@@ -81,7 +81,7 @@ const zhCN: Translation = {
   feature_6_title: '🎯 批量处理',
   feature_6_desc: '多文件队列批量转写，一次拖入多个视频或音频自动排队处理，适合大批量素材。',
   feature_7_title: '🔗 链接导入',
-  feature_7_desc: '粘贴 B 站链接即可取用平台字幕；没有字幕时，MonoSub 会下载音频并在本地转写。',
+  feature_7_desc: '粘贴受支持的视频链接即可取用平台字幕；没有字幕时，MonoSub 会下载音频并在本地转写。',
   feature_8_title: '⏱️ 词级时间戳',
   feature_8_desc: '按词对齐生成字幕时间轴，并额外写出词/静音文件，可以直接按文字剪视频。',
 

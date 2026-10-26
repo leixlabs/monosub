@@ -2,7 +2,7 @@
 
 # MonoSub
 
-**将视频和音频转换为文本。本地运行。完全免费。**
+**将视频和音频转换为文本。本地运行。不依赖云端。**
 
 [English](README.md) · [下载](#-下载) · [常见问题](#-常见问题)
 
@@ -35,7 +35,7 @@
 
 ### 适合谁用
 
-- **内容创作者** — 将 YouTube 视频转为博客文章
+- **内容创作者** — 将网络视频转为博客文章
 - **研究人员** — 转录访谈用于分析
 - **学生** — 将课堂录音转为可搜索的笔记
 - **开发者** — 将视频内容喂给 LLM 处理
@@ -82,22 +82,29 @@ monosub-cli *.mp4 --json
 
 ---
 
-## 💎 Pro 授权
+## 💎 定价
 
-**MonoSub 完全免费** — 个人使用无限制转录。
+**源码公开。商店版收费。**
 
-| 功能 | 免费版 | Pro |
-|------|--------|-----|
+MonoSub 是一个公开仓库。上面提到的所有功能都能从这个仓库的 checkout 直接跑起来——
+没有授权码、没有账号、没有功能阉割。自己编译，不花一分钱。
+
+**Mac App Store** 与 **Microsoft Store** 的付费上架正在准备中。付费买的是打包与分发，
+不是功能：
+
+| | GitHub Releases / 自行编译 | Mac App Store · Microsoft Store |
+|---|---|---|
 | 语音转录 | ✅ 无限制 | ✅ 无限制 |
-| 导出 SRT、TXT、VTT | ✅ | ✅ |
+| 导出 SRT、TXT、VTT、MD | ✅ | ✅ |
 | 批量处理 | ✅ | ✅ |
-| **说话人分离**（识别谁说了什么） | ❌ | ✅ |
-| **优先技术支持** | ❌ | ✅ |
+| 说话人分离（识别谁说了什么） | ✅ | ✅ |
+| 已签名公证 — 无 Gatekeeper 警告 | ❌ | ✅ |
+| 自动更新 | ❌ | ✅ |
 
-**Pro 授权: $20** — 一次购买，终身有效  
-🎉 **前 1,000 名用户：使用优惠码 `F1N1MSVJ` 享半价**
+**一次买断。无订阅。**
 
-[**升级到 Pro**](https://polar.leix.dev/v1/checkout-links/polar_cl_JgYlmsUnlbej0vpnuI197nQltlEsUxg1hZd0r3unixT/redirect)
+目前提交正在审核中，商店页面尚未上线。在那之前，请使用
+[GitHub Releases](https://github.com/leixlabs/monosub/releases/latest)。
 
 ---
 
@@ -129,7 +136,8 @@ xattr -cr /Applications/MonoSub.app
 
 ### 有退款政策吗？
 
-有的。Pro 授权支持 7 天无理由退款。
+商店购买的退款由 Apple 或 Microsoft 按各自的退款政策处理——MonoSub 不经手付款。
+GitHub Releases 版本免费且不含任何内购，不存在退款问题。
 
 ---
 

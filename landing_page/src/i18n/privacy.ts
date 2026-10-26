@@ -87,7 +87,7 @@ const en: PrivacyContent = {
       list: [
         'Model download (on your action): when you choose to install or update a recognition, alignment, or translation model, the App downloads model weights from Hugging Face (huggingface.co) or its mirror (hf-mirror.com). No personal data is sent with this request.',
         'Manual update check (on your action): clicking "Check for Updates" sends one request to api.github.com/repos/leixlabs/monosub/releases/latest with a standard user-agent string to compare versions. It does not download or install anything, sends no identifiers, and runs only when you press the button.',
-        'URL import (on your action): when you paste a video link and confirm import, the bundled yt-dlp contacts the target site (e.g., Bilibili) directly to fetch the selected subtitle track or audio. This traffic goes to the video platform under that platform\u2019s own terms and privacy policy; MonoSub does not forward your links or browsing data to any intermediate analytics service.'
+        'URL import (on your action): when you paste a video link and confirm import, the bundled yt-dlp contacts the target video site directly to fetch the selected subtitle track or audio. This traffic goes to the video platform under that platform\u2019s own terms and privacy policy; MonoSub does not forward your links or browsing data to any intermediate analytics service.'
       ],
       afterList: ['No telemetry, crash-reporting, usage-analytics, or advertising request is ever sent.']
     },
@@ -221,7 +221,7 @@ const zh: PrivacyContent = {
       list: [
         '下载模型（你主动操作）：当你选择安装或更新识别、对齐或翻译模型时，App 从 Hugging Face（huggingface.co）或其镜像（hf-mirror.com）拉取模型权重，该请求不携带任何个人信息。',
         '手动检查更新（你点击按钮才触发）：点击"检查更新"仅向 api.github.com/repos/leixlabs/monosub/releases/latest 发送一次带标准 User-Agent 的版本比较请求，不下载、不安装、不带设备标识，只在按下按钮时运行。',
-        '链接导入（你主动确认）：当你粘贴视频链接并确认导入时，内置 yt-dlp 直连目标站点（如 B 站）获取所选字幕轨或音频。该流量按视频平台自身的条款与隐私政策进行；MonoSub 不会把你的链接或浏览数据转发给任何中间分析服务。'
+        '链接导入（你主动确认）：当你粘贴视频链接并确认导入时，内置 yt-dlp 直连目标视频站点获取所选字幕轨或音频。该流量按视频平台自身的条款与隐私政策进行；MonoSub 不会把你的链接或浏览数据转发给任何中间分析服务。'
       ],
       afterList: ['App 从不发送任何遥测、崩溃上报、使用统计或广告请求。']
     },

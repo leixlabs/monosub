@@ -144,6 +144,10 @@ src-tauri/src/
 ### 5.2 模型管理
 
 - 目录：`app_data_dir()/models/<target_directory>/<files>`，与上游 `model_specs` 的 `target_directory` 一致，方便用户手动放置。
+
+  > **已变更**：现为三层 `models/<task>/<family>/<file>`，`<task>` 取 `asr` / `diar` /
+  > `vad` / `align` / `trans`。上游 `target_directory` 仍存在于 `models.json`，但不再是路径
+  > 组成部分——它一版含水多个量化，无法标识单个模型。见 AGENTS.md §Model Storage。
 - 清单：内置 `src-tauri/resources/models.json`，从上游 `model_specs/*.json` 摘取所需字段：
 
 ```jsonc

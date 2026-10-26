@@ -132,6 +132,27 @@ impl Role {
             Role::Other => "other",
         }
     }
+
+    /// Top-level directory name models of this role are stored under.
+    ///
+    /// Separate from [`Self::as_str`] for exactly one role: `translate` is
+    /// stored under `trans`. These names are handed to the file manager — see
+    /// [`super::commands`]' `open_models_dir` — which makes them part of what a
+    /// user browses, and four keystrokes is not worth a `translate/` next to
+    /// `trans/`. Every other role keeps its own spelling, so the directory tree
+    /// reads like the plan step kinds in `plan.rs`.
+    pub fn storage_dir(self) -> &'static str {
+        match self {
+            Role::Asr => "asr",
+            Role::Vad => "vad",
+            Role::Align => "align",
+            Role::Diar => "diar",
+            Role::Translate => "trans",
+            Role::Passthrough => "passthrough",
+            Role::Gen => "gen",
+            Role::Other => "other",
+        }
+    }
 }
 
 /// Which inference engine runs a model.
@@ -402,9 +423,19 @@ pub struct ModelSpec {
     /// (translation-design §9) and never reaches audio.cpp.
     pub family: String,
     pub display_name: String,
-    /// Directory name under `<app_data_dir>/models/`.
+    /// Upstream repository directory this entry came from
+    /// (e.g. `SenseVoice-Small-GGUF`).
+    ///
+    /// Carried through from the manifest but **no longer a path component**:
+    /// storage is `<models_root>/<task>/<family>/` — see
+    /// [`Self::install_subdir`]. It stays because it is the name upstream uses,
+    /// so it is what a user sees when they download a model by hand and what
+    /// any future migration out of the old layout has to match on. The one
+    /// entry per quant means several ids share it, which is precisely why it
+    /// cannot name a directory: it never identified one model.
     pub target_directory: String,
-    /// Relative path of the model file inside `target_directory`.
+    /// Upstream file name of the weight inside `target_directory`. Storage
+    /// keeps it — see [`Self::install_subdir`] for the directory it lands in.
     pub model_file: String,
     pub files: Vec<ModelFile>,
     /// Language tags accepted by the CLI (23 entries for `sense_asr`).
@@ -532,6 +563,63 @@ pub struct LanguageToken {
 pub const WORD_ALIGNED_FAMILY: &str = "qwen3_asr";
 
 impl ModelSpec {
+    /// Top-level storage directory this model belongs to
+    /// (`asr` / `vad` / `align` / `diar` / `trans`).
+    ///
+    /// Taken from the model's roles, most specific first: nothing in the
+    /// committed catalogue carries more than one, but a future entry could, and
+    /// silently picking whichever happened to be listed first would scatter one
+    /// model across two trees depending on how someone edited the JSON.
+    /// [`Role::Passthrough`] and the inert roles fall through to their own name
+    /// so a mis-filed entry is still somewhere findable rather than hidden
+    /// inside `asr/`.
+    pub fn task_root(&self) -> &'static str {
+        const PRECEDENCE: [Role; 5] = [
+            Role::Vad,
+            Role::Diar,
+            Role::Align,
+            Role::Translate,
+            Role::Asr,
+        ];
+        PRECEDENCE
+            .iter()
+            .find(|role| self.has_role(**role))
+            .map_or_else(
+                || {
+                    self.roles
+                        .first()
+                        .map(|role| role.storage_dir())
+                        .unwrap_or("other")
+                },
+                |role| role.storage_dir(),
+            )
+    }
+
+    /// `<task_root>/<family>`, relative to the models root.
+    ///
+    /// Three levels in total — `<models_root>/<task>/<family>/<file>` — which
+    /// buys two things the old flat `<models_root>/<target_directory>/<file>`
+    /// could not:
+    ///
+    /// * **tasks do not collide.** The old layout trusted upstream directory
+    ///   names to be unique across every kind of model, so nothing stopped a
+    ///   recognition checkpoint and a translation checkpoint from claiming the
+    ///   same directory. The task layer makes that impossible by construction.
+    /// * **a family shares its auxiliary files.** Upstream ships one directory
+    ///   per quant, each repeating the same `mmproj` / tokenizer / vocoder; the
+    ///   family layer downloads them once. 34 of the 41 family directories hold
+    ///   more than one model, which is also why storage cannot be reasoned
+    ///   about as one directory per model any more — see `remove_model`.
+    ///
+    /// `family` rather than anything derived from the id because it is what
+    /// audio.cpp itself keys on; two entries that share it genuinely share the
+    /// loader, and the quants inside it name themselves (`…-f16`, `…-q8_0`).
+    pub fn install_subdir(&self) -> PathBuf {
+        let mut subdir = PathBuf::from(self.task_root());
+        subdir.push(&self.family);
+        subdir
+    }
+
     /// Effective capabilities, applying the v1 fallback when the entry did not
     /// declare any (design §4.2).
     pub fn capabilities(&self) -> Capabilities {
@@ -808,6 +896,16 @@ pub fn catalog(paths: &AppPaths) -> Result<Vec<ModelSpec>, EngineError> {
     load_catalog(&path)
 }
 
+/// Absolute path of one model's storage directory:
+/// `<models_root>/<task>/<family>/`.
+///
+/// The directory every other function here reads through, so the three-level
+/// layout is decided in exactly one place — see [`ModelSpec::install_subdir`]
+/// for what the levels are and why.
+pub fn install_dir(paths: &AppPaths, spec: &ModelSpec) -> PathBuf {
+    paths.models_root.join(spec.install_subdir())
+}
+
 /// Absolute model file path for `id`, or `None` when unknown.
 pub fn model_path(
     paths: &AppPaths,
@@ -817,14 +915,14 @@ pub fn model_path(
         return Ok(None);
     };
     Ok(Some(
-        paths.models_root.join(&spec.target_directory).join(&spec.model_file),
+        install_dir(paths, &spec).join(&spec.model_file),
     ))
 }
 
-/// `<app_data_dir>/models/<target_directory>`.
+/// `<models_root>/<task>/<family>`.
 pub fn model_dir(paths: &AppPaths, id: &str) -> Result<PathBuf, EngineError> {
     let spec = find(paths, id)?;
-    Ok(paths.models_root.join(&spec.target_directory))
+    Ok(install_dir(paths, &spec))
 }
 
 /// True when every manifest file exists and its size matches (never hashes).
@@ -832,7 +930,7 @@ pub fn is_installed(paths: &AppPaths, id: &str) -> bool {
     let Ok(Some(spec)) = lookup(paths, id) else {
         return false;
     };
-    let dir = paths.models_root.join(&spec.target_directory);
+    let dir = install_dir(paths, &spec);
     spec.files
         .iter()
         .all(|file| file_size(&dir.join(&file.path)) == Some(file.size))
@@ -848,7 +946,7 @@ pub fn list(paths: &AppPaths) -> Result<Vec<ModelStatus>, EngineError> {
             // The root always exists as a value now (it is a field of `AppPaths`,
             // not an optional resolved at call time), so `installed` starts true
             // and is falsified by any missing or wrong-sized file below.
-            let dir = paths.models_root.join(&spec.target_directory);
+            let dir = install_dir(paths, &spec);
             let mut installed = true;
             let mut size_on_disk = 0u64;
             for file in &spec.files {
@@ -970,11 +1068,11 @@ fn normalize_language_tag(app_lang: &str) -> String {
 // default). Keeping it in one field is what stops the catalogue and the
 // downloader from disagreeing about where models live.
 
-fn lookup(paths: &AppPaths, id: &str) -> Result<Option<ModelSpec>, EngineError> {
+pub fn lookup(paths: &AppPaths, id: &str) -> Result<Option<ModelSpec>, EngineError> {
     Ok(catalog(paths)?.into_iter().find(|spec| spec.id == id))
 }
 
-fn find(paths: &AppPaths, id: &str) -> Result<ModelSpec, EngineError> {
+pub fn find(paths: &AppPaths, id: &str) -> Result<ModelSpec, EngineError> {
     lookup(paths, id)?.ok_or_else(|| EngineError::Protocol(format!("unknown model id: {}", id)))
 }
 
@@ -1220,6 +1318,145 @@ mod tests {
             .into_iter()
             .find(|spec| spec.id == "sensevoice_small_q8")
             .expect("models.json declares sensevoice_small_q8")
+    }
+
+    /// Build a spec from only what decides its storage: family and roles.
+    fn laid_out(family: &str, roles: Vec<Role>) -> ModelSpec {
+        ModelSpec {
+            id: "test".to_string(),
+            family: family.to_string(),
+            display_name: family.to_string(),
+            roles,
+            ..ModelSpec::default()
+        }
+    }
+
+    #[test]
+    fn each_role_files_under_its_own_task_directory() {
+        assert_eq!(laid_out("sense_asr", vec![Role::Asr]).task_root(), "asr");
+        assert_eq!(laid_out("pulsevad", vec![Role::Vad]).task_root(), "vad");
+        assert_eq!(laid_out("sortformer_diar", vec![Role::Diar]).task_root(), "diar");
+        assert_eq!(
+            laid_out("qwen3_forced_aligner", vec![Role::Align]).task_root(),
+            "align"
+        );
+    }
+
+    /// `translate` is the one role whose directory differs from its own name:
+    /// these are directory names a user browses in Explorer.
+    #[test]
+    fn translation_files_under_trans_not_translate() {
+        let spec = laid_out("hy_mt", vec![Role::Translate]);
+        assert_eq!(spec.task_root(), "trans");
+        assert_ne!(spec.task_root(), Role::Translate.as_str());
+    }
+
+    /// A v1 entry that declares no roles is an ASR model — `effective_roles`
+    /// says so, and storage has to agree or the model lands in `other/`.
+    #[test]
+    fn an_entry_without_roles_files_under_asr() {
+        assert_eq!(laid_out("sense_asr", Vec::new()).task_root(), "asr");
+    }
+
+    /// Read like the plan steps rather than reusing `Role::as_str` blindly: an
+    /// entry carrying two roles must land in one predictable place, not
+    /// whichever happened to be written first in the JSON.
+    #[test]
+    fn a_multi_role_entry_files_under_the_most_specific_task() {
+        let both = laid_out("moss", vec![Role::Asr, Role::Diar]);
+        assert_eq!(both.task_root(), "diar");
+        assert_eq!(
+            laid_out("moss", vec![Role::Diar, Role::Asr]).task_root(),
+            "diar",
+            "order in the manifest must not change where it is stored"
+        );
+    }
+
+    #[test]
+    fn install_subdir_is_task_then_family() {
+        assert_eq!(
+            laid_out("sense_asr", vec![Role::Asr]).install_subdir(),
+            PathBuf::from("asr").join("sense_asr")
+        );
+        assert_eq!(
+            laid_out("hy_mt", vec![Role::Translate]).install_subdir(),
+            PathBuf::from("trans").join("hy_mt")
+        );
+    }
+
+    /// The directory a model is in must not be the upstream one any more: that
+    /// name covers several quants, so it never identified a single model.
+    #[test]
+    fn storage_no_longer_uses_the_upstream_target_directory() {
+        let spec = sensevoice_spec();
+        assert_eq!(
+            spec.install_subdir(),
+            PathBuf::from("asr").join("sense_asr")
+        );
+        assert_ne!(spec.install_subdir(), PathBuf::from(&spec.target_directory));
+    }
+
+    /// The invariant the whole layout rests on: merging every quant of a family
+    /// into one directory works only because no two entries disagree about the
+    /// bytes at a given path. Two models sharing a file (the same `mmproj`
+    /// listed by both quants) is fine and is the deduplication we want; two
+    /// different files landing on one name is corruption.
+    #[test]
+    fn no_two_models_claim_the_same_stored_file_with_different_bytes() {
+        use std::collections::HashMap;
+
+        let mut seen: HashMap<PathBuf, (String, u64, String)> = HashMap::new();
+        for spec in committed_catalog() {
+            for file in &spec.files {
+                let key = spec.install_subdir().join(&file.path);
+                let file = (file.size, file.urls[0].clone());
+                match seen.get(&key) {
+                    Some((owner, size, url)) if *size != file.0 || *url != file.1 => {
+                        panic!(
+                            "{} and {} both store {:?} with different bytes \
+                             ({} vs {} from {}) — the family layer cannot separate them",
+                            owner, spec.id, key, size, file.0, file.1
+                        );
+                    }
+                    _ => {
+                        seen.insert(key, (spec.id.clone(), file.0, file.1));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Storage must never put a recognition checkpoint where a translation one
+    /// already is, whatever either is called upstream — which holds only while
+    /// the task root is a function of the family and not of the entry.
+    #[test]
+    fn task_directories_partition_the_catalogue() {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        let catalogue = committed_catalog();
+        let mut family_tasks: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+        for spec in &catalogue {
+            family_tasks
+                .entry(&spec.family)
+                .or_default()
+                .insert(spec.task_root());
+        }
+        let crossed: Vec<_> = family_tasks
+            .iter()
+            .filter(|(_, tasks)| tasks.len() > 1)
+            .collect();
+        assert!(
+            crossed.is_empty(),
+            "a family in two task directories would scatter it: {:?}",
+            crossed
+        );
+
+        let roots: BTreeSet<&str> = catalogue.iter().map(|spec| spec.task_root()).collect();
+        assert_eq!(
+            roots.into_iter().collect::<Vec<_>>(),
+            ["align", "asr", "diar", "trans", "vad"],
+            "five top-level directories, one per task this app runs"
+        );
     }
 
     #[test]

@@ -304,8 +304,8 @@
   },
   "urlImport": {
     "title": "从链接导入",
-    "placeholder": "https://www.bilibili.com/video/BV…\nhttps://b23.tv/…",
-    "hint": "一行一个，或用空格分隔。目前仅支持 B 站视频。",
+    "placeholder": "粘贴视频链接",
+    "hint": "一行一个，或用空格分隔。不支持的站点会被拒绝。",
     "subtitleLanguage": "字幕语言",
     "followingSettings": "{{value}}（跟随设置）",
     "outputDir": "下载到",
@@ -332,8 +332,8 @@
       "retry": "重试"
     },
     "login": {
-      "explain": "B 站需要登录才会提供这条字幕。选择你已登录的浏览器，然后重试。",
-      "privacy": "MonoSub 只会读取所选浏览器中 bilibili.com 的 cookie，且仅用于本机请求。",
+      "explain": "该字幕仅对已登录用户开放。选择你用于该站点的浏览器，然后重试。",
+      "privacy": "MonoSub 只会读取所选浏览器中该站点的 cookie，且仅用于本机请求。",
       "safariHint": "使用 Safari 时，还需要在「系统设置 → 隐私与安全性」中为 MonoSub 授予「完全磁盘访问权限」。Chrome 与 Edge 会弹出钥匙串授权。",
       "browsers": {
         "chrome": "Chrome",
@@ -346,10 +346,10 @@
     "errors": {
       "unsupported_site": "不支持该链接",
       "unsupported_kind": "不支持该类型的页面",
-      "needsCookies": "该视频需要登录 B 站",
+      "needsCookies": "该视频的字幕需要登录后才能获取",
       "multiPart": "这是多 P 视频，请粘贴具体分 P 的链接。",
       "network": "网络异常，请重试",
-      "rateLimited": "B 站暂时限制了请求频率，请稍后再试",
+      "rateLimited": "该站点暂时限制了请求频率，请稍后再试",
       "engineMissing": "下载器（yt-dlp）缺失，请重新安装 MonoSub。",
       "subtitleUnusable": "无法读取该视频的字幕",
       "outputDirFailed": "无法创建输出目录",
@@ -364,18 +364,18 @@
       "outputDir": "下载/保存目录",
       "outputDirHint": "下载的视频音频与字幕会放在同一个目录，文件名按视频标题命名。留空则使用 ~/Downloads/MonoSub。",
       "chooseFolder": "选择目录",
-      "cookiesBrowser": "B 站 cookie 来源",
+      "cookiesBrowser": "站点 cookie 来源",
       "cookiesBrowserHint": "只有在视频字幕需要登录时才需要配置。",
       "cookiesNone": "未配置",
       "preferLocal": "优先本地识别",
       "preferLocalHint": "忽略平台字幕，始终走本地语音识别，结果与本地文件一致。",
-      "privacy": "只有在你选择浏览器后才会读取 cookie，且只读取 bilibili.com 的 cookie、仅在本机使用。",
+      "privacy": "只有在你选择浏览器后才会读取 cookie，且只读取该站点的 cookie、仅在本机使用。",
       "clipboardWatch": "监视剪贴板",
-      "clipboardWatchHint": "复制 B 站视频链接时，直接弹出一键导入"
+      "clipboardWatchHint": "复制受支持的视频链接时，直接弹出一键导入"
     }
   },
   "clipboardPrompt": {
-    "title": "剪贴板里有 B 站链接",
+    "title": "剪贴板里有视频链接",
     "import": "导入",
     "dismiss": "忽略"
   }

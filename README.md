@@ -2,7 +2,7 @@
 
 # MonoSub
 
-**Turn your videos & audio into text. Locally. For free.**
+**Turn your videos & audio into text. Locally. No cloud.**
 
 [中文文档](README_CN.md) · [Download](#-download) · [FAQ](#-faq)
 
@@ -15,6 +15,7 @@
 You have hours of video content. Podcasts, interviews, lectures, meetings. But LLMs can't watch videos or listen to audio — they only understand text.
 
 So you need transcripts. But existing solutions either:
+
 - Force you to upload private content to the cloud
 - Charge monthly fees for something that should be simple
 - Take forever because everything has to upload first
@@ -35,7 +36,7 @@ Drag in a video or audio file. Get a transcript. That's it.
 
 ### Perfect For
 
-- **Content creators** turning YouTube videos into blog posts
+- **Content creators** turning online videos into blog posts
 - **Researchers** transcribing interviews for analysis
 - **Students** converting lecture recordings to searchable notes
 - **Developers** feeding video content to LLMs for processing
@@ -64,9 +65,9 @@ Drag in a video or audio file. Get a transcript. That's it.
 
 That's it. No account. No subscription. No internet needed after the model download.
 
-> **v2.0 note:** speech recognition now runs on a bundled [audio.cpp](https://github.com/0xShug0/audio.cpp)
-> engine instead of Python + PyTorch. The app is much smaller and uses far less memory, but the
-> recognition model is no longer shipped inside the installer — you download it once from
+> **v2.0 note:** speech recognition now runs on a bundled [audio.cpp](https://github.com/0xShug0/audio.cpp)  
+> engine instead of Python + PyTorch. The app is much smaller and uses far less memory, but the  
+> recognition model is no longer shipped inside the installer — you download it once from  
 > Settings → Models. See the release notes for details.
 
 ---
@@ -88,26 +89,30 @@ monosub-cli *.mp4 --json
 
 ---
 
-## 💎 Pro License
+## 💎 Pricing
 
-**MonoSub is completely free** — unlimited transcription for personal use.
+**The source is public. The store builds are paid.**
 
-| Feature | Free | Pro |
-|---------|------|-----|
-| Transcription | ✅ Unlimited | ✅ Unlimited |
-| Export to SRT, TXT, VTT, MD | ✅ | ✅ |
-| Batch processing | ✅ | ✅ |
-| **Speaker diarization** (who spoke when) | ❌ | ⏳ *temporarily unavailable* |
-| **Priority support** | ❌ | ✅ |
+MonoSub is a public repository. Everything described above runs from a checkout of this  
+repo — no license key, no account, no feature gates. Build it yourself and it costs  
+nothing.
 
-> **Multi-speaker recognition is temporarily unavailable in v2.0.** The v2.0 engine swap changed the
-> speech backend, and diarization is being re-implemented on the new engine. It will return in a later
-> release; existing Pro licenses stay valid and Pro will cover it again once it ships.
+Paid listings are being prepared for the **Mac App Store** and **Microsoft Store**.  
+What they sell is packaging, not capability:
 
-**Pro License: $20** — one-time purchase, lifetime valid  
-🎉 **First 1,000 customers: 50% off with code `F1N1MSVJ`**
+|                                             | GitHub Releases / build from source | Mac App Store · Microsoft Store |
+| ------------------------------------------- | ----------------------------------- | ------------------------------- |
+| Transcription                               | ✅ Unlimited                         | ✅ Unlimited                     |
+| Export to SRT, TXT, VTT, MD                 | ✅                                   | ✅                               |
+| Batch processing                            | ✅                                   | ✅                               |
+| Speaker diarization (who spoke when)        | ✅                                   | ✅                               |
+| Signed & notarized — no Gatekeeper warnings | **❌**                               | **✅**                           |
+| **Automatic updates**                       | **❌**                               | **✅**                           |
 
-[**Upgrade to Pro**](https://polar.leix.dev/v1/checkout-links/polar_cl_JgYlmsUnlbej0vpnuI197nQltlEsUxg1hZd0r3unixT/redirect)
+**One-time purchase. No subscription.**
+
+Submissions are currently in review and the listings are not live yet. Until they  
+are, use [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest).
 
 ---
 
@@ -125,7 +130,7 @@ Then open the app again.
 
 ### Do I need internet to use MonoSub?
 
-**Not for transcription.** The first time you use it, download the speech model from
+**Not for transcription.** The first time you use it, download the speech model from  
 Settings → Models (~250 MB, one time). After that MonoSub works completely offline.
 
 ### What file formats are supported?
@@ -140,7 +145,9 @@ Currently supports Chinese (Mandarin), English, and more languages are being add
 
 ### Is there a refund policy?
 
-Yes. 7-day money-back guarantee on Pro licenses.
+Store purchases are refunded by Apple or Microsoft under their own refund  
+policies — MonoSub never handles the payment. The GitHub Releases build is free  
+and has no in-app purchases, so there is nothing to refund.
 
 ---
 

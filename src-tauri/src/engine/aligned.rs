@@ -482,13 +482,18 @@ mod tests {
             return;
         };
         let models = root.join("models");
-        let asr = models.join("Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf");
-        let aligner = models.join("Qwen3-ForcedAligner-0.6B-GGUF/qwen3-forced-aligner-0.6b-q8_0.gguf");
+        // Storage is `<models>/<task>/<family>/<file>`: both of these are
+        // audiocpp models under their own family directory.
+        let asr = models.join("asr/qwen3_asr/qwen3-asr-0.6b-q8_0.gguf");
+        let aligner = models.join("align/qwen3_forced_aligner/qwen3-forced-aligner-0.6b-q8_0.gguf");
         let vad_dir = root.join("src-tauri/resources/models/silero_vad");
         let fixture = root.join("poc/moss/t2.wav");
         for (path, hint) in [
-            (&asr, "models/Qwen3-ASR-0.6B-GGUF/qwen3-asr-0.6b-q8_0.gguf"),
-            (&aligner, "models/Qwen3-ForcedAligner-0.6B-GGUF/qwen3-forced-aligner-0.6b-q8_0.gguf"),
+            (&asr, "models/asr/qwen3_asr/qwen3-asr-0.6b-q8_0.gguf"),
+            (
+                &aligner,
+                "models/align/qwen3_forced_aligner/qwen3-forced-aligner-0.6b-q8_0.gguf",
+            ),
             (&fixture, "poc/moss/t2.wav"),
         ] {
             if !path.is_file() {

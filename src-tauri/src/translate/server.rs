@@ -535,12 +535,14 @@ mod tests {
         ] {
             if candidate.is_file() {
                 // Any GGUF will do for a smoke check; the translation model is
-                // the one that is normally present.
+                // the one that is normally present. Storage is
+                // `<models>/<task>/<family>/<file>` and this one translates.
                 let model_dir = std::env::var_os("MONOSUB_MODELS_DIR")
                     .map(PathBuf::from)
                     .unwrap_or_else(|| resources.join("..").join("models"));
                 let model = model_dir
-                    .join("HY-MT1.5-1.8B-GGUF")
+                    .join("trans")
+                    .join("hy_mt")
                     .join("HY-MT1.5-1.8B-Q4_K_M.gguf");
                 if model.is_file() {
                     return Some((candidate, model));
