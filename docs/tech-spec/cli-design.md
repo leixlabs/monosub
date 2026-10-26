@@ -177,11 +177,11 @@ impl AppPaths {
 |---|---|
 | `resources` | `MONOSUB_RESOURCES_DIR` → `<exe_dir>/resources` → `<exe_dir>/../Resources/resources`（macOS bundle）→ `<cwd>/src-tauri/resources`（dev） |
 | `models_root` | `MONOSUB_MODELS_DIR` → `settings.json` 的 `modelsDir` → `<data_dir>/models` |
-| `config_dir` | 配置的唯一来源：`MONOSUB_CONFIG_DIR` → macOS `~/Library/Application Support/dev.leix.monosub` / Win `%APPDATA%/dev.leix.monosub` / Linux `~/.config/dev.leix.monosub` |
-| `data_dir` | 数据目录（**不是**模型目录的最终值，只是默认值的基点）：macOS `~/Library/Application Support/dev.leix.monosub` / Win `%APPDATA%/dev.leix.monosub` / Linux `~/.local/share/dev.leix.monosub` |
+| `config_dir` | 配置的唯一来源：`MONOSUB_CONFIG_DIR` → macOS `~/Library/Application Support/leixlabs.monosub` / Win `%APPDATA%/leixlabs.monosub` / Linux `~/.config/leixlabs.monosub` |
+| `data_dir` | 数据目录（**不是**模型目录的最终值，只是默认值的基点）：macOS `~/Library/Application Support/leixlabs.monosub` / Win `%APPDATA%/leixlabs.monosub` / Linux `~/.local/share/leixlabs.monosub` |
 | `models_root` | **两个概念之一**（§4.0）：`MONOSUB_MODELS_DIR` → `<config_dir>/settings.json` 的 `modelsDir` → `<data_dir>/models` |
 
-> `dev.leix.monosub` 来自 `tauri.conf.json` 的 `identifier`，实测确认。CLI 必须用
+> `leixlabs.monosub` 来自 `tauri.conf.json` 的 `identifier`，实测确认。CLI 必须用
 > **同一个** 目录，否则读不到 GUI 的 `settings.json`，整个 §4 失效。
 
 **签名改法**（机械替换，不改变行为）：
@@ -272,11 +272,11 @@ pub async fn transcribe(
 
 | 概念 | 是什么 | 默认位置 | 怎么改 |
 |---|---|---|---|
-| **配置路径** | 应用配置文件 `settings.json` 所在目录 | `<app_config_dir>`（macOS `~/Library/Application Support/dev.leix.monosub`） | `MONOSUB_CONFIG_DIR` |
+| **配置路径** | 应用配置文件 `settings.json` 所在目录 | `<app_config_dir>`（macOS `~/Library/Application Support/leixlabs.monosub`） | `MONOSUB_CONFIG_DIR` |
 | **模型路径** | 模型权重文件所在根目录 | `<app_data_dir>/models` | `MONOSUB_MODELS_DIR`、或配置里的 `modelsDir` 字段 |
 
 **两者没有任何几何关系。** 实际情况已经如此（实测）：配置文件在
-`~/Library/Application Support/dev.leix.monosub/settings.json`，而它里面的内容是
+`~/Library/Application Support/leixlabs.monosub/settings.json`，而它里面的内容是
 
 ```json
 { "modelsDir": "/Users/lei/dev/projects/2601-monosub/models" }
@@ -532,7 +532,7 @@ ln -s /Applications/MonoSub.app/Contents/Resources/resources/bin/monosub-cli-aar
 不会产生的路径，复制出去就是 `No such file or directory`。
 
 **Windows 不用 PATH，用 App Execution Alias。** MSIX 装在
-`C:\Program Files\WindowsApps\monosub_<版本>_x64__<发布者哈希>\`，路径带版本号，
+`C:\Program Files\WindowsApps\leixlabs.monosub_<版本>_x64__<发布者哈希>\`，路径带版本号，
 往 PATH 里加安装目录**下次更新就失效**。所以 `build-msix.ps1` 用
 `scripts/windows/add-execution-alias.ps1` 在清单里声明（注意外面的 `<Extensions>`：
 直接挂在 `<Application>` 下 schema 校验会失败，makeappx 实测报 `C00CE014`）：
@@ -870,7 +870,7 @@ write_settings_at(&path, &settings)
 #### 界面
 
 ```
-配置文件     /Users/lei/Library/Application Support/dev.leix.monosub/settings.json   [显示]
+配置文件     /Users/lei/Library/Application Support/leixlabs.monosub/settings.json   [显示]
              配置与模型是两件事：这里只放设置，模型在「存储位置」里单独配置。
 
 命令行工具   (已随包提供)

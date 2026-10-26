@@ -253,7 +253,7 @@ gitignored artifacts are absent, so a fresh clone still has a green suite.
 ### Interactive UI Testing (tauri-pilot)
 
 Debug builds expose the UI over a Unix socket at
-`/tmp/tauri-pilot-dev.leix.monosub.sock` via the `tauri-plugin-pilot` plugin
+`/tmp/tauri-pilot-leixlabs.monosub.sock` via the `tauri-plugin-pilot` plugin
 (`main.rs`, gated by `#[cfg(debug_assertions)]`, plus `pilot:default` in
 `capabilities/default.json`). Install the matching CLI once:
 
@@ -356,7 +356,7 @@ Six things about the Windows path that are easy to get wrong:
   which is why only the ffmpeg path resolved before.
 - `monosub-cli` reaches a terminal through an **App Execution Alias**, not a PATH
   entry. MSIX installs under a version-stamped
-  `C:\Program Files\WindowsApps\monosub_<version>_x64__<hash>\`, so a PATH entry
+  `C:\Program Files\WindowsApps\leixlabs.monosub_<version>_x64__<hash>\`, so a PATH entry
   naming that folder dies at the next update; `%LOCALAPPDATA%\Microsoft\WindowsApps`
   is already on PATH and Windows re-points the alias. `release/package.mjs` declares
   it and `release/verify.mjs` checks the packaged manifest for it. **The Extension
@@ -1244,7 +1244,7 @@ either:
 
 | Concept | What it is | Default | Override |
 |---|---|---|---|
-| config dir | where `settings.json` lives, and nothing else | `<app_config_dir>`: macOS `~/Library/Application Support/dev.leix.monosub`, Windows `%APPDATA%/dev.leix.monosub`, Linux `~/.config/dev.leix.monosub` | `MONOSUB_CONFIG_DIR` |
+| config dir | where `settings.json` lives, and nothing else | `<app_config_dir>`: macOS `~/Library/Application Support/leixlabs.monosub`, Windows `%APPDATA%/leixlabs.monosub`, Linux `~/.config/leixlabs.monosub` | `MONOSUB_CONFIG_DIR` |
 | models dir | where model weights live | `<app_data_dir>/models` | `MONOSUB_MODELS_DIR`, or the `modelsDir` string stored *inside* that `settings.json` |
 
 The installed app already looks like this: `settings.json` sits under the config dir while

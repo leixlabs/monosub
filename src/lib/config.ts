@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
  * Why this module exists at all: the config file and the models directory are
  * two **unrelated** locations (`src-tauri/src/paths.rs`), and users routinely
  * conflate them. Measured on a real install the settings file lives in
- * `~/Library/Application Support/dev.leix.monosub/settings.json` while the
+ * `~/Library/Application Support/leixlabs.monosub/settings.json` while the
  * models live wherever that file's `modelsDir` points — here a directory inside
  * the source checkout. Showing the config file next to the models row is what
  * makes the difference visible instead of a claim in a hint.

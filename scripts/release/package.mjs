@@ -178,8 +178,28 @@ function buildWindows() {
     // tauri.conf.json so a release cannot ship a manifest that disagrees with the
     // binary.
     const manifestVersion = `${version}.0`;
-    const packageName = process.env.MONOSUB_MSIX_NAME || 'monosub';
-    const publisher = process.env.MONOSUB_MSIX_PUBLISHER || 'CN=leix';
+    // Three identity values the Store checks against the reserved name in Partner
+    // Center, all of them literals here because there is exactly one Store
+    // submission and a typo costs a full re-upload:
+    //
+    //   Identity/Name          "Invalid package identity name: monosub
+    //                          (expected: leixlabs.monosub)"
+    //   Identity/Publisher     "Invalid package publisher name: CN=leix
+    //                          (expected: CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E)"
+    //                          — the guid is the Store's publisher ID, not the
+    //                          account name and not the display name.
+    //   PublisherDisplayName   the account's display name, see below.
+    //
+    // Identity/Name and Publisher together derive the package family name
+    // (`<Name>_<hash>`, hash over the publisher string), which the Store also
+    // compares — verify.mjs recomputes it and fails the build if it drifts.
+    const packageName = process.env.MONOSUB_MSIX_NAME || 'leixlabs.monosub';
+    const publisher = process.env.MONOSUB_MSIX_PUBLISHER || 'CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E';
+    const publisherDisplayName = process.env.MONOSUB_MSIX_PUBLISHER_DISPLAY_NAME || 'leixlabs';
+    // The artifact keeps the short `monosub_<version>.0_x64.msix` name: the Store
+    // ignores uploaded file names, and release.mjs, publish.mjs and the docs all
+    // key off this one. Only the identity inside the manifest is Store-validated.
+    const artifactStem = 'monosub';
     const displayName = 'MonoSub';
     const description = 'MonoSub - local voice to article';
 
@@ -257,13 +277,13 @@ function buildWindows() {
     // and the installed app cannot show different artwork.
     run('winapp', ['manifest', 'update-assets', iconPath, '--manifest', manifest, '--quiet']);
 
-    patchManifest(manifest, { displayName, cliName });
+    patchManifest(manifest, { displayName, publisherDisplayName, cliName });
 
     log.ok(`Manifest ready: ${manifest}`);
 
     log.step('5. Packing the MSIX ...');
     ensureDir(distDir);
-    const msixName = `${packageName}_${manifestVersion}_x64.msix`;
+    const msixName = `${artifactStem}_${manifestVersion}_x64.msix`;
     const msixPath = path.join(distDir, msixName);
     // --no-sign: the Store re-signs every package it ships, and a package carrying
     // a self-signed certificate is rejected at submission.
@@ -286,7 +306,7 @@ function buildWindows() {
         if (!isFile(devCertPfx)) die(`winapp produced no certificate at ${devCertPfx}`);
         run('winapp', ['sign', msixPath, devCertPfx, '--quiet']);
 
-        const signedPath = path.join(distDir, `${packageName}_${manifestVersion}_x64.signed.msix`);
+        const signedPath = path.join(distDir, `${artifactStem}_${manifestVersion}_x64.signed.msix`);
         fs.renameSync(msixPath, signedPath);
         // Keep an unsigned copy: the signed one cannot be submitted.
         run('winapp', ['package', stagingAppDir, '--manifest', manifest, '--output', msixPath, '--no-sign', '--quiet']);
@@ -314,7 +334,11 @@ function buildWindows() {
  *                                 The bash version only patched the Properties
  *                                 one, so the Start menu shipped lowercase
  *                                 `monosub` (measured on the built package).
- *   PublisherDisplayName          what Settings shows as the publisher.
+ *   PublisherDisplayName          what Settings shows as the publisher, and what
+ *                                 the Store compares against the Partner Center
+ *                                 publisher display name at upload — a mismatch is
+ *                                 a hard rejection, so it is a parameter, not a
+ *                                 literal (`MONOSUB_MSIX_PUBLISHER_DISPLAY_NAME`).
  *   Executable                    the `$targetnametoken$` placeholder is what the
  *                                 Tauri bundler would substitute; `winapp package`
  *                                 does not, and a manifest left with it fails
@@ -323,7 +347,7 @@ function buildWindows() {
  *
  * Plus the execution alias, which see below.
  */
-function patchManifest(manifest, { displayName, cliName }) {
+function patchManifest(manifest, { displayName, publisherDisplayName, cliName }) {
     let text = fs.readFileSync(manifest, 'utf8');
 
     // Every edit re-reads the root: `setAttr` splices the string, so offsets
@@ -337,7 +361,7 @@ function patchManifest(manifest, { displayName, cliName }) {
     const properties = xml.findChild(text, root(), 'Properties');
     if (!properties) die('Generated manifest has no <Properties>');
     text = xml.setChildText(text, properties, 'DisplayName', displayName);
-    text = xml.setChildText(text, xml.findChild(text, root(), 'Properties'), 'PublisherDisplayName', 'leix');
+    text = xml.setChildText(text, xml.findChild(text, root(), 'Properties'), 'PublisherDisplayName', publisherDisplayName);
 
     const applications = xml.findChild(text, root(), 'Applications');
     if (!applications) die('Generated manifest has no <Applications>');

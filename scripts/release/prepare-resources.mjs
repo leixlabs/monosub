@@ -112,6 +112,9 @@ const YTDLP_RAW_BASE = `https://raw.githubusercontent.com/yt-dlp/yt-dlp/${YTDLP_
 
 const platform = hostPlatform();
 
+// Must be initialised before main() runs (see pruneStaleFlatEngines below).
+const ENGINE_DLL_PREFIXES = ['llama', 'ggml', 'mtmd', 'libomp'];
+
 main().catch((error) => {
     log.err(error.message);
     process.exit(1);
@@ -343,8 +346,6 @@ async function prepareWindows() {
  * that ffmpeg needs, for one). That is why `msvcp*`/`vcruntime*`/`vcomp*` are
  * excluded by construction: they are not in `ENGINE_DLL_PREFIXES`.
  */
-const ENGINE_DLL_PREFIXES = ['llama', 'ggml', 'mtmd', 'libomp'];
-
 function pruneStaleFlatEngines() {
     let removed = 0;
 

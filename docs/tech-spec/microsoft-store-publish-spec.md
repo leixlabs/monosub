@@ -140,13 +140,25 @@ winapp init
 
 | 提示项 | 值 |
 | --- | --- |
-| Package name | `monosub`（默认即可） |
-| Publisher name | 你的发布者名（如 `leix` / 公司名；**不能等于** "MonoSub"） |
+| Package name | `leixlabs.monosub`（Partner Center「Identity details」的 identity Name，**不是**文件名，也不能等于 "MonoSub"） |
+| Publisher name | `CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E`（发布者 **ID**；不是账户名 `leixlabs`，填成 `CN=leix` 会被拒） |
+| Publisher display name | `leixlabs`（发布者**显示名**，与上一项是两个不同的值） |
 | Version | `2.0.0.0`（四段式，与 tauri.conf.json 的 2.0.0 对应） |
 | Entry point | `monosub.exe`（GUI 主程序；项目 `default-run = "monosub"` 已保证主程序名） |
 | Setup SDKs | **Do not setup SDKs**（Tauri 用 Rust windows crate，不需要 C++ SDK 管理） |
 
 产出：根目录 `Package.appxmanifest` + `Assets/`（商店图标）。可打开 manifest 核对 DisplayName / Publisher / Capabilities。
+
+> **三个身份值必须逐字等于 Partner Center → 产品 →「Identity details」页**，任一处不符都会被上传校验打回：
+>
+> | 清单位置 | 值 | 不匹配时的报错 |
+> | --- | --- | --- |
+> | `Package/Identity/Name` | `leixlabs.monosub` | `Invalid package identity name: monosub (expected: leixlabs.monosub)` |
+> | `Package/Identity/Publisher` | `CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E` | `Invalid package publisher name: CN=leix (expected: CN=26B9D6B3-…)` |
+> | `Package/Properties/PublisherDisplayName` | `leixlabs` | `The PublisherDisplayName element … doesn't match your publisher display name` |
+>
+> 包族名（PFN）由前两项推导，不写进清单：`leixlabs.monosub_ay3jbxdght5hg`。
+> `scripts/release/package.mjs` 已把这三个值写成默认值，`verify.mjs` 会重算 PFN 并断言一致——本地打包就能拦住这类错误。
 
 > 双二进制说明：项目含 `monosub`（GUI）与 `monosub-cli` 两个 binary。**两个都进包**：
 > GUI 是入口程序（`monosub.exe`），CLI 放在
@@ -170,7 +182,7 @@ resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe
 它必须能在终端里直接敲 `monosub-cli`，而这**不能靠改 PATH 实现**。MSIX 安装在
 
 ```
-C:\Program Files\WindowsApps\monosub_<版本>_x64__<发布者哈希>\
+C:\Program Files\WindowsApps\leixlabs.monosub_<版本>_x64__<发布者哈希>\
 ```
 
 路径里带版本号，所以任何把安装目录写进用户 PATH 的做法**下次更新就失效**。正确机制是
@@ -400,10 +412,15 @@ Add-AppxPackage .\monosub_2.0.0.0_x64.msix
 | 含义 | 值 |
 | --- | --- |
 | 产品名（Partner Center / manifest DisplayName） | monosub（显示名 MonoSub） |
+| 包身份名（`Package/Identity/Name`） | leixlabs.monosub |
+| 发布者 ID（`Package/Identity/Publisher`） | CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E |
+| 发布者显示名（`PublisherDisplayName`） | leixlabs |
+| 包族名（PFN，推导值） | leixlabs.monosub_ay3jbxdght5hg |
+| Store ID | 9M2ZTV1F9N |
 | 入口程序 | monosub.exe |
-| 命令行入口别名 | monosub-cli.exe → `resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe` |
+| 命令行入口别名 | monosub-cli.exe → `resources\bin\monosub-cli.exe` |
 | Windows x64 目标三元组 | x86_64-pc-windows-msvc |
 | 资源二进制后缀规则 | `<名字>-x86_64-pc-windows-msvc.exe` |
 | 包版本（四段式） | 2.0.0.0（与 tauri.conf.json 的 2.0.0 对应） |
-| 标识符 | dev.leix.monosub |
-| 默认 Publisher（标识符第二段） | leix（≠ MonoSub，符合官方命名规则） |
+| 产物文件名 | `dist\monosub_2.0.0.0_x64.msix`（商店不校验文件名） |
+| tauri 标识符（`leixlabs.monosub`，决定配置目录，与商店身份无关） | leixlabs.monosub |

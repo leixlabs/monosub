@@ -13,7 +13,7 @@
 //! the models directory. Measured on a real install:
 //!
 //! ```text
-//! config_dir   ~/Library/Application Support/dev.leix.monosub
+//! config_dir   ~/Library/Application Support/leixlabs.monosub
 //! models_root  /Users/lei/dev/projects/2601-monosub/models      ← from settings.json
 //! ```
 //!
@@ -34,7 +34,7 @@ const CATALOGUE_FILE: &str = "models.json";
 /// Bundle identifier from `tauri.conf.json`, used to derive the per-app
 /// directories. It must match the app's own identifier or the CLI would read a
 /// different `settings.json` than the GUI writes.
-const APP_IDENTIFIER: &str = "dev.leix.monosub";
+const APP_IDENTIFIER: &str = "leixlabs.monosub";
 
 /// Everything the engine needs from the environment, resolved once.
 #[derive(Debug, Clone, PartialEq, Eq)]

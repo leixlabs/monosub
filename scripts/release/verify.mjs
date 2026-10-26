@@ -20,6 +20,7 @@
 //
 // Exits non-zero on the first failure. The packaging script calls this and aborts.
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -193,6 +194,47 @@ function verifyDmg(dmgPath) {
 // Windows — MSIX
 // ---------------------------------------------------------------------------
 
+/**
+ * The identity Partner Center accepts for this product, quoted verbatim from its
+ * own rejections:
+ *
+ *   Invalid package identity name: monosub (expected: leixlabs.monosub)
+ *   Invalid package publisher name: CN=leix
+ *       (expected: CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E)
+ *
+ * Kept here as a *contract*, deliberately duplicated from package.mjs: if the
+ * packaging script and this table ever disagree, that disagreement is the bug and
+ * the build must stop rather than ship whichever value happened to win.
+ */
+const STORE_IDENTITY = {
+    name: 'leixlabs.monosub',
+    publisher: 'CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E',
+    publisherDisplayName: 'leixlabs',
+    // What Partner Center reports for that identity; recomputed below.
+    packageFamilyName: 'leixlabs.monosub_ay3jbxdght5hg',
+};
+
+/**
+ * Package family name = `<Identity Name>_<13-char hash>`, where the hash is
+ * SHA-256 over the publisher string encoded as UTF-16LE, first 8 bytes, written
+ * in Microsoft's 32-character base32 alphabet, left-aligned into 13 characters
+ * (the last character therefore carries 4 bits shifted up by one).
+ *
+ * Recomputed rather than trusted because Windows derives it at install time: a
+ * publisher typo produces a *different* family name, which is what the Store
+ * reports back as `Invalid package family name`.
+ */
+function packageFamilyName(name, publisher) {
+    const ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
+    const digest = crypto.createHash('sha256').update(Buffer.from(publisher, 'utf16le')).digest();
+    let bits = '';
+    for (const byte of digest.subarray(0, 8)) bits += byte.toString(2).padStart(8, '0');
+    bits += '0';
+    let hash = '';
+    for (let i = 0; i < bits.length; i += 5) hash += ALPHABET[parseInt(bits.slice(i, i + 5), 2)];
+    return `${name}_${hash}`;
+}
+
 async function verifyMsix(msixPath) {
     const triple = targetTriple();
     const failures = [];
@@ -301,6 +343,38 @@ async function verifyMsix(msixPath) {
             } else {
                 addFailure(`Identity declares ProcessorArchitecture '${arch}'; expected x64`);
             }
+
+            // The identity the Store validates. `MONOSUB_MSIX_*` overrides exist
+            // so an experimental build can still be verified, but then only
+            // self-consistency is checked — the Store PFN is not asserted.
+            const overrideName = process.env.MONOSUB_MSIX_NAME;
+            const overridePublisher = process.env.MONOSUB_MSIX_PUBLISHER;
+            const expectedName = overrideName || STORE_IDENTITY.name;
+            const expectedPublisher = overridePublisher || STORE_IDENTITY.publisher;
+
+            const name = xml.getAttr(identity, 'Name');
+            if (name === expectedName) {
+                log.ok(`Identity name: ${name}`);
+            } else {
+                addFailure(`Identity name is '${name}'; the Store expects '${expectedName}'`);
+            }
+
+            const publisher = xml.getAttr(identity, 'Publisher');
+            if (publisher === expectedPublisher) {
+                log.ok(`Identity publisher: ${publisher}`);
+            } else {
+                addFailure(`Identity Publisher is '${publisher}'; the Store expects '${expectedPublisher}'`);
+            }
+
+            const pfn = packageFamilyName(name ?? '', publisher ?? '');
+            const expectedPfn = overrideName || overridePublisher
+                ? packageFamilyName(expectedName, expectedPublisher)
+                : STORE_IDENTITY.packageFamilyName;
+            if (pfn === expectedPfn) {
+                log.ok(`Package family name: ${pfn}`);
+            } else {
+                addFailure(`Package family name would be '${pfn}'; the Store expects '${expectedPfn}'`);
+            }
         }
 
         const applications = xml.findChild(manifestText, root, 'Applications');
@@ -332,6 +406,17 @@ async function verifyMsix(msixPath) {
             log.ok('Properties DisplayName: MonoSub');
         } else {
             addFailure(`Properties DisplayName is '${propertiesName}'; expected 'MonoSub'`);
+        }
+
+        // Must equal the Partner Center publisher display name character for
+        // character; Store upload rejects the package otherwise and the message
+        // only names the two values.
+        const publisherDisplayName = properties ? xml.childText(manifestText, properties, 'PublisherDisplayName') : '';
+        const expectedPublisherDisplayName = process.env.MONOSUB_MSIX_PUBLISHER_DISPLAY_NAME || STORE_IDENTITY.publisherDisplayName;
+        if (publisherDisplayName === expectedPublisherDisplayName) {
+            log.ok(`PublisherDisplayName: ${publisherDisplayName}`);
+        } else {
+            addFailure(`PublisherDisplayName is '${publisherDisplayName}'; expected '${expectedPublisherDisplayName}' to match Partner Center`);
         }
 
         if (/monosub-cli\.exe/.test(manifestText)) {
