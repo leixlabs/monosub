@@ -2,56 +2,54 @@ import type * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
+/**
+ * Status badge. Tinted background + same-hue text, each with an explicit
+ * light/dark pair so contrast holds on any surface (no more white-on-white).
+ * Radius is `md` rather than a full pill: status chips read as labels, not buttons.
+ */
 const glassBadgeVariants = cva(
   cn(
-    "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium",
-    "backdrop-blur-xl border transition-all duration-300",
+    "inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium leading-5",
+    "border transition-colors duration-200",
   ),
   {
     variants: {
-      // Every variant carries a light/dark pair. The badges sit inside a
-      // `GlassCard` (`bg-white/10`), which is translucent over whatever the page
-      // is — light in light mode. A white-on-white pair (`text-white` over
-      // `bg-white/15`) is therefore invisible in light mode, which is exactly
-      // what "这个底色看不清文字" reported: the tint was there, the text was not.
-      // The rule is `GlassButton`'s: a light-mode token for the fill and the
-      // text, and the white/100-level colour only under `dark:`.
       variant: {
         default: cn(
-          "bg-black/[0.06] dark:bg-white/15",
-          "border-black/10 dark:border-white/25",
-          "text-text-primary dark:text-white",
+          "bg-black/[0.05] dark:bg-white/[0.08]",
+          "border-transparent",
+          "text-text-secondary dark:text-zinc-300",
         ),
         primary: cn(
-          "bg-primary/10 dark:bg-gradient-to-r dark:from-cyan-500/30 dark:to-blue-500/30",
-          "border-primary/25 dark:border-cyan-400/30",
-          "text-primary dark:text-cyan-100",
+          "bg-primary/10 dark:bg-primary/15",
+          "border-primary/20",
+          "text-primary",
         ),
         success: cn(
-          "bg-emerald-500/10 dark:bg-emerald-500/20",
-          "border-emerald-500/25 dark:border-emerald-400/30",
-          "text-emerald-700 dark:text-emerald-100",
+          "bg-emerald-500/10 dark:bg-emerald-400/15",
+          "border-emerald-600/20 dark:border-emerald-400/25",
+          "text-emerald-700 dark:text-emerald-300",
         ),
         warning: cn(
-          "bg-amber-500/10 dark:bg-amber-500/20",
-          "border-amber-500/25 dark:border-amber-400/30",
-          "text-amber-700 dark:text-amber-100",
+          "bg-amber-500/10 dark:bg-amber-400/15",
+          "border-amber-600/25 dark:border-amber-400/25",
+          "text-amber-700 dark:text-amber-300",
         ),
         destructive: cn(
-          "bg-red-500/10 dark:bg-red-500/20",
-          "border-red-500/25 dark:border-red-400/30",
-          "text-red-600 dark:text-red-100",
+          "bg-red-500/10 dark:bg-red-400/15",
+          "border-red-600/20 dark:border-red-400/25",
+          "text-red-700 dark:text-red-300",
         ),
         outline: cn(
           "bg-transparent",
-          "border-border dark:border-white/30",
-          "text-text-secondary dark:text-white/80",
+          "border-line-strong",
+          "text-text-secondary dark:text-zinc-300",
         ),
       },
       size: {
         sm: "px-2 py-0.5 text-xs",
-        md: "px-3 py-1 text-sm",
-        lg: "px-4 py-2 text-base",
+        md: "px-2.5 py-0.5 text-sm",
+        lg: "px-3 py-1 text-base",
       },
     },
     defaultVariants: {
@@ -66,10 +64,6 @@ export interface GlassBadgeProps
     VariantProps<typeof glassBadgeVariants> {}
 
 function GlassBadge({ className, variant, size, ...props }: GlassBadgeProps) {
-  // `size` must reach the variant call: spreading it instead put `size="sm"` on
-  // the div, where it is a valid HTML attribute with no effect, so every badge in
-  // the app silently rendered at `md` (px-3 py-1) and each caller's `sm` was a
-  // no-op. That is what made the file row taller than its content needed.
   return <div className={cn(glassBadgeVariants({ variant, size }), className)} {...props} />
 }
 

@@ -389,7 +389,7 @@ function App() {
   return (
     <>
       <ThemeProvider>
-        <div className="h-screen overflow-hidden bg-bg-secondary dark:bg-zinc-950 flex flex-col transition-colors">
+        <div className="app-shell h-screen overflow-hidden dark:bg-zinc-950 text-text-primary dark:text-zinc-100 text-base flex flex-col transition-colors duration-300">
           <Header />
           <Toolbar onImportUrl={() => setIsUrlImportOpen(true)} />
           <FileList />

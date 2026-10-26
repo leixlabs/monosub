@@ -18,7 +18,7 @@ const GlassDialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/60 backdrop-blur-sm",
+      "fixed inset-0 z-50 bg-zinc-950/40 dark:bg-black/60 backdrop-blur-[2px]",
       "data-[state=open]:animate-in data-[state=closed]:animate-out",
       "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className,
@@ -65,11 +65,9 @@ const GlassDialogContent = React.forwardRef<
         ref={ref}
         className={cn(
           "pointer-events-auto relative flex max-h-full w-full max-w-lg flex-col",
-          "rounded-2xl border border-white/20 p-6",
-          "bg-white/10 backdrop-blur-2xl",
-          "shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
-          "before:absolute before:inset-0 before:rounded-2xl",
-          "before:bg-gradient-to-b before:from-white/15 before:to-transparent before:pointer-events-none",
+          "rounded-3xl border border-line-strong p-6",
+          "bg-surface-raised backdrop-blur-2xl",
+          "shadow-pop",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
@@ -80,7 +78,10 @@ const GlassDialogContent = React.forwardRef<
         <div className="relative z-10 flex min-h-0 flex-col">{children}</div>
         <DialogPrimitive.Close
           className={cn(
-            "absolute right-4 top-4 rounded-lg p-1 text-white/60 transition-all hover:text-white hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/50",
+            "absolute right-4 top-4 z-20 rounded-lg p-1.5 transition-colors duration-200",
+            "text-text-tertiary hover:text-text-primary hover:bg-black/[0.06]",
+            "dark:text-zinc-500 dark:hover:text-zinc-100 dark:hover:bg-white/10",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
             closeClassName,
           )}
         >
@@ -109,7 +110,7 @@ const GlassDialogTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Title
     ref={ref}
-    className={cn("text-lg font-semibold text-white leading-none tracking-tight", className)}
+    className={cn("text-lg font-semibold text-text-primary dark:text-zinc-50 leading-tight", className)}
     {...props}
   />
 ))
@@ -119,7 +120,7 @@ const GlassDialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
 >(({ className, ...props }, ref) => (
-  <DialogPrimitive.Description ref={ref} className={cn("text-sm text-white/60", className)} {...props} />
+  <DialogPrimitive.Description ref={ref} className={cn("text-sm text-text-secondary dark:text-zinc-400", className)} {...props} />
 ))
 GlassDialogDescription.displayName = DialogPrimitive.Description.displayName
 

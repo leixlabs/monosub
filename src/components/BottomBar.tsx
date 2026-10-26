@@ -77,19 +77,20 @@ export function BottomBar() {
   };
 
   return (
-    <div className="bg-bg-secondary dark:bg-zinc-950 h-14 px-6 flex-shrink-0 sticky bottom-0 z-30 flex items-center justify-between border-t border-divider/40 dark:border-zinc-800/40 transition-colors">
-      <div className="flex items-center gap-2">
-        <HardDrive className="w-4 h-4 text-text-tertiary dark:text-gray-500" />
-        <span className="text-xs text-text-tertiary dark:text-gray-500 mr-2">{t('bottomBar.saveLocation')}</span>
+    <div className="chrome h-12 px-6 flex-shrink-0 sticky bottom-0 z-30 flex items-center justify-between border-t border-line transition-colors">
+      <div className="flex items-center gap-2 min-w-0">
+        <HardDrive className="w-4 h-4 text-text-tertiary dark:text-zinc-500" />
+        <span className="text-xs text-text-tertiary dark:text-zinc-500 mr-1">{t('bottomBar.saveLocation')}</span>
 
-        {/* 存储模式分段控件 - muted 变体支持亮暗双模式 */}
-        <div className="flex bg-bg-tertiary dark:bg-zinc-800 rounded-lg p-0.5">
+        {/* Segmented control: inset track, raised selected segment. */}
+        <div className="flex bg-black/[0.05] dark:bg-white/[0.06] rounded-lg p-0.5">
           <GlassButton
             variant="muted"
             size="sm"
             onClick={() => setStorageMode('same')}
+            aria-pressed={storageMode === 'same'}
             className={`h-7 px-2.5 text-xs ${storageMode === 'same'
-                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple hover:scale-100'
+                ? 'bg-surface dark:bg-zinc-700 text-text-primary dark:text-zinc-50 shadow-card hover:bg-surface dark:hover:bg-zinc-700'
                 : ''
               }`}
           >
@@ -100,8 +101,9 @@ export function BottomBar() {
             variant="muted"
             size="sm"
             onClick={() => void handleSelectCustomPath()}
+            aria-pressed={storageMode === 'custom'}
             className={`h-7 px-2.5 text-xs ${storageMode === 'custom'
-                ? 'bg-white dark:bg-zinc-700 text-text-primary dark:text-white shadow-apple hover:scale-100'
+                ? 'bg-surface dark:bg-zinc-700 text-text-primary dark:text-zinc-50 shadow-card hover:bg-surface dark:hover:bg-zinc-700'
                 : ''
               }`}
           >
@@ -112,14 +114,14 @@ export function BottomBar() {
           </GlassButton>
         </div>
 
-        <span className="mx-3 w-px h-4 bg-divider dark:bg-zinc-700" />
+        <span className="mx-3 w-px h-4 bg-line-strong" />
 
-        <span className="text-xs text-text-tertiary dark:text-gray-500">
-          {t('bottomBar.format')} <span className="text-text-secondary dark:text-gray-300 font-medium">{settings.outputFormat.toUpperCase()}</span>
+        <span className="text-xs text-text-tertiary dark:text-zinc-500">
+          {t('bottomBar.format')} <span className="text-text-secondary dark:text-zinc-300 font-medium">{settings.outputFormat.toUpperCase()}</span>
         </span>
-        <span className="mx-2 w-px h-3 bg-divider dark:bg-zinc-700" />
-        <span className="text-xs text-text-tertiary dark:text-gray-500">
-          {t('bottomBar.language')} <span className="text-text-secondary dark:text-gray-300 font-medium">{getLanguageLabel()}</span>
+        <span className="mx-2 w-px h-3 bg-line-strong" />
+        <span className="text-xs text-text-tertiary dark:text-zinc-500">
+          {t('bottomBar.language')} <span className="text-text-secondary dark:text-zinc-300 font-medium">{getLanguageLabel()}</span>
         </span>
         {/* Only shown while at least one queued file will be translated: the
             chip is the visible signal that a `<stem>.<lang>.<ext>` file will
@@ -129,11 +131,11 @@ export function BottomBar() {
             is going to write. */}
         {anyTranslateQueued && (
           <>
-            <span className="mx-2 w-px h-3 bg-divider dark:bg-zinc-700" />
-            <span className="text-xs text-text-tertiary dark:text-gray-500 flex items-center gap-1">
+            <span className="mx-2 w-px h-3 bg-line-strong" />
+            <span className="text-xs text-text-tertiary dark:text-zinc-500 flex items-center gap-1">
               <Languages className="w-3 h-3" />
               {t('bottomBar.translationTarget')}{' '}
-              <span className="text-text-secondary dark:text-gray-300 font-medium">
+              <span className="text-text-secondary dark:text-zinc-300 font-medium">
                 {getTargetLanguageLabel()}
               </span>
             </span>

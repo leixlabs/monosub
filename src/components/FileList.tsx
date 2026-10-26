@@ -53,55 +53,51 @@ export function FileList() {
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        <div className="text-center max-w-md">
-          {/* Illustration */}
-          <div className="relative w-32 h-32 mx-auto mb-8">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-accent/10 dark:from-primary/20 dark:to-accent/20 rounded-3xl transform rotate-6" />
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-accent/20 dark:from-primary/30 dark:to-accent/30 rounded-3xl transform -rotate-3" />
-            <div className="relative glass-medium dark:glass-dark rounded-3xl shadow-glass-lg w-full h-full flex items-center justify-center">
+        <div className="text-center max-w-md w-full">
+          {/* Drop zone: dashed border + icon tile is the universal "drop here"
+              affordance; one calm focal point instead of stacked rotated cards. */}
+          <div className="rounded-3xl border-2 border-dashed border-line-strong bg-surface/60 px-8 py-10 transition-colors duration-250 hover:border-primary/50 hover:bg-primary/[0.03]">
+            <div className="mx-auto mb-5 grid place-items-center w-16 h-16 rounded-2xl bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
               <div className="relative">
-                <Film className="w-12 h-12 text-primary" />
-                <Subtitles className="w-6 h-6 text-accent absolute -bottom-1 -right-2 bg-white dark:bg-zinc-900 rounded-full p-0.5" />
+                <Film className="w-7 h-7" strokeWidth={1.75} />
+                <Subtitles className="w-4 h-4 absolute -bottom-1.5 -right-2 bg-surface rounded-full p-px text-accent" />
               </div>
+            </div>
+
+            <h2 className="text-xl font-semibold text-text-primary dark:text-zinc-50 mb-2">
+              {t('fileList.emptyTitle')}
+            </h2>
+            <p className="text-sm text-text-secondary dark:text-zinc-400 mb-6 leading-relaxed text-balance">
+              {t('fileList.emptyDescription')}
+            </p>
+
+            {/* Supported formats as chips: scannable, no nested card. */}
+            <div className="space-y-2.5 text-xs">
+              {[
+                { label: 'Video', icon: <Film className="w-3.5 h-3.5 text-primary" />, exts: ['MP4', 'MOV', 'AVI', 'MKV', 'WEBM', 'FLV', 'M4V'] },
+                { label: 'Audio', icon: <Subtitles className="w-3.5 h-3.5 text-accent" />, exts: ['MP3', 'WAV', 'FLAC', 'AAC', 'M4A', 'OGG', 'WMA'] },
+              ].map((group) => (
+                <div key={group.label} className="flex items-center gap-2 justify-center flex-wrap">
+                  <span className="flex items-center gap-1.5 w-14 font-medium text-text-secondary dark:text-zinc-300">
+                    {group.icon}
+                    {group.label}
+                  </span>
+                  <div className="flex flex-wrap gap-1 justify-start">
+                    {group.exts.map((ext) => (
+                      <span
+                        key={ext}
+                        className="px-1.5 py-0.5 rounded bg-black/[0.05] dark:bg-white/[0.07] text-text-tertiary dark:text-zinc-400 font-medium tabular-nums"
+                      >
+                        {ext}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Title */}
-          <h2 className="text-2xl font-semibold text-text-primary dark:text-white mb-3">
-            {t('fileList.emptyTitle')}
-          </h2>
-          <p className="text-sm text-text-secondary dark:text-gray-400 mb-6 leading-relaxed text-balance">
-            {t('fileList.emptyDescription')}
-          </p>
-
-          {/* Supported Formats */}
-          <div className="mb-8 p-6 glass-medium dark:glass-dark rounded-2xl">
-            <div className="grid grid-cols-2 gap-6 text-xs">
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Film className="w-3.5 h-3.5 text-primary" />
-                  <span className="font-medium text-text-primary dark:text-white">Video</span>
-                </div>
-                <div className="text-text-tertiary dark:text-gray-500 space-y-0.5">
-                  <div>MP4, MOV, AVI, MKV</div>
-                  <div>WEBM, FLV, M4V</div>
-                </div>
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  <Subtitles className="w-3.5 h-3.5 text-accent" />
-                  <span className="font-medium text-text-primary dark:text-white">Audio</span>
-                </div>
-                <div className="text-text-tertiary dark:text-gray-500 space-y-0.5">
-                  <div>MP3, WAV, FLAC, AAC</div>
-                  <div>M4A, OGG, WMA</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-
-          <p className="text-sm text-text-tertiary dark:text-gray-500">
+          <p className="mt-5 text-sm text-text-tertiary dark:text-zinc-500">
             {t('fileList.addVideos')}
           </p>
 
@@ -111,7 +107,7 @@ export function FileList() {
           <CudaNotice />
 
           {/* Features */}
-          <div className="mt-8 flex items-center justify-center gap-6 text-xs text-text-tertiary dark:text-gray-500">
+          <div className="mt-6 flex items-center justify-center gap-5 text-xs text-text-tertiary dark:text-zinc-500">
             <span className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-success" />
               {t('fileList.featureAsr')}
@@ -131,8 +127,8 @@ export function FileList() {
   }
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto p-6">
-      <div className="space-y-3">
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-2 pb-6">
+      <div className="space-y-2.5">
         {importRows.map((urlImport, index) => (
           <div
             key={urlImport.taskId}

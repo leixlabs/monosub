@@ -1,4 +1,4 @@
-import { Plus, Trash2, Film, StopCircle, Link2 } from 'lucide-react';
+import { Plus, Trash2, Film, StopCircle, Link2, Play } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -109,13 +109,12 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
   };
 
   return (
-    <div className="bg-bg-secondary dark:bg-zinc-950 h-[64px] px-6 flex-shrink-0 sticky top-[52px] z-30 flex items-center justify-between transition-colors">
-      <div className="flex items-center gap-4">
+    <div className="h-14 px-6 flex-shrink-0 z-30 flex items-center justify-between gap-4 transition-colors">
+      <div className="flex items-center gap-2 min-w-0">
         <GlassButton
           variant="primary"
           size="sm"
           onClick={() => void handleAddFiles()}
-          className="shadow-glass-md"
         >
           <Plus className="w-4 h-4" />
           {t('toolbar.addFiles')}
@@ -134,8 +133,8 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
         </GlassButton>
 
         {files.length > 0 && (
-          <div className="flex items-center gap-3 pl-4 border-l border-divider dark:border-zinc-700">
-            <div className="flex items-center gap-1.5 text-xs text-text-secondary dark:text-gray-400">
+          <div className="flex items-center gap-2 ml-2 pl-4 border-l border-line">
+            <div className="flex items-center gap-1.5 text-xs text-text-secondary dark:text-zinc-400 mr-1">
               <Film className="w-3.5 h-3.5" />
               <span>{t('toolbar.filesCount', { count: files.length })}</span>
             </div>
@@ -158,7 +157,7 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-shrink-0">
         <BatchDiarizationToggle />
         <BatchTranslationToggle />
 
@@ -171,7 +170,7 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
             {isBatchProcessing ? (
               <StopCircle className="w-4 h-4" />
             ) : (
-              <Film className="w-4 h-4" />
+              <Play className="w-4 h-4" />
             )}
             {isBatchProcessing ? t('bottomBar.stop') : t('toolbar.startAll')}
           </GlassButton>
@@ -183,7 +182,7 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
             size="sm"
             onClick={clearFiles}
             disabled={isProcessing}
-            className="text-text-secondary dark:text-gray-400 hover:text-danger"
+            className="hover:text-danger dark:hover:text-red-300"
           >
             <Trash2 className="w-4 h-4" />
             {t('toolbar.clear')}

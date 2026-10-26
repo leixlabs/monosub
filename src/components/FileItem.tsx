@@ -383,7 +383,7 @@ export function FileItem({ file }: FileItemProps) {
                   )}
                 </GlassBadge>
                 {/* Elapsed time */}
-                <div className="flex items-center gap-1 text-xs text-text-tertiary dark:text-gray-500">
+                <div className="flex items-center gap-1 text-xs text-text-tertiary dark:text-zinc-500 tabular-nums">
                   <Clock className="w-3 h-3" />
                   <span>{formatElapsedTime(liveElapsed)}</span>
                 </div>
@@ -512,7 +512,7 @@ export function FileItem({ file }: FileItemProps) {
               data-testid="file-error-badge"
               className={cn(
                 glassBadgeVariants({ variant: 'destructive', size: 'sm' }),
-                'cursor-pointer hover:bg-red-500/20 dark:hover:bg-red-500/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60',
+                'cursor-pointer hover:bg-red-500/20 dark:hover:bg-red-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60',
               )}
             >
               <AlertCircle className="w-3.5 h-3.5 mr-1" />
@@ -556,14 +556,15 @@ export function FileItem({ file }: FileItemProps) {
   return (
     <GlassCard
       glowEffect={file.status === 'processing'}
-      className={`animate-fade-in ${file.status === 'processing' ? '' : 'hover:-translate-y-1 transition-transform duration-200'
-        }`}
+      interactive={file.status !== 'processing'}
+      className="animate-fade-in group/row"
     >
-      <div className="flex gap-3 p-3 w-full h-full">
+      <div className="flex gap-4 p-3.5 w-full h-full">
         {/* Thumbnail. 128×72 (16:9) rather than 140×80: the row is mostly text
             and actions, and the taller preview was setting the row's height for
-            a picture nobody reads at that size. */}
-        <div className="w-[128px] h-[72px] rounded-lg bg-bg-secondary dark:bg-zinc-800 flex-shrink-0 overflow-hidden relative group">
+            a picture nobody reads at that size. Inset ring keeps pale frames
+            from bleeding into the card. */}
+        <div className="w-[128px] h-[72px] rounded-lg bg-surface-muted flex-shrink-0 overflow-hidden relative ring-1 ring-inset ring-line">
           {file.thumbnail ? (
             <img
               src={file.thumbnail}
@@ -571,12 +572,12 @@ export function FileItem({ file }: FileItemProps) {
               className="w-full h-full object-cover"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-text-tertiary dark:text-gray-600">
-              <Play className="w-8 h-8" />
+            <div className="w-full h-full flex items-center justify-center text-text-tertiary dark:text-zinc-600">
+              <Play className="w-7 h-7" strokeWidth={1.5} />
             </div>
           )}
           {/* Duration overlay */}
-          <div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/70 dark:bg-black/80 rounded text-[10px] text-white font-medium">
+          <div className="absolute bottom-1 right-1 px-1.5 py-px bg-black/70 backdrop-blur-sm rounded text-[10px] leading-4 text-white font-medium tabular-nums">
             {formatDuration(file.duration)}
           </div>
         </div>
@@ -584,13 +585,13 @@ export function FileItem({ file }: FileItemProps) {
         {/* Details */}
         <div className="flex-1 flex flex-col justify-between min-w-0">
           <div>
-            <h3 className="text-sm font-medium text-text-primary dark:text-white truncate mb-1">
+            <h3 className="text-[14px] leading-5 font-semibold text-text-primary dark:text-zinc-50 truncate mb-1" title={file.name}>
               {file.name}
             </h3>
-            <div className="flex items-center gap-3 text-xs text-text-tertiary dark:text-gray-500">
-              <span>{formatFileSize(file.size)}</span>
-              <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
-              <span>{settings.outputFormat.toUpperCase()}</span>
+            <div className="flex items-center gap-2.5 text-xs text-text-tertiary dark:text-zinc-500">
+              <span className="tabular-nums">{formatFileSize(file.size)}</span>
+              <span className="w-[3px] h-[3px] rounded-full bg-current opacity-50" />
+              <span className="font-medium tracking-wide">{settings.outputFormat.toUpperCase()}</span>
               {/* Per-file speaker separation and translation. Editable until the
                   run starts: changing them mid-flight would not affect the
                   request already sent to the engine, so `processing` and the
@@ -605,8 +606,8 @@ export function FileItem({ file }: FileItemProps) {
                   sure the switch was off. */}
               {(file.status === 'pending' || file.status === 'error') && (
                 <>
-                  <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
-                  <span className="flex items-center gap-1.5">
+                  <span className="w-[3px] h-[3px] rounded-full bg-current opacity-50" />
+                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-text-secondary dark:hover:text-zinc-300 transition-colors">
                     <Users className="w-3 h-3" />
                     {t('fileItem.multiSpeaker')}
                     <GlassSwitch
@@ -614,15 +615,15 @@ export function FileItem({ file }: FileItemProps) {
                       onCheckedChange={(checked) => setFileDiarization(file.id, checked)}
                       aria-label={t('fileItem.multiSpeaker')}
                       title={t('fileItem.multiSpeakerHint')}
-                      className="scale-[0.7] origin-left"
+                      className="scale-[0.75] origin-left -mr-2"
                     />
-                  </span>
+                  </label>
                   {/* Translation, per file and for the same reason: it is a
                       per-run decision. The target language and model come from
                       Settings and are not repeated here — only whether *this*
                       file gets a translated copy. */}
-                  <span className="w-1 h-1 rounded-full bg-text-tertiary dark:bg-gray-600" />
-                  <span className="flex items-center gap-1.5">
+                  <span className="w-[3px] h-[3px] rounded-full bg-current opacity-50" />
+                  <label className="flex items-center gap-1.5 cursor-pointer hover:text-text-secondary dark:hover:text-zinc-300 transition-colors">
                     <Languages className="w-3 h-3" />
                     {t('fileItem.translate')}
                     <GlassSwitch
@@ -631,9 +632,9 @@ export function FileItem({ file }: FileItemProps) {
                       aria-label={t('fileItem.translate')}
                       title={t('fileItem.translateHint')}
                       data-testid={`file-translate-${file.id}`}
-                      className="scale-[0.7] origin-left"
+                      className="scale-[0.75] origin-left -mr-2"
                     />
-                  </span>
+                  </label>
                 </>
               )}
             </div>
@@ -689,7 +690,7 @@ export function FileItem({ file }: FileItemProps) {
         </div>
 
         {/* Actions */}
-        <div className="flex flex-col justify-center gap-2 w-[110px]">
+        <div className="flex flex-col justify-center gap-1.5 w-[104px]">
           {file.status === 'pending' && (
             <GlassButton
               variant="primary"
@@ -723,7 +724,7 @@ export function FileItem({ file }: FileItemProps) {
               variant="default"
               size="sm"
               onClick={() => void handleOpenInFinder()}
-              className="w-full text-success border-success/30 hover:bg-success/20"
+              className="w-full"
             >
               <FolderOpen className="w-4 h-4" />
               {t('fileItem.open')}
@@ -733,7 +734,7 @@ export function FileItem({ file }: FileItemProps) {
             variant="ghost"
             size="sm"
             onClick={handleDelete}
-            className="w-full text-text-tertiary dark:text-gray-500 hover:text-danger"
+            className="w-full text-text-tertiary dark:text-zinc-500 hover:text-danger dark:hover:text-red-300 hover:bg-danger/10"
           >
             <Trash2 className="w-4 h-4" />
             {t('fileItem.delete')}

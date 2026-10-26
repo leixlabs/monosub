@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "MonoSub",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 560,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true
+      }
+    ]
+  }
+}

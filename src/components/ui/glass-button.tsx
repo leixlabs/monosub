@@ -1,77 +1,74 @@
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
+import { Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Slot } from "@radix-ui/react-slot"
 
+/**
+ * Button system.
+ *
+ * Hierarchy (one primary per view):
+ *   primary     – solid brand fill, the single main action
+ *   default     – neutral raised button, secondary actions
+ *   outline     – hairline border, tertiary
+ *   ghost/muted – no chrome, toolbar & row actions
+ *   destructive – tinted red, stop / delete
+ *
+ * States: hover (bg shift, no scale), active (0.98 press), focus-visible (ring),
+ * disabled (45% + no pointer), `loading` (spinner, locks width, aria-busy).
+ */
 const glassButtonVariants = cva(
   cn(
-    "relative flex items-center justify-center gap-2 whitespace-nowrap rounded-xl cursor-pointer",
-    "text-sm font-medium transition-all duration-300 ease-out",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent",
-    "disabled:pointer-events-none disabled:opacity-50",
-    "hover:scale-105 active:scale-95",
+    "relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap select-none cursor-pointer",
+    "text-sm font-medium",
+    "transition-[background-color,border-color,color,box-shadow,transform] duration-200 ease-standard",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2",
+    "focus-visible:ring-offset-bg-secondary dark:focus-visible:ring-offset-zinc-950",
+    "disabled:pointer-events-none disabled:opacity-45",
+    "aria-busy:pointer-events-none",
     "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   ),
   {
     variants: {
       variant: {
-        // 适用于深色/彩色背景（如 FileItem 卡片上）
         default: cn(
-          "bg-white/20 dark:bg-white/20 backdrop-blur-xl border border-white/30 dark:border-white/30",
-          "text-text-primary dark:text-white",
-          "shadow-[0_4px_16px_rgba(0,0,0,0.1)] dark:shadow-[0_4px_16px_rgba(0,0,0,0.2)]",
-          "hover:bg-white/40 dark:hover:bg-white/30 hover:border-white/50 dark:hover:border-white/40",
-          "before:absolute before:inset-0 before:rounded-xl",
-          "before:bg-gradient-to-b before:from-white/20 before:to-transparent before:pointer-events-none",
+          "bg-surface text-text-primary dark:text-zinc-100",
+          "border border-line-strong shadow-card",
+          "hover:bg-bg-tertiary dark:hover:bg-white/[0.06]",
+          "active:bg-bg-tertiary dark:active:bg-white/10",
         ),
-        // 蓝紫渐变主要行动按钮（Toolbar 添加文件、设置中验证等）
         primary: cn(
-          "bg-gradient-to-r from-cyan-500/80 via-blue-500/80 to-purple-500/80",
-          "backdrop-blur-xl border border-white/30 text-white",
-          "shadow-[0_4px_20px_rgba(59,130,246,0.4)]",
-          "hover:shadow-[0_4px_30px_rgba(59,130,246,0.6)]",
-          "before:absolute before:inset-0 before:rounded-xl",
-          "before:bg-gradient-to-b before:from-white/30 before:to-transparent before:pointer-events-none",
+          "bg-primary text-primary-foreground border border-transparent",
+          "shadow-[0_1px_2px_rgba(16,24,40,0.12),inset_0_1px_0_rgba(255,255,255,0.18)]",
+          "hover:bg-primary-hover hover:shadow-float",
+          "active:shadow-none",
         ),
-        // 带边框的次要按钮（亮暗双模式可见）
         outline: cn(
-          "bg-transparent backdrop-blur-sm",
-          "border border-border dark:border-white/30",
-          "text-text-primary dark:text-white",
-          "hover:bg-black/5 dark:hover:bg-white/10",
-          "hover:border-border dark:hover:border-white/50",
+          "bg-transparent text-text-primary dark:text-zinc-100",
+          "border border-line-strong",
+          "hover:bg-black/[0.04] dark:hover:bg-white/[0.06]",
         ),
-        // 无背景轻量按钮（亮暗双模式可见）
         ghost: cn(
-          "bg-transparent",
-          "text-text-secondary dark:text-white/70",
-          "hover:bg-black/5 dark:hover:bg-white/10",
-          "hover:text-text-primary dark:hover:text-white",
+          "bg-transparent text-text-secondary dark:text-zinc-400",
+          "hover:bg-black/[0.05] dark:hover:bg-white/[0.07]",
+          "hover:text-text-primary dark:hover:text-zinc-100",
         ),
-        // 专为底部工具栏/分段控件设计：自适应亮暗模式，明显可读
         muted: cn(
-          "bg-transparent",
-          "text-text-secondary dark:text-gray-400",
-          "hover:bg-bg-tertiary dark:hover:bg-zinc-800",
-          "hover:text-text-primary dark:hover:text-white",
-          "rounded-md",
+          "bg-transparent text-text-secondary dark:text-zinc-400 rounded-md",
+          "hover:bg-black/[0.05] dark:hover:bg-white/[0.07]",
+          "hover:text-text-primary dark:hover:text-zinc-100",
         ),
-        // 危险操作（取消、删除）
         destructive: cn(
-          "bg-red-500/20 dark:bg-red-500/30 backdrop-blur-xl",
-          "border border-red-300/40 dark:border-red-400/40",
-          "text-red-600 dark:text-red-100",
-          "shadow-[0_4px_16px_rgba(239,68,68,0.15)] dark:shadow-[0_4px_16px_rgba(239,68,68,0.3)]",
-          "hover:bg-red-500/30 dark:hover:bg-red-500/40",
-          "before:absolute before:inset-0 before:rounded-xl",
-          "before:bg-gradient-to-b before:from-white/10 before:to-transparent before:pointer-events-none",
+          "bg-danger/10 text-danger dark:text-red-300 dark:bg-red-500/15",
+          "border border-danger/25 dark:border-red-400/25",
+          "hover:bg-danger/15 dark:hover:bg-red-500/25",
         ),
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-8 px-3 text-xs",
-        lg: "h-12 px-6 text-base",
-        icon: "h-10 w-10",
+        default: "h-9 px-4 rounded-lg",
+        sm: "h-8 px-3 text-xs rounded-lg",
+        lg: "h-11 px-6 text-base rounded-xl",
+        icon: "h-9 w-9 rounded-lg",
       },
     },
     defaultVariants: {
@@ -84,31 +81,34 @@ const glassButtonVariants = cva(
 export interface GlassButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
   VariantProps<typeof glassButtonVariants> {
+  /** Kept for API compatibility; the rainbow glow wrapper is gone. */
   glowEffect?: boolean,
   asChild?: boolean
+  /** Shows a spinner, sets aria-busy and blocks clicks. */
+  loading?: boolean
 }
 
 const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>(
-  ({ className, variant, asChild = false, size, glowEffect = false, children, ...props }, ref) => {
+  // `glowEffect` is accepted and ignored so existing call sites keep compiling.
+  ({ className, variant, asChild = false, size, glowEffect: _glow, loading = false, disabled, children, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button'
 
-    // 只有需要 glow 特效时才包裹外层 div
-    // 否则直接返回 button，保证 w-full / flex 等布局正常工作
-    if (!glowEffect) {
-      return (
-        <Comp className={cn(glassButtonVariants({ variant, size, className }))} ref={ref} {...props}>
-          {children}
-        </Comp>
-      )
-    }
-
+    // Slot requires exactly one child, so the spinner is only injected for real buttons.
     return (
-      <div className="relative inline-block">
-        <div className="absolute -inset-1 rounded-xl bg-gradient-to-r from-cyan-500/40 via-blue-500/40 to-purple-500/40 blur-lg opacity-70 transition-opacity group-hover:opacity-100" />
-        <Comp className={cn(glassButtonVariants({ variant, size, className }))} ref={ref} {...props}>
-          {children}
-        </Comp>
-      </div>
+      <Comp
+        className={cn(glassButtonVariants({ variant, size, className }))}
+        ref={ref}
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
+        {...props}
+      >
+        {asChild ? children : (
+          <>
+            {loading && <Loader2 className="animate-spin" aria-hidden="true" />}
+            {children}
+          </>
+        )}
+      </Comp>
     )
   },
 )

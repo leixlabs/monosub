@@ -1,26 +1,33 @@
 import { Moon, Sun } from 'lucide-react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useTheme } from '@/hooks/useTheme'
-import { motion } from 'framer-motion'
+import { GlassButton } from '@/components/ui/glass-button'
 
 export function ThemeToggle() {
   const { effectiveTheme, setTheme } = useTheme()
-
-  const toggleTheme = () => {
-    setTheme(effectiveTheme === 'light' ? 'dark' : 'light')
-  }
+  const isLight = effectiveTheme === 'light'
 
   return (
-    <motion.button
-      whileTap={{ scale: 0.95 }}
-      onClick={toggleTheme}
-      className="p-2 rounded-xl hover:bg-bg-tertiary dark:hover:bg-zinc-800 transition-colors no-drag"
-      aria-label={`Switch to ${effectiveTheme === 'light' ? 'dark' : 'light'} mode`}
+    <GlassButton
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(isLight ? 'dark' : 'light')}
+      aria-label={`Switch to ${isLight ? 'dark' : 'light'} mode`}
+      className="no-drag overflow-hidden"
     >
-      {effectiveTheme === 'light' ? (
-        <Moon size={20} className="text-text-secondary dark:text-gray-400" />
-      ) : (
-        <Sun size={20} className="text-text-secondary dark:text-gray-400" />
-      )}
-    </motion.button>
+      {/* Icon cross-fades and rotates instead of snapping. */}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={effectiveTheme}
+          initial={{ opacity: 0, rotate: -60, scale: 0.7 }}
+          animate={{ opacity: 1, rotate: 0, scale: 1 }}
+          exit={{ opacity: 0, rotate: 60, scale: 0.7 }}
+          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+          className="grid place-items-center"
+        >
+          {isLight ? <Moon className="w-[18px] h-[18px]" /> : <Sun className="w-[18px] h-[18px]" />}
+        </motion.span>
+      </AnimatePresence>
+    </GlassButton>
   )
 }
