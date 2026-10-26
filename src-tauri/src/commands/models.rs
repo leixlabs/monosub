@@ -100,6 +100,15 @@ pub struct ModelStatus {
     /// About page surfaces these for attribution.
     pub licenses: Vec<ModelLicenseStatus>,
     pub attribution: Option<String>,
+    /// Whether the upstream licence allows commercial use: `allowed` /
+    /// `restricted` / `noncommercial` / `unknown` (see [`CommercialUse`]).
+    ///
+    /// Drives the badge on the model row and the confirmation a download asks
+    /// for. The weights are never redistributed by this app, so this describes
+    /// what the *user* may do with the model, not what MonoSub is licensed to do.
+    ///
+    /// [`CommercialUse`]: crate::engine::catalog::CommercialUse
+    pub commercial_use: String,
     // --- v2 capability fields (design §7.6): drive UI grouping and the
     // "can this plan run?" checks without a second round trip. ---
     /// `roles` as declared in `models.json` (`asr` / `vad` / `align` / `diar` /
@@ -118,8 +127,6 @@ pub struct ModelStatus {
     pub produces_text: bool,
     /// `source` (`tongyi` / `nvidia` / `openmoss` / `qwen` / `other`).
     pub source: Option<String>,
-    /// `tier` (`default` / `recommended` / `optional` / `experimental`).
-    pub tier: Option<String>,
     /// How far this app stands behind the entry: `supported` (run end to end and
     /// known to work), `unverified` (offered, never exercised here), or
     /// `unsupported` (deliberately not offered).
@@ -197,6 +204,7 @@ impl ModelStatus {
                 })
                 .collect(),
             attribution: spec.attribution,
+            commercial_use: spec.commercial_use.as_str().to_string(),
             roles,
             engine: spec.engine.as_str().to_string(),
             prompt_template: spec.prompt_template,
@@ -204,7 +212,6 @@ impl ModelStatus {
             diarization: capabilities.diarization.as_str().to_string(),
             produces_text: capabilities.produces_text,
             source: spec.source.map(|source| source.as_str().to_string()),
-            tier: spec.tier.map(|tier| tier.as_str().to_string()),
             status: spec.status.as_str().to_string(),
             effective_mode: effective_mode.as_str().to_string(),
             installed: status.installed,
@@ -1123,13 +1130,13 @@ mod tests {
             languages: vec!["zh".to_string(), "en".to_string()],
             license: "Tencent HY Community License Agreement".to_string(),
             attribution: None,
+            commercial_use: catalog::CommercialUse::Restricted,
             capabilities_raw: None,
             roles: vec![catalog::Role::Translate],
             engine: catalog::Engine::Llamacpp,
             prompt_template: Some("hy_mt".to_string()),
             speed: None,
             source: None,
-            tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
             modes: Vec::new(),
             licenses: Vec::new(),
@@ -1172,13 +1179,13 @@ mod tests {
             languages: vec!["auto".to_string()],
             license: "FunASR Model License v1.1".to_string(),
             attribution: None,
+            commercial_use: catalog::CommercialUse::Allowed,
             capabilities_raw: None,
             roles: vec![catalog::Role::Asr],
             engine: catalog::Engine::default(),
             prompt_template: None,
             speed: None,
             source: None,
-            tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
             modes: Vec::new(),
             licenses: Vec::new(),

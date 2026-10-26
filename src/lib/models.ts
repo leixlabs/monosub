@@ -39,6 +39,15 @@ export interface ModelStatus {
   /** Structured licences from `models.json` `licenses[]`. */
   licenses: ModelLicense[];
   attribution: string | null;
+  /**
+   * Whether the upstream licence allows commercial use.
+   *
+   * Summarises what the publisher's terms say, not what MonoSub is licensed to
+   * do: the weights are always fetched from the publisher, never redistributed
+   * here. Anything but `allowed` gets a badge and a confirmation before the
+   * download starts.
+   */
+  commercial_use: ModelCommercialUse;
   /** Declared roles; empty means the v1 fallback `['asr']`. */
   roles: string[];
   /** Inference engine: `audiocpp` (recognition) or `llamacpp` (translation). */
@@ -51,7 +60,6 @@ export interface ModelStatus {
   diarization: string;
   produces_text: boolean;
   source: string | null;
-  tier: string | null;
   /**
    * How far the app stands behind this model.
    *
@@ -80,6 +88,17 @@ export interface ModelStatus {
 
 /** How far the app stands behind a catalogue entry (mirrors `SupportStatus`). */
 export type ModelSupportStatus = 'supported' | 'unverified' | 'unsupported';
+
+/**
+ * Whether the upstream licence allows commercial use (mirrors `CommercialUse`).
+ *
+ * - `allowed`      — permissive, or explicitly permits commercial use.
+ * - `restricted`   — commercial use may be possible under conditions: MAU
+ *                    thresholds, territory exclusions, share-alike, AUP.
+ * - `noncommercial`— the publisher forbids commercial use.
+ * - `unknown`      — no licence published upstream; there is no grant to rely on.
+ */
+export type ModelCommercialUse = 'allowed' | 'restricted' | 'noncommercial' | 'unknown';
 
 /**
  * `audiocpp_cli --mode` (mirrors `RunMode`).
@@ -162,6 +181,18 @@ const asStringArray = (value: unknown): string[] =>
 const asSupportStatus = (value: unknown): ModelSupportStatus =>
   value === 'supported' || value === 'unsupported' ? value : 'unverified';
 
+/**
+ * Read the catalogue's `commercial_use` field.
+ *
+ * An unrecognised or missing value means `unknown`, never `allowed`: guessing
+ * "permissive" is the one error that would let someone use a restricted model
+ * without ever being told it was restricted.
+ */
+const asCommercialUse = (value: unknown): ModelCommercialUse =>
+  value === 'allowed' || value === 'restricted' || value === 'noncommercial'
+    ? value
+    : 'unknown';
+
 const normalizeFile = (raw: unknown): ModelFileManifest => {
   const file = isRecord(raw) ? raw : {};
   const urls = asStringArray(file.urls);
@@ -203,6 +234,7 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
         })
       : [],
     attribution: typeof manifest.attribution === 'string' ? manifest.attribution : null,
+    commercial_use: asCommercialUse(manifest.commercial_use),
     roles: asStringArray(manifest.roles),
     // Absent `engine` means audio.cpp, matching the manifest default, so every
     // pre-translation entry reads as a recognition model here too.
@@ -212,7 +244,6 @@ const normalizeModelStatus = (raw: unknown): ModelStatus => {
     diarization: asString(manifest.diarization, 'none'),
     produces_text: manifest.produces_text !== false,
     source: typeof manifest.source === 'string' ? manifest.source : null,
-    tier: typeof manifest.tier === 'string' ? manifest.tier : null,
     // An unknown or absent value is read as `unverified`: the catalogue may be
     // older than this field, and that default keeps every entry offered without
     // claiming anyone proved it works.

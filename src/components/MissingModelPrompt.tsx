@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { Download, Loader2, Play, Settings2, X } from 'lucide-react';
 import { GlassButton } from '@/components/ui/glass-button';
+import { ModelLicensePrompt } from '@/components/ModelLicensePrompt';
 import { reportFrontendError } from '@/lib/logging';
 import {
   MODEL_DOWNLOAD_COMPLETE_EVENT,
@@ -122,6 +123,15 @@ export function MissingModelPrompt({
   const [bytes, setBytes] = useState<ModelDownloadBytes | null>(null);
   /** A failure of this panel's own action; shown in place, never swallowed. */
   const [actionError, setActionError] = useState('');
+  /**
+   * The model whose licence confirmation is open, if any.
+   *
+   * This panel is a second download entry point — a failed run lands here, not
+   * in Settings — so the same gate has to exist here. Gating only in Settings
+   * would leave the shorter path (fix the error, click Download) as the one that
+   * never mentions the licence.
+   */
+  const [pendingLicense, setPendingLicense] = useState<ModelStatus | null>(null);
 
   /**
    * Bumped by every lookup and by unmount, so a slow `list_models` that resolves
@@ -275,7 +285,8 @@ export function MissingModelPrompt({
     };
   }, [modelId, loadModel, t]);
 
-  const handleDownload = async () => {
+  /** The transfer itself. Reached only through the licence gate below. */
+  const performDownload = async () => {
     if (!modelId || startGuardRef.current) return;
     startGuardRef.current = true;
     setActionError('');
@@ -295,6 +306,22 @@ export function MissingModelPrompt({
     } finally {
       startGuardRef.current = false;
     }
+  };
+
+  /**
+   * A click on "Download": confirm the upstream licence first when it is not
+   * plainly permissive.
+   *
+   * Same rule as Settings ▸ Models: a licence that restricts commercial use, or
+   * one nobody published, gets stated before the transfer starts instead of
+   * sitting in the row's small print.
+   */
+  const handleDownload = () => {
+    if (model && model.commercial_use !== 'allowed') {
+      setPendingLicense(model);
+      return;
+    }
+    void performDownload();
   };
 
   /**
@@ -474,6 +501,16 @@ export function MissingModelPrompt({
           </>
         )}
       </div>
+
+      {/* Renders through a portal, so sitting inside this card costs no layout. */}
+      <ModelLicensePrompt
+        model={pendingLicense}
+        onCancel={() => setPendingLicense(null)}
+        onConfirm={() => {
+          setPendingLicense(null);
+          void performDownload();
+        }}
+      />
     </div>
   );
 }

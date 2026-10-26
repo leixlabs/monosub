@@ -193,6 +193,32 @@
     "unverifiedHint": "Not yet run end to end; it may not work",
     "unsupported": "Not supported",
     "unsupportedHint": "This version of MonoSub does not offer this model. It is listed for completeness; the planner never selects it and it cannot be downloaded.",
+    "commercialUse": {
+      "label": "Commercial use",
+      "allowed": "Commercial use OK",
+      "restricted": "Commercial use conditional",
+      "noncommercial": "Non-commercial only",
+      "unknown": "Licence unknown",
+      "allowedHint": "The upstream licence permits commercial use. Attribution may still be required.",
+      "restrictedHint": "Commercial use may be permitted, but only under conditions set by the licence.",
+      "noncommercialHint": "The upstream licence forbids commercial use.",
+      "unknownHint": "No licence was published upstream, so there is no permission to rely on."
+    },
+    "license": {
+      "title": "Check the licence first",
+      "subtitle": "This model's terms are not plainly permissive.",
+      "modelLabel": "Model",
+      "licenseLabel": "Upstream licence",
+      "open": "Read the licence",
+      "terms": {
+        "allowed": "The upstream licence permits commercial use.",
+        "restricted": "Commercial use may be permitted, but the licence attaches conditions: a user-count threshold, a territory it does not cover, a share-alike obligation, or a registration step. Read the terms before relying on this model for paid work.",
+        "noncommercial": "The upstream licence forbids commercial use. Running this model for paid work, or inside a product or service you sell, falls outside the permission granted.",
+        "unknown": "The publisher has released no licence. Without a grant, all rights stay reserved by default, so treat any use beyond personal experimentation as needing the publisher's permission."
+      },
+      "disclaimer": "MonoSub does not host or redistribute model weights. This download goes straight to the publisher's own server. Whether the licence covers what you intend to do with the model is your call, not a check this app can make for you.",
+      "confirm": "I understand — download"
+    },
     "runMode": "Run mode",
     "modes": {
       "streaming": "Streaming",

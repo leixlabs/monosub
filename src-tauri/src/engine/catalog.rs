@@ -265,28 +265,6 @@ impl Source {
     }
 }
 
-/// UI grouping / default visibility (design §4.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Tier {
-    Default,
-    Recommended,
-    Optional,
-    Experimental,
-}
-
-impl Tier {
-    /// Stable lowercase name, matching the `models.json` spelling.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Tier::Default => "default",
-            Tier::Recommended => "recommended",
-            Tier::Optional => "optional",
-            Tier::Experimental => "experimental",
-        }
-    }
-}
-
 /// How far this app is willing to stand behind a catalogue entry.
 ///
 /// One field replacing the two booleans (`supported` / `verified`) that used to
@@ -346,6 +324,62 @@ impl SupportStatus {
 /// empty every recognition plan, and the catalogue is all-or-nothing.
 fn default_status() -> SupportStatus {
     SupportStatus::Unverified
+}
+
+/// Whether the upstream licence lets you use the model commercially.
+///
+/// Recorded per entry so the GUI can warn *before* a download instead of the
+/// user discovering the terms afterwards. This is a summary of what the upstream
+/// licence says, not a legal opinion — the licence name and its upstream URL
+/// travel next to the badge, and the confirmation dialog quotes both.
+///
+/// MonoSub does not redistribute weights: every download goes straight to the
+/// publisher, so what this field governs is what the *user* may do with a model
+/// once they have it. Showing it is the app saying where the user stands.
+/// Checking that it fits their purpose stays the user's job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommercialUse {
+    /// Permissive, or explicitly permits commercial use: Apache-2.0, MIT,
+    /// CC-BY-4.0, OpenMDW-1.1, FunASR Model License v1.1.
+    Allowed,
+    /// Commercial use may be possible but carries conditions the user has to
+    /// meet: MAU thresholds (Llama, LFM), territory exclusions (Tencent HY),
+    /// share-alike (CC-BY-SA), registration or acceptable-use terms (Gemma,
+    /// NGC, Youdao).
+    Restricted,
+    /// Upstream forbids commercial use: CC-BY-NC, research-only licences.
+    Noncommercial,
+    /// No licence published upstream, so there is no grant to rely on.
+    Unknown,
+}
+
+impl CommercialUse {
+    /// Stable lowercase name, matching the `models.json` spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CommercialUse::Allowed => "allowed",
+            CommercialUse::Restricted => "restricted",
+            CommercialUse::Noncommercial => "noncommercial",
+            CommercialUse::Unknown => "unknown",
+        }
+    }
+
+    /// True for every entry whose terms may stop a commercial use, or that
+    /// publish no terms at all — the downloads that ask the user to confirm.
+    pub fn needs_acknowledgement(self) -> bool {
+        !matches!(self, CommercialUse::Allowed)
+    }
+}
+
+/// The catalogue's answer for an entry that predates `commercial_use`.
+///
+/// `unknown`, not `allowed`: a catalogue written before this field existed
+/// carries no evidence about the licence, and guessing "permissive" is the one
+/// error that would let a user walk into a licence breach without a warning.
+/// `unknown` still offers the model — it just says so first.
+fn default_commercial_use() -> CommercialUse {
+    CommercialUse::Unknown
 }
 
 /// A run mode `audiocpp_cli --mode` accepts for this model.
@@ -442,6 +476,8 @@ pub struct ModelSpec {
     pub languages: Vec<String>,
     pub license: String,
     pub attribution: Option<String>,
+    /// Whether the upstream licence allows commercial use (see [`CommercialUse`]).
+    pub commercial_use: CommercialUse,
     /// v2 fields. `None` means the entry predates v2 (see [`ModelSpec::capabilities`]).
     pub capabilities_raw: Option<Capabilities>,
     pub roles: Vec<Role>,
@@ -453,14 +489,14 @@ pub struct ModelSpec {
     pub prompt_template: Option<String>,
     pub speed: Option<Speed>,
     pub source: Option<Source>,
-    pub tier: Option<Tier>,
     /// How far this app stands behind the entry: supported / unverified /
     /// unsupported (see [`SupportStatus`]).
     ///
-    /// Orthogonal to [`Self::tier`]: `tier` says how much we *recommend* a model
-    /// within the offered set, this says whether the model is offered at all and
-    /// whether anyone has run it. A model that loads is not necessarily a model
-    /// that runs — a GGUF can declare a family and still fail on the CLI.
+    /// `supported` carries both halves of what the removed `tier` field and this
+    /// one used to split between them: it says someone ran the model end to end
+    /// here, *and* it is what picks the catalogue default for a role — see
+    /// [`default_translation_model_id`]. A model that loads is not necessarily a
+    /// model that runs — a GGUF can declare a family and still fail on the CLI.
     ///
     /// The two booleans this replaced (`verified` / `supported`) could express a
     /// state that never existed: `supported: false, verified: true` claimed an
@@ -520,13 +556,13 @@ impl Default for ModelSpec {
             languages: Vec::new(),
             license: String::new(),
             attribution: None,
+            commercial_use: CommercialUse::Unknown,
             capabilities_raw: None,
             roles: Vec::new(),
             engine: Engine::default(),
             prompt_template: None,
             speed: None,
             source: None,
-            tier: None,
             status: SupportStatus::Unverified,
             modes: default_modes(),
             licenses: Vec::new(),
@@ -750,6 +786,10 @@ struct ModelWire {
     languages: Vec<String>,
     license: String,
     attribution: Option<String>,
+    /// Absent in a catalogue written before this field existed. The fallback is
+    /// `Unknown`, never `allowed` — see [`default_commercial_use`].
+    #[serde(default = "default_commercial_use")]
+    commercial_use: CommercialUse,
     // v2 fields. `serde(default)` keeps a v1 catalogue loadable.
     #[serde(default)]
     capabilities: Option<CapabilitiesWire>,
@@ -763,8 +803,6 @@ struct ModelWire {
     speed: Option<Speed>,
     #[serde(default)]
     source: Option<Source>,
-    #[serde(default)]
-    tier: Option<Tier>,
     /// How far this app stands behind the entry (see [`SupportStatus`]).
     ///
     /// `#[serde(default = "default_status")]` rather than a plain `default`:
@@ -852,6 +890,7 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
             languages: model.languages,
             license: model.license,
             attribution: model.attribution,
+            commercial_use: model.commercial_use,
             capabilities_raw: model.capabilities.map(|caps| Capabilities {
                 timestamps: caps.timestamps,
                 diarization: caps.diarization,
@@ -862,7 +901,6 @@ pub fn load_catalog(path: &Path) -> Result<Vec<ModelSpec>, EngineError> {
             prompt_template: model.prompt_template,
             speed: model.speed,
             source: model.source,
-            tier: model.tier,
             status: model.status,
             modes: model.modes,
             licenses: model
@@ -990,27 +1028,21 @@ pub fn translation_models(catalogue: &[ModelSpec]) -> Vec<&ModelSpec> {
 
 /// The translation model used when the user has not chosen one.
 ///
-/// Ranked by [`Tier`], best first (`default` > `recommended` > `optional` >
-/// `experimental`), ties broken by catalogue order so the answer never depends
-/// on how the JSON happens to be sorted at runtime. `None` when the catalogue
-/// offers no translation model at all, which is what makes translation a
-/// no-op rather than an error.
+/// Verified entries first (see [`SupportStatus::is_verified`]), ties broken by
+/// catalogue order so the answer never depends on how the JSON happens to be
+/// sorted at runtime. `None` when the catalogue offers no translation model at
+/// all, which is what makes translation a no-op rather than an error.
+///
+/// Verification is the only editorial signal here, and it is the one the solver
+/// can check. The `tier` field this replaced (`default` > `recommended` >
+/// `optional` > `experimental`) said the same kind of thing in four words that
+/// meant nothing verifiable: a `recommended` entry nobody had run end to end was
+/// a claim no one had tested, while `supported` is a measurement.
 pub fn default_translation_model_id(catalogue: &[ModelSpec]) -> Option<String> {
     translation_models(catalogue)
         .into_iter()
-        .min_by_key(|spec| tier_rank(spec.tier))
+        .min_by_key(|spec| u8::from(!spec.status.is_verified()))
         .map(|spec| spec.id.clone())
-}
-
-/// Sort key for [`default_translation_model_id`]; an undeclared tier ranks last.
-fn tier_rank(tier: Option<Tier>) -> u8 {
-    match tier {
-        Some(Tier::Default) => 0,
-        Some(Tier::Recommended) => 1,
-        Some(Tier::Optional) => 2,
-        Some(Tier::Experimental) => 3,
-        None => 4,
-    }
 }
 
 /// Tags that `sense_asr` maps onto a real language token (PoC §4.2,
@@ -1293,11 +1325,6 @@ mod tests {
             nemotron.max_session_seconds, None,
             "Nemotron has no fixed position table, so it declares no ceiling"
         );
-        assert_eq!(
-            nemotron.tier,
-            Some(Tier::Default),
-            "the default diar model is the one that works on long audio"
-        );
     }
 
     /// Parse an in-memory catalogue document (the crate has no `tempfile`).
@@ -1515,7 +1542,6 @@ mod tests {
         assert!(!moss.has_role(Role::Diar));
         assert_eq!(moss.speed, Some(Speed::Balanced));
         assert_eq!(moss.source, Some(Source::Openmoss));
-        assert_eq!(moss.tier, Some(Tier::Recommended));
         assert_eq!(moss.licenses.len(), 1);
         assert_eq!(moss.licenses[0].name, "Apache-2.0");
 
@@ -1524,7 +1550,6 @@ mod tests {
         assert_eq!(sense.capabilities().timestamps, TimestampGrade::None);
         assert_eq!(sense.capabilities().diarization, DiarizationGrade::None);
         assert_eq!(sense.source, Some(Source::Tongyi));
-        assert_eq!(sense.tier, Some(Tier::Default));
     }
 
     /// A diar-only model must not claim text, and the aligner must not either.
@@ -1774,7 +1799,7 @@ mod tests {
                   "id": "first", "family": "f", "display_name": "First",
                   "target_directory": "d", "model_file": "m.gguf", "files": [],
                   "languages": [], "license": "MIT", "roles": ["translate"],
-                  "engine": "llamacpp", "tier": "optional"
+                  "engine": "llamacpp"
                 },
                 {
                   "id": "asr", "family": "sense_asr", "display_name": "ASR",
@@ -1785,7 +1810,7 @@ mod tests {
                   "id": "second", "family": "f", "display_name": "Second",
                   "target_directory": "d", "model_file": "m.gguf", "files": [],
                   "languages": [], "license": "MIT", "roles": ["translate"],
-                  "engine": "llamacpp", "tier": "recommended"
+                  "engine": "llamacpp"
                 }
               ]
             }"#,
@@ -1798,47 +1823,43 @@ mod tests {
         assert_eq!(ids, vec!["first", "second"]);
     }
 
-    /// The default translation pick is the best tier, ties broken by catalogue
-    /// order — never by install state, which is a download prompt, not a filter.
+    /// The default translation pick is a verified entry, ties broken by
+    /// catalogue order — never by install state, which is a download prompt, not
+    /// a filter.
     #[test]
-    fn default_translation_model_prefers_tier_then_order() {
+    fn default_translation_model_prefers_verified_then_order() {
         let specs = parse_inline(
             r#"{
               "version": 2,
               "models": [
                 {
-                  "id": "experimental", "family": "f", "display_name": "E",
+                  "id": "unverified_a", "family": "f", "display_name": "UA",
                   "target_directory": "d", "model_file": "m.gguf", "files": [],
                   "languages": [], "license": "MIT", "roles": ["translate"],
-                  "tier": "experimental"
+                  "engine": "llamacpp"
                 },
                 {
-                  "id": "recommended_a", "family": "f", "display_name": "RA",
+                  "id": "unverified_b", "family": "f", "display_name": "UB",
                   "target_directory": "d", "model_file": "m.gguf", "files": [],
                   "languages": [], "license": "MIT", "roles": ["translate"],
-                  "tier": "recommended"
-                },
-                {
-                  "id": "recommended_b", "family": "f", "display_name": "RB",
-                  "target_directory": "d", "model_file": "m.gguf", "files": [],
-                  "languages": [], "license": "MIT", "roles": ["translate"],
-                  "tier": "recommended"
+                  "engine": "llamacpp"
                 }
               ]
             }"#,
         );
         assert_eq!(
             default_translation_model_id(&specs).as_deref(),
-            Some("recommended_a"),
-            "a tier tie keeps catalogue order"
+            Some("unverified_a"),
+            "with nothing verified, catalogue order decides"
         );
 
-        // A `default` tier outranks `recommended` wherever it sits.
+        // A supported entry outranks an unverified one wherever it sits.
         let mut specs = specs;
-        specs[2].tier = Some(Tier::Default);
+        specs[1].status = SupportStatus::Supported;
         assert_eq!(
             default_translation_model_id(&specs).as_deref(),
-            Some("recommended_b")
+            Some("unverified_b"),
+            "verification beats catalogue order"
         );
 
         // No translate model at all: translation is a no-op, not an error.
@@ -1857,6 +1878,87 @@ mod tests {
             }"#,
         );
         assert_eq!(default_translation_model_id(&recognition_only), None);
+    }
+
+    /// The committed catalogue's translation default is the model that was
+    /// actually run end to end.
+    ///
+    /// Guards the `tier` -> `status` migration. Dropping the field without
+    /// promoting `hy_mt_1_8b_q4_k_m` to `supported` would leave all 40 translate
+    /// entries unverified, and the tie-break would then hand the default to
+    /// whichever id comes first in the file — `alma_13b_q4_k_m`, a 7.8 GB Llama 2
+    /// model nobody would pick for a first run.
+    #[test]
+    fn committed_translation_default_is_the_verified_model() {
+        let specs = committed_catalog();
+        assert_eq!(
+            default_translation_model_id(&specs).as_deref(),
+            Some("hy_mt_1_8b_q4_k_m")
+        );
+
+        let verified: Vec<&str> = specs
+            .iter()
+            .filter(|spec| spec.has_role(Role::Translate) && spec.status.is_verified())
+            .map(|spec| spec.id.as_str())
+            .collect();
+        assert_eq!(
+            verified,
+            vec!["hy_mt_1_8b_q4_k_m"],
+            "a second verified translate model would make the default depend on catalogue order"
+        );
+    }
+
+    /// The committed catalogue declares a `commercial_use` verdict per entry, and
+    /// the two defaults are not on a commercial-risk path.
+    ///
+    /// Guards a hand-authored field. A model added with a licence nobody
+    /// classified lands on `unknown` by the parser's fallback — safe for the
+    /// badge, but it would also mean nobody looked, so the exact `unknown` set is
+    /// pinned here rather than merely counted.
+    #[test]
+    fn committed_catalogue_declares_commercial_use() {
+        let specs = committed_catalog();
+
+        let unknown: Vec<&str> = specs
+            .iter()
+            .filter(|spec| spec.commercial_use == CommercialUse::Unknown)
+            .map(|spec| spec.id.as_str())
+            .collect();
+        assert_eq!(
+            unknown,
+            vec![
+                "niagara_19m_batch_en_f32",
+                "niagara_38m_batch_en_f32",
+                "samsone_134m_bf16",
+                "samsone_134m_q8_0",
+                "samsone_356m_bf16",
+                "samsone_356m_q8_0",
+                "samsone_99m_bf16",
+                "samsone_99m_q8_0",
+            ],
+            "the unknown set is the eight entries with no published upstream licence"
+        );
+
+        // Defaults are what most users get without choosing, so neither may be an
+        // entry whose licence forbids commercial use — or one nobody licensed.
+        let by_id = |id: &str| {
+            specs
+                .iter()
+                .find(|spec| spec.id == id)
+                .unwrap_or_else(|| panic!("catalogue has no {id}"))
+        };
+        let translate = default_translation_model_id(&specs).expect("a translate default");
+        for id in [default_model_id(), translate.as_str()] {
+            let spec = by_id(id);
+            assert!(
+                !matches!(
+                    spec.commercial_use,
+                    CommercialUse::Noncommercial | CommercialUse::Unknown
+                ),
+                "{id} is the default for its role but its licence is {:?}",
+                spec.commercial_use
+            );
+        }
     }
 
     #[test]
@@ -1913,13 +2015,13 @@ mod tests {
             languages: vec!["zh".to_string(), "en".to_string(), "es".to_string()],
             license: "Apache-2.0".to_string(),
             attribution: None,
+            commercial_use: CommercialUse::Allowed,
             capabilities_raw: None,
             roles: Vec::new(),
             engine: Engine::default(),
             prompt_template: None,
             speed: None,
             source: None,
-            tier: None,
             status: crate::engine::catalog::SupportStatus::Unverified,
             modes: Vec::new(),
             licenses: Vec::new(),

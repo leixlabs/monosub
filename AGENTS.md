@@ -170,7 +170,7 @@ monosub/
 │   │   │   └── tray.rs          # Menu-bar item: renders labels + progress rows
 │   │   └── logging.rs
 │   ├── resources/
-│   │   ├── models.json          # Model catalogue (v2: capabilities/roles/tier/engine)
+│   │   ├── models.json          # Model catalogue (v2: capabilities/roles/status/engine)
 │   │   ├── licenses/            # audio.cpp, llama.cpp, yt-dlp + notices
 │   │   ├── bin/                 # fetched: ffmpeg, ffprobe, audiocpp_cli, yt-dlp, lib/
 │   │   │                        #   and llama-server-* + its lib*.dylib FLAT in bin/
@@ -470,7 +470,8 @@ Rules that follow from this:
 
 - **Capabilities live in `models.json`, not in Rust.** Adding a model is a JSON
   change. The solver reads `capabilities.timestamps` / `capabilities.diarization` /
-  `capabilities.produces_text`, plus `roles`, `languages`, `source`, `speed`, `tier`.
+  `capabilities.produces_text`, plus `roles`, `languages`, `source`, `speed`,
+  `status` and `commercial_use`.
 - **A declared capability is not automatically a deliverable one.** The catalogue
   now carries the whole `docs/../模型调查` survey (129 entries, 89 recognition across
   31 families + 40 translation models), and a dozen families declare
@@ -601,7 +602,7 @@ Rules that follow from this:
   entries with `engine: "llamacpp"`, and `plan::solve` filters the catalogue down to
   `engine == audiocpp && !role.translate` before it looks for candidates. Which
   translation model runs is chosen **by role from `models.json`**
-  (`catalog::translation_models` / `default_translation_model_id`, best `tier` first),
+  (`catalog::translation_models` / `default_translation_model_id`, verified first),
   independently of the recognition plan — there is no `StepKind` for translation.
   For such an entry `family` is only a prompt-template hint and never reaches audio.cpp.
 
@@ -760,9 +761,12 @@ URL import has no queue row to toggle before the job starts, so it still reads t
   and `prompt_template` naming the prompt wording (`hy_mt`, or `generic`/`chatml`/
   `gemma`/`cohere`/`llama3` for the survey models — an unknown name falls back to
   `generic`, so a typo degrades the prompt instead of failing the run).
-  `hy_mt_1_8b_q4_k_m` is `tier: "default"`, which is what keeps it the catalogue
-  default now that 39 other translate models exist; without that tier the picker
-  would pick whichever `recommended` entry happened to come first. A translate
+  `hy_mt_1_8b_q4_k_m` is the only translate entry marked `status: "supported"`,
+  which is what keeps it the catalogue default now that 39 other translate models
+  exist. That is not decoration: with no verified entry `status` cannot break the
+  tie, and the pick falls to whichever id comes first in the file —
+  `alma_13b_q4_k_m`, a 7.8 GB Llama 2 model. `engine::catalog::tests::
+  committed_translation_default_is_the_verified_model` is the guard. A translate
   entry must **not** list `"auto"` in `languages` — that is a source-detection
   value, and it failed the "every committed translate language has a display
   name" guard. `capabilities` is declared as
@@ -1601,12 +1605,20 @@ and the read side treats a missing file as "fall back to estimated timing".
 
 ### Model status: supported / unverified / unsupported
 
-`models.json` carries one `status` per entry, orthogonal to `tier`: `tier` says how
-much a model is *recommended* within the offered set, `status` says whether the
-model is offered at all and whether anyone has run it. A model that loads is not
-necessarily a model that works — a GGUF can declare a family and still fail on the
-CLI. (This replaced the `verified` / `supported` boolean pair; see the model-plan
-rules above for why one axis is the honest shape.)
+`models.json` carries one `status` per entry. It answers all three questions the
+catalogue used to split across two fields: whether the model is offered at all,
+whether anyone has run it, and which model is the default for its role. A model
+that loads is not necessarily a model that works — a GGUF can declare a family and
+still fail on the CLI.
+
+`status` is the only editorial axis. The `tier` field (`default` > `recommended` >
+`optional` > `experimental`) was removed: it recorded an opinion nothing could
+check, and 12 of its 14 `recommended` entries had in fact never been run here. Two
+behaviours moved with it — `default_translation_model_id` now ranks verified
+entries first, and the solver's old `RECOMMENDED_TIER_BONUS` is gone, leaving
+`VERIFIED_BONUS` as the single editorial term in the score. (This replaced the
+`verified` / `supported` boolean pair as well; see the model-plan rules above for
+why one axis is the honest shape.)
 
 | status | solver | download | UI badge |
 |---|---|---|---|
@@ -1873,13 +1885,35 @@ useEffect(() => {
 
 ## Licensing / Attribution
 
-**MonoSub is a personal learning project and is not distributed commercially.**
-Model licences are therefore recorded for *attribution only* — they are **not** a
-gate on which models may be offered. There is no commercial-use red line: a model
-whose upstream licence is non-commercial (e.g. CC-BY-NC) may still be listed and
-downloaded.
+**MonoSub's own source is PolyForm Noncommercial 1.0.0** — see the root `LICENSE`.
+It is *source-available*, not open source: keep that distinction in any user-facing
+copy.
 
-What still matters is honesty about provenance:
+Model licences are recorded for *attribution* **and** for a commercial-use verdict;
+neither is a gate on which models may be listed. The app never re-hosts weights — it
+offers to fetch them from the publisher, on the user's explicit request — and that
+separation is what keeps the app's own licence clean.
+
+**Every entry declares `commercial_use`**: `allowed` / `restricted` /
+`noncommercial` / `unknown`. Anything but `allowed` gets a badge on its row and a
+confirmation (`ModelLicensePrompt`) before a download starts, and **both** download
+entry points go through it — Settings ▸ Models and `MissingModelPrompt`. The verdict
+summarises the upstream terms; it is not legal advice, and the app must never
+paraphrase a clause into a conclusion about whether the user's particular use is
+covered.
+
+Rules that follow:
+
+- **Never put a `noncommercial` or `unknown` entry on a default path** — no
+  hardcoded default, no solver preference, no "we suggest this" copy.
+- **`unknown` is not `allowed`.** An entry with no published licence has no grant to
+  rely on, so `models.json` and both parsers (`catalog.rs`, `models.ts`) default to
+  `unknown` and never to `allowed`.
+- **Re-derive the verdict when adding a model.** The mapping is per licence string
+  and is recorded in `docs/compliance/ip-compliance-audit.md`; a new licence needs a
+  decision, not a guess.
+
+What always matters is honesty about provenance:
 
 - `audiocpp_cli` is **Apache-2.0**, so its LICENSE text must ship with the app —
   see `src-tauri/resources/licenses/`.
@@ -1888,9 +1922,16 @@ What still matters is honesty about provenance:
 - `yt-dlp` is **Unlicense**, but statically bundles third-party code, so **two** files
   ship: `resources/licenses/yt-dlp-LICENSE` and
   `resources/licenses/yt-dlp-THIRD_PARTY_LICENSES.txt` (both fetched by
-  `prepare-resources.mjs`). The binary is bundled as `bin/yt-dlp-<target-triple>` and is used
-  only against Bilibili; YouTube support is deferred, not shipped
+  `prepare-resources.mjs`). The binary is bundled as `bin/yt-dlp-<target-triple>` and is
+  invoked only for the video sites on the URL-import allowlist; support for sites
+  beyond that allowlist is deferred, not shipped
   (`docs/tech-spec/url-import-design.md` §10).
+- **`ffmpeg` / `ffprobe` are LGPL-2.1-or-later** (LGPLv3 on the pinned Windows
+  package). They must always be a **GPL-free build**: `scripts/lib/ffmpeg.mjs` parses
+  `ffmpeg -version` and fails the release if `--enable-gpl` or `--enable-nonfree` is
+  present. Do not reintroduce gyan.dev's `essentials_build` (it is GPLv3). Full
+  provenance and the notices the LGPL requires live in
+  `resources/licenses/THIRD-PARTY-NOTICES.md`.
 - **HY-MT1.5-1.8B** is *not* bundled: it is downloaded on demand and recorded for
   attribution only (`Tencent HY Community License Agreement`, release date 2025-12-30,
   licence text: <https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/blob/main/License.txt>).
@@ -1904,8 +1945,8 @@ What still matters is honesty about provenance:
 - Licences with an explicit *redistribution* restriction (e.g. NVIDIA's
   "local-use only, pending redistribution approval") are the one real exception:
   they may be used locally but must not be added to a downloadable catalogue until
-  approval is confirmed — mark them `tier: experimental` and keep them
-  non-downloadable, or omit them entirely.
+  approval is confirmed — leave them out of the catalogue, or list them as
+  `status: unsupported` so they stay visible and non-downloadable.
 
 > Rationale: several strong diarization models (Sortformer) are CC-BY-NC, while the
 > permissive ones are not necessarily the best. A blanket "no non-commercial models"

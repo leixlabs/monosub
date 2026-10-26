@@ -249,6 +249,32 @@
     "unverifiedHint": "尚未完整实测，可能无法正常工作",
     "unsupported": "不支持",
     "unsupportedHint": "当前版本的 MonoSub 不再提供该模型。它保留在清单中仅为完整性；方案求解不会选中它，也无法下载。",
+    "commercialUse": {
+      "label": "商用许可",
+      "allowed": "可商用",
+      "restricted": "有条件商用",
+      "noncommercial": "仅限非商用",
+      "unknown": "许可未知",
+      "allowedHint": "上游许可证允许商用，但仍可能需要署名。",
+      "restrictedHint": "可能允许商用，但需满足许可证规定的条件。",
+      "noncommercialHint": "上游许可证禁止商用。",
+      "unknownHint": "上游未发布许可证，没有可依据的授权。"
+    },
+    "license": {
+      "title": "下载前请确认许可证",
+      "subtitle": "这个模型的许可条款并非无条件开放。",
+      "modelLabel": "模型",
+      "licenseLabel": "上游许可证",
+      "open": "查看许可证原文",
+      "terms": {
+        "allowed": "上游许可证允许商用。",
+        "restricted": "可能允许商用，但附带条件：用户量阈值、许可证未覆盖的地域、相同方式共享义务，或需先完成注册。若打算用于付费工作，请先读条款。",
+        "noncommercial": "上游许可证禁止商用。将本模型用于付费工作，或用于你销售的产品与服务，都不在授权范围内。",
+        "unknown": "发布方未提供任何许可证。没有授权即默认保留所有权利，除个人试验之外的用途，都应先取得发布方许可。"
+      },
+      "disclaimer": "MonoSub 不托管、也不再分发模型权重——本次下载直接来自发布方自己的服务器。这份许可证是否覆盖你的预期用途，需要你自行判断，本应用无法替你核实。",
+      "confirm": "我已了解，开始下载"
+    },
     "runMode": "运行模式",
     "modes": {
       "streaming": "流式",

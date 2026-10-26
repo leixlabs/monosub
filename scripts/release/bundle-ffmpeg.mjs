@@ -7,6 +7,11 @@
 // resources/bin/lib/, then rewrites all library references to `@loader_path` so
 // the result works on a machine without Homebrew.
 //
+// The source ffmpeg must be an LGPL build. `brew install ffmpeg` is not — it
+// passes --enable-gpl, which puts the whole binary under the GPL, and we cannot
+// convey that inside a closed-source app sold through the Mac App Store. Use
+// build-ffmpeg-lgpl-macos.mjs to produce a GPL-free ffmpeg first.
+//
 // This is opt-in and separate from prepare-resources.mjs, which only copies the
 // binaries. Run it when the copied ffmpeg turns out to depend on
 // /opt/homebrew paths. It needs `otool` and `install_name_tool` (Xcode command
@@ -21,6 +26,7 @@ import { requireHost, targetTriple, bundledName } from '../lib/platform.mjs';
 import { binDir } from '../lib/paths.mjs';
 import { ensureDir, remove, copyFile } from '../lib/fs.mjs';
 import { run, capture, tryCapture, requireTools } from '../lib/shell.mjs';
+import { verifyFfmpegLicense } from '../lib/ffmpeg.mjs';
 
 requireHost('macos');
 requireTools(['otool', 'install_name_tool', 'codesign']);
@@ -45,6 +51,15 @@ ensureDir(libDir);
 
 copyFile(ffmpegBin, ffmpegTarget);
 copyFile(ffprobeBin, ffprobeTarget);
+
+// Bail before the relinking work if the developer's ffmpeg is a GPL build.
+// `brew install ffmpeg` passes --enable-gpl, and bundling that would hand a
+// closed-source app sold through the Mac App Store GPL obligations it cannot
+// meet (§6 source offer, §10 no further restrictions). Build an LGPL copy with
+// build-ffmpeg-lgpl-macos.mjs, or point the MONOSUB_FFMPEG_PATH /
+// MONOSUB_FFPROBE_PATH overrides at one.
+verifyFfmpegLicense(ffmpegTarget);
+verifyFfmpegLicense(ffprobeTarget);
 
 /** Every non-system dylib `binary` loads, recursing into each one's own deps. */
 function collectDylibs(binary) {

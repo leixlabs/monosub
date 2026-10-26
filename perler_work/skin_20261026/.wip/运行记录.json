@@ -1,0 +1,39 @@
+{
+  "started_at": "2026-10-26T06:38:24.385002+00:00",
+  "status": "completed",
+  "work_dir": "C:\\Users\\lei\\Projects\\monosub\\perler_work\\skin_20261026",
+  "input": "C:\\Users\\lei\\Projects\\monosub\\perler_work\\skin_20261026\\.wip\\原图\\原图.png",
+  "prompt": "C:\\Users\\lei\\Projects\\monosub\\perler_work\\skin_20261026\\.wip\\提示词\\提示词.md",
+  "task_name": "偃月苍龙冥驹",
+  "mode": "create",
+  "confirmed_by_user": null,
+  "t2i_confirmed_by_user": null,
+  "render_size": "1536x1024",
+  "quality": "low",
+  "background": "transparent",
+  "render_base": "https://val-perler.qq.com",
+  "boards": [
+    "36",
+    "52",
+    "78",
+    "104",
+    "156"
+  ],
+  "target_size": null,
+  "art_style": "original",
+  "max_colors": 28,
+  "sticker_border": {
+    "removed": false,
+    "cover": 0.0,
+    "inner_dark": 0.0
+  },
+  "merge_close_colors": false,
+  "outputs": {
+    "html": "C:\\Users\\lei\\Projects\\monosub\\perler_work\\skin_20261026\\output\\【拼豆专家】偃月苍龙冥驹-10月26日_14点40分26秒.html",
+    "board_overview": "C:\\Users\\lei\\Projects\\monosub\\perler_work\\skin_20261026\\.wip\\评审\\尺寸对比.png",
+    "prompt": "C:\\Users\\lei\\Projects\\monosub\\perler_work\\skin_20261026\\.wip\\提示词\\提示词.md"
+  },
+  "progress": "图纸做好啦！",
+  "progress_at": "2026-10-26T06:40:26.507453+00:00",
+  "finished_at": "2026-10-26T06:40:26.509174+00:00"
+}

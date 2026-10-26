@@ -64,6 +64,7 @@ import { ensureDir, copyFile, remove, isExecutable, listFiles, fileSize, makeScr
 import { download, assertSha256, matchesSha256 } from '../lib/net.mjs';
 import { extractZip, extractTarGz } from '../lib/archive.mjs';
 import { run, tryCapture } from '../lib/shell.mjs';
+import { verifyFfmpegLicense } from '../lib/ffmpeg.mjs';
 
 // --- Pinned upstream ------------------------------------------------------
 // Every pin is the archive the URL resolves to today. Bump them together after
@@ -72,6 +73,19 @@ import { run, tryCapture } from '../lib/shell.mjs';
 const AUDIOCPP_VERSION = 'v0.9.1'; // Apache-2.0
 const LLAMA_BUILD = 'b11696'; // MIT; rolling build, release tags carry no binaries
 const YTDLP_VERSION = '2026.08.19'; // Unlicense
+
+// FFmpeg must be an LGPL build — no exceptions. gyan.dev's "essentials_build"
+// (what we shipped before) is `--enable-gpl --enable-version3`, i.e. GPLv3, which
+// we cannot convey inside a closed-source app sold through the Mac App Store:
+// §6 wants Corresponding Source we never shipped, and §10 forbids the further
+// restrictions Apple's EULA imposes. BtbN publishes a static GPL-free package
+// under each autobuild tag; tag and file name are pinned together so the
+// download stays reproducible. `verifyFfmpegLicense()` below re-checks the
+// binary after extraction, so a wrong package fails the build loudly instead of
+// silently shipping GPL code again.
+const FFMPEG_WIN_TAG = 'autobuild-2026-10-25-13-00';
+const FFMPEG_WIN_ASSET = 'ffmpeg-n8.1.3-24-g92611900bb-win64-lgpl-8.1.zip';
+const FFMPEG_WIN_SHA256 = 'ed8b8dfe088ff978d657834cf96fe40d7dcbb011b37ff374005b66d5272448c9';
 
 // The VAD weights are platform-neutral: same upstream tag, same file, on both.
 const SILERO_URL = `https://raw.githubusercontent.com/0xShug0/audio.cpp/${AUDIOCPP_VERSION}/assets/framework/models/silero_vad/silero_vad_16k.safetensors`;
@@ -142,6 +156,10 @@ function prepareFfmpegMacOs() {
     const ffprobeTarget = path.join(binDir, bundledName('ffprobe'));
 
     if (isExecutable(ffmpegTarget) && isExecutable(ffprobeTarget)) {
+        // Guard before the "already present" shortcut: otherwise a GPL binary
+        // copied in earlier would keep getting re-bundled forever.
+        verifyFfmpegLicense(ffmpegTarget);
+        verifyFfmpegLicense(ffprobeTarget);
         log.ok(`FFmpeg 已存在 (${targetTriple()})，跳过`);
         return;
     }
@@ -149,6 +167,11 @@ function prepareFfmpegMacOs() {
     // `brew --prefix ffmpeg` first, then whatever is on PATH. Both are plain
     // copies: the Homebrew binaries are what the developer already runs, and the
     // dylib rewrite (bundle-ffmpeg.mjs) is a separate, opt-in step.
+    //
+    // Homebrew's ffmpeg formula builds with `--enable-gpl`, so it is GPLv3 and
+    // cannot be bundled here (see verifyFfmpegLicense). Build an LGPL copy with
+    // scripts/release/build-ffmpeg-lgpl-macos.mjs first, or point
+    // MONOSUB_FFMPEG_PATH / MONOSUB_FFPROBE_PATH at one.
     const brewPrefix = tryCapture('brew', ['--prefix', 'ffmpeg']);
     const ffmpegBin = tryCapture('command', ['-v', 'ffmpeg']);
     const ffprobeBin = tryCapture('command', ['-v', 'ffprobe']);
@@ -166,11 +189,13 @@ function prepareFfmpegMacOs() {
     }
 
     if (!ffmpegSource || !ffprobeSource) {
-        die('未找到 FFmpeg，请先安装: brew install ffmpeg');
+        die('未找到 FFmpeg。请用 LGPL 构建: node scripts/release/build-ffmpeg-lgpl-macos.mjs');
     }
 
     copyFile(ffmpegSource, ffmpegTarget);
     copyFile(ffprobeSource, ffprobeTarget);
+    verifyFfmpegLicense(ffmpegTarget);
+    verifyFfmpegLicense(ffprobeTarget);
     log.ok('FFmpeg 复制完成');
 }
 
@@ -406,32 +431,47 @@ async function fetchFfmpegWindows() {
     const ffmpegTarget = path.join(binDir, bundledName('ffmpeg'));
     const ffprobeTarget = path.join(binDir, bundledName('ffprobe'));
     if (isExecutable(ffmpegTarget) && isExecutable(ffprobeTarget)) {
+        // Guard here too, before the shortcut: the tree shipped a GPL binary
+        // before the LGPL switch, and without this it would be re-bundled
+        // forever without ever being checked.
+        verifyFfmpegLicense(ffmpegTarget);
+        verifyFfmpegLicense(ffprobeTarget);
         log.ok(`ffmpeg already present, skipping (${targetTriple()})`);
         return;
     }
 
-    // gyan.dev re-points the version-less URL on every release, so the pinned
-    // file name in `packages/` is what keeps this reproducible.
-    const asset = 'ffmpeg-8.1.2-essentials_build.zip';
-    const sha256 = 'db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec';
-    const url = `https://www.gyan.dev/ffmpeg/builds/packages/${asset}`;
+    const url = `https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_WIN_TAG}/${FFMPEG_WIN_ASSET}`;
 
     const scratch = makeScratchDir('monosub-ffmpeg-');
     try {
         const extracted = path.join(scratch, 'ffmpeg');
-        await downloadAndExtract(url, path.join(scratch, asset), sha256, extracted);
+        await downloadAndExtract(url, path.join(scratch, FFMPEG_WIN_ASSET), FFMPEG_WIN_SHA256, extracted);
 
         const binFolder = findDir(extracted, 'bin', 3);
         if (!binFolder) throw new Error('unexpected ffmpeg archive layout: no bin directory');
 
-        // The essentials build is static: a single .exe, no lib\*.dll to ship.
+        // Static build: a single .exe per tool, no lib\*.dll to ship.
         copyFile(path.join(binFolder, 'ffmpeg.exe'), ffmpegTarget);
         copyFile(path.join(binFolder, 'ffprobe.exe'), ffprobeTarget);
+
+        // Keep the upstream LGPL text beside the binary: LGPL §6 wants the
+        // corresponding source or a written offer, and THIRD-PARTY-NOTICES.md
+        // points at this file.
+        const upstreamLicense = path.join(path.dirname(binFolder), 'LICENSE.txt');
+        if (fs.existsSync(upstreamLicense)) {
+            ensureDir(licensesDir);
+            copyFile(upstreamLicense, path.join(licensesDir, 'ffmpeg-LICENSE'), 0o644);
+            log.ok('Installed ffmpeg-LICENSE');
+        }
+
+        verifyFfmpegLicense(ffmpegTarget);
+        verifyFfmpegLicense(ffprobeTarget);
         log.ok(`Installed ${ffmpegTarget}, ${ffprobeTarget}`);
     } finally {
         remove(scratch);
     }
 }
+
 
 async function fetchYtDlpWindows() {
     await fetchYtDlpBinary(

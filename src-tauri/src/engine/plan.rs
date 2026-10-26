@@ -17,8 +17,7 @@
 //! so the 显存预算 answers it as well.
 
 use crate::engine::catalog::{
-    self, Capabilities, DiarizationGrade, Engine, ModelSpec, Role, Source, Speed, Tier,
-    TimestampGrade,
+    self, Capabilities, DiarizationGrade, Engine, ModelSpec, Role, Source, Speed, TimestampGrade,
 };
 use crate::engine::cli::Backend;
 use std::collections::HashMap;
@@ -32,17 +31,19 @@ const NOTHING: Capabilities = Capabilities {
 
 // --- §5.3 score weights ----------------------------------------------------
 
-const RECOMMENDED_TIER_BONUS: i32 = 100;
 const TONGYI_SOURCE_BONUS: i32 = 60;
 const MEMORY_MATCH_BONUS: i32 = 40;
 const INSTALLED_BONUS: i32 = 30;
 /// Reward for a model this project has actually run end to end.
 ///
 /// Larger than [`INSTALLED_BONUS`]: a verified model that still needs a download
-/// is a better bet than an unverified one already on disk. Smaller than
-/// [`RECOMMENDED_TIER_BONUS`]: verification is evidence about *reliability*, not a
-/// substitute for being the right tool — 显存预算 and language fit still outrank
-/// it, so a verified model that is three sizes too big does not win.
+/// is a better bet than an unverified one already on disk.
+///
+/// This is now the only editorial signal in the score. It used to sit below a
+/// separate `tier: recommended` bonus, but that field recorded an opinion the
+/// solver could not check, and most of the models carrying it had in fact never
+/// been run here. `status` is the measured version of the same claim, so the
+/// opinion went and the measurement stayed.
 ///
 /// Never a filter: unverified models remain planable, they just lose the bonus.
 const VERIFIED_BONUS: i32 = 45;
@@ -50,11 +51,11 @@ const EXTRA_STEP_PENALTY: i32 = 50;
 
 /// Cost of each footprint class a model exceeds the 显存预算 by.
 ///
-/// Deliberately larger than [`RECOMMENDED_TIER_BONUS`] + [`TONGYI_SOURCE_BONUS`]
-/// (+160 combined): when the user says 显存小, a 254 MB model must beat a 1 GB
-/// `tier: recommended` Tongyi model, otherwise the budget is decorative. The
-/// rank in [`over_budget_rank`] already orders candidates by fit; this keeps the
-/// plan-level score agreeing with that order.
+/// Deliberately larger than [`TONGYI_SOURCE_BONUS`] + [`VERIFIED_BONUS`] (+105
+/// combined): when the user says 显存小, a 254 MB model must beat a 1 GB Tongyi
+/// model, otherwise the budget is decorative. The rank in [`over_budget_rank`]
+/// already orders candidates by fit; this keeps the plan-level score agreeing
+/// with that order.
 const MEMORY_OVERSHOOT_PENALTY: i32 = 150;
 
 /// Footprint-class thresholds: under 512 MB is 小, under 1.5 GB is 中, above is 大.
@@ -642,7 +643,7 @@ fn declares_concrete_language(spec: &ModelSpec) -> bool {
 fn bias_families(language: &str, profile: LanguageProfile) -> &'static [&'static str] {
     match profile {
         // 英语为主: `parakeet_tdt` first — it is the English specialist in this
-        // catalogue (NVIDIA Parakeet, `tier: recommended`), and §5.4 notes it is
+        // catalogue (NVIDIA Parakeet), and §5.4 notes it is
         // the fast choice for English. Ordering `sense_asr` first instead would
         // make this profile a no-op: `Mandarin` + `auto` already lands on
         // `sense_asr`, so the option would change nothing the user could observe.
@@ -714,9 +715,6 @@ pub fn score(
 fn single_model_score(spec: &ModelSpec, req: &Requirements, installed: &dyn Fn(&str) -> bool) -> i32 {
     let mut total = 0;
 
-    if spec.tier == Some(Tier::Recommended) {
-        total += RECOMMENDED_TIER_BONUS;
-    }
     if spec.source == Some(Source::Tongyi) {
         total += TONGYI_SOURCE_BONUS;
     }
@@ -741,7 +739,7 @@ fn single_model_score(spec: &ModelSpec, req: &Requirements, installed: &dyn Fn(&
 /// * 小: the 254 MB class earns +40, and every class above costs 150 a piece.
 /// * 中: a matching class earns +40, a smaller one +20 (smaller is never wrong,
 ///   only not what was asked for).
-/// * 大: no reward at all, because everything fits; tier, source, install state
+/// * 大: no reward at all, because everything fits; status, source, install state
 ///   and the language bias decide alone, so accuracy wins.
 fn memory_match(spec: &ModelSpec, req: &Requirements) -> i32 {
     let over = over_budget_rank(spec, req);
@@ -1122,11 +1120,14 @@ fn suggest_word_model(catalogue: &[ModelSpec]) -> Option<String> {
     candidates.last().map(|spec| spec.id.clone())
 }
 
-/// Ordering key for download suggestions: recommended first, then Tongyi, then
-/// the finer capability. Ties keep catalogue order (`sort_by_key` is stable).
+/// Ordering key for download suggestions: verified first, then Tongyi, then the
+/// finer capability. Ties keep catalogue order (`sort_by_key` is stable).
+///
+/// Verified replaced the removed `tier: recommended` here for the same reason it
+/// did in [`single_model_score`]: it is the claim we can actually test.
 fn suggestion_key(spec: &ModelSpec) -> (bool, bool, u8, i32) {
     (
-        spec.tier == Some(Tier::Recommended),
+        spec.status.is_verified(),
         spec.source == Some(Source::Tongyi),
         timestamp_rank(spec.capabilities().timestamps),
         diar_rank(spec.capabilities().diarization),
@@ -1496,7 +1497,6 @@ mod tests {
         capabilities: Capabilities,
         speed: Speed,
         source: Source,
-        tier: Tier,
         languages: &'static [&'static str],
         model_file: &'static str,
         size: u64,
@@ -1522,13 +1522,13 @@ mod tests {
             languages: fake.languages.iter().map(|lang| lang.to_string()).collect(),
             license: "test".to_string(),
             attribution: None,
+            commercial_use: catalog::CommercialUse::Unknown,
             capabilities_raw: Some(fake.capabilities),
             roles: fake.roles.to_vec(),
             engine: Engine::Audiocpp,
             prompt_template: None,
             speed: Some(fake.speed),
             source: Some(fake.source),
-            tier: Some(fake.tier),
             status: if fake.verified {
                 SupportStatus::Supported
             } else {
@@ -1566,7 +1566,6 @@ mod tests {
                 },
                 speed: Speed::Fast,
                 source: Source::Tongyi,
-                tier: Tier::Default,
                 languages: SENSE_LANGS,
                 model_file: "sensevoice-small-q8-audiocpp-v1.gguf",
                 size: 254_211_200,
@@ -1583,7 +1582,6 @@ mod tests {
                 },
                 speed: Speed::Balanced,
                 source: Source::Tongyi,
-                tier: Tier::Recommended,
                 languages: NANO_LANGS,
                 model_file: "fun-asr-nano-2512-q8_0.gguf",
                 size: 1_045_334_432,
@@ -1600,7 +1598,6 @@ mod tests {
                 },
                 speed: Speed::Balanced,
                 source: Source::Qwen,
-                tier: Tier::Optional,
                 languages: QWEN_LANGS,
                 model_file: "qwen3-asr-0.6b-q8_0.gguf",
                 size: 1_151_272_416,
@@ -1617,7 +1614,6 @@ mod tests {
                 },
                 speed: Speed::Balanced,
                 source: Source::Qwen,
-                tier: Tier::Optional,
                 languages: ALIGN_LANGS,
                 model_file: "qwen3-forced-aligner-0.6b-q8_0.gguf",
                 size: 1_129_966_496,
@@ -1634,7 +1630,6 @@ mod tests {
                 },
                 speed: Speed::Balanced,
                 source: Source::Openmoss,
-                tier: Tier::Recommended,
                 languages: MOSS_LANGS,
                 model_file: "moss-transcribe-diarize-q8_0.gguf",
                 size: 1_132_110_560,
@@ -1651,7 +1646,6 @@ mod tests {
                 },
                 speed: Speed::Accurate,
                 source: Source::Openmoss,
-                tier: Tier::Optional,
                 languages: MOSS_LANGS,
                 model_file: "moss-transcribe-diarize-q4_k.gguf",
                 size: 758_293_216,
@@ -1668,7 +1662,6 @@ mod tests {
                 },
                 speed: Speed::Balanced,
                 source: Source::Nvidia,
-                tier: Tier::Optional,
                 languages: AGNOSTIC_LANGS,
                 model_file: "nemotron-3-diarization-q8_0.gguf",
                 size: 106_675_136,
@@ -2158,7 +2151,7 @@ mod tests {
     }
 
     /// `ko`: `fun_asr_nano` declares no Korean and must be filtered out even
-    /// though it outranks SenseVoice on tier; `sense_asr` is kept.
+    /// though it otherwise scores higher; `sense_asr` is kept.
     #[test]
     fn korean_excludes_fun_asr_nano() {
         let catalogue = catalogue();
@@ -2349,7 +2342,7 @@ mod tests {
     }
 
     /// 显存预算 must be decisive, not decorative: under 小 a 254 MB SenseVoice has
-    /// to beat a 1 GB `tier: recommended` Tongyi model.
+    /// to beat a 1 GB Tongyi model.
     #[test]
     fn small_memory_budget_picks_the_smallest_model() {
         let catalogue = catalogue();
@@ -2608,7 +2601,6 @@ mod tests {
             },
             speed: Speed::Fast,
             source: Source::Other,
-            tier: Tier::Recommended,
             languages: &["zh", "en", "ja"],
             model_file: "HY-MT1.5-1.8B-Q4_K_M.gguf",
             size: 1_133_080_512,
@@ -2627,7 +2619,6 @@ mod tests {
             },
             speed: Speed::Fast,
             source: Source::Tongyi,
-            tier: Tier::Recommended,
             languages: SENSE_LANGS,
             model_file: "lookalike.gguf",
             size: 10,
@@ -2689,7 +2680,6 @@ mod tests {
             },
             speed: Speed::Fast,
             source: Source::Tongyi,
-            tier: Tier::Recommended,
             languages: SENSE_LANGS,
             model_file: "lookalike.gguf",
             size: 10,
@@ -2755,7 +2745,6 @@ mod tests {
                 },
                 speed: Speed::Fast,
                 source: Source::Tongyi,
-                tier: Tier::Recommended,
                 languages: SENSE_LANGS,
                 model_file: "a.gguf",
                 size: 254_000_000,
@@ -2793,7 +2782,6 @@ mod tests {
             },
             speed: Speed::Accurate,
             source: Source::Tongyi,
-            tier: Tier::Recommended,
             languages: SENSE_LANGS,
             model_file: "big.gguf",
             size: 1_800_000_000,

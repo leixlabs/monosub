@@ -3,6 +3,7 @@ name = "monosub"
 version = "2.0.0"
 description = "Local voice to article desktop app"
 authors = ["VoiceToText"]
+license = "PolyForm-Noncommercial-1.0.0"
 edition = "2021"
 # `tauri dev` runs `cargo run` without `--bin`, and with two binaries Cargo
 # refuses to guess. The GUI is the one a bare `cargo run` must start; the CLI is

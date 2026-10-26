@@ -28,6 +28,7 @@ import { SettingsModelPlan } from '@/components/SettingsModelPlan';
 import { SettingsModelsDir } from '@/components/SettingsModelsDir';
 import { SettingsTranslation } from '@/components/SettingsTranslation';
 import { SettingsUrlImport } from '@/components/SettingsUrlImport';
+import { ModelLicensePrompt } from '@/components/ModelLicensePrompt';
 import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -168,6 +169,21 @@ function ModelRow({ model, isDownloading, percent, onDownload, onCancel, onRemov
                 {t('models.unsupported')}
               </GlassBadge>
             )}
+            {/* Commercial-use verdict, shown only when the answer is not a plain
+                "allowed". The 78 permissive entries already print their licence
+                name two lines below, so a badge on every row would train the eye
+                to skip the one place a warning has to land. This is the label
+                that carries the risk to the user; the confirmation dialog is
+                where it gets spelled out before a download starts. */}
+            {model.commercial_use !== 'allowed' && (
+              <GlassBadge
+                variant={model.commercial_use === 'noncommercial' ? 'destructive' : 'warning'}
+                size="sm"
+                title={t(`models.commercialUse.${model.commercial_use}Hint`)}
+              >
+                {t(`models.commercialUse.${model.commercial_use}`)}
+              </GlassBadge>
+            )}
           </div>
           <p className="text-xs text-text-secondary dark:text-gray-400 mt-1">
             {t('models.size')}: {formatModelSize(displaySize)}
@@ -267,6 +283,13 @@ export function Settings() {
   const [modelsError, setModelsError] = useState('');
   const [downloadPercentById, setDownloadPercentById] = useState<Record<string, number>>({});
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  /**
+   * The model whose licence confirmation is on screen, if any.
+   *
+   * Holds the entry rather than an id so the dialog renders without a second
+   * lookup and cannot show one model's terms under another model's name.
+   */
+  const [pendingLicenseModel, setPendingLicenseModel] = useState<ModelStatus | null>(null);
   const [modelActionError, setModelActionError] = useState('');
   const isMountedRef = useRef(true);
   const ignoreDownloadErrorRef = useRef<string | null>(null);
@@ -461,7 +484,14 @@ export function Settings() {
     }
   };
 
-  const handleDownloadModel = async (id: string) => {
+  /**
+   * Start a transfer. Everything below the licence gate lands here.
+   *
+   * Split out of `handleDownloadModel` so the confirmation dialog has somewhere
+   * to hand the click back to, and so the gate is the only place that decides
+   * whether a model needs acknowledging.
+   */
+  const startDownloadModel = async (id: string) => {
     setModelActionError('');
     ignoreDownloadErrorRef.current = null;
     setDownloadingId(id);
@@ -491,6 +521,25 @@ export function Settings() {
         });
       }
     }
+  };
+
+  /**
+   * A download request, gated on the model's upstream licence.
+   *
+   * Anything but a plainly permissive licence (`allowed`) opens
+   * `ModelLicensePrompt` first. 51 of the 129 catalogue entries are conditional,
+   * non-commercial, or carry no published licence at all, and starting one of
+   * those transfers in silence would be the app quietly deciding that the terms
+   * do not matter. The dialog names the licence, links to the publisher's own
+   * text, and its confirmation is what starts the transfer.
+   */
+  const handleDownloadModel = (id: string) => {
+    const model = models.find((candidate) => candidate.id === id);
+    if (model && model.commercial_use !== 'allowed') {
+      setPendingLicenseModel(model);
+      return;
+    }
+    void startDownloadModel(id);
   };
 
   const handleCancelModelDownload = async (id: string) => {
@@ -1295,6 +1344,18 @@ export function Settings() {
           </GlassButton>
         </div>
       </motion.div>
+
+      {/* Outside the panel so the portal is not nested in the settings
+          animation. `model={null}` is the closed state. */}
+      <ModelLicensePrompt
+        model={pendingLicenseModel}
+        onCancel={() => setPendingLicenseModel(null)}
+        onConfirm={() => {
+          const id = pendingLicenseModel?.id;
+          setPendingLicenseModel(null);
+          if (id) void startDownloadModel(id);
+        }}
+      />
     </div>
   );
 }

@@ -40,7 +40,6 @@
       "engine": "llamacpp",
       "speed": "slow",
       "source": "other",
-      "tier": "optional",
       "license": "Llama 2 Community License",
       "licenses": [
         {
@@ -49,6 +48,7 @@
         }
       ],
       "attribution": "ALMA-13B (haoranxu/ALMA-13B, built on Meta Llama-2; GGUF by TheBloke). Larger dedicated LLM translator; direction set in the prompt; trained on 10 directions (en↔zh/de/ru/cs/is). Q8_0 excluded: 13.83GB x1.1+1 ~16.2GB exceeds 16GB.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -92,7 +92,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Llama 2 Community License",
       "licenses": [
         {
@@ -101,6 +100,7 @@
         }
       ],
       "attribution": "ALMA-7B (haoranxu/ALMA-7B, built on Meta Llama-2; GGUF by TheBloke). Dedicated LLM translator; source/target direction is set in the prompt ('Translate this from X to Y:'). Trained on 10 WMT/FLORES directions: en↔zh, en↔de, en↔ru, en↔cs, en↔is.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -144,7 +144,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Llama 2 Community License",
       "licenses": [
         {
@@ -153,6 +152,7 @@
         }
       ],
       "attribution": "ALMA-7B (haoranxu/ALMA-7B, built on Meta Llama-2; GGUF by TheBloke). Dedicated LLM translator; source/target direction is set in the prompt ('Translate this from X to Y:'). Q8_0 near-lossless for quality-sensitive translation. Trained on 10 directions: en↔zh, en↔de, en↔ru, en↔cs, en↔is.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -214,7 +214,6 @@
       "prompt_template": "cohere",
       "speed": "balanced",
       "source": "cohere",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -223,6 +222,7 @@
         }
       ],
       "attribution": "Aya-23-8B (CohereForAI/aya-23-8B; GGUF imatrix by bartowski). General multilingual instruction model covering 23 languages; translation direction controlled via the Cohere chat prompt. Non-commercial (CC-BY-NC-4.0).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -283,7 +283,6 @@
       "prompt_template": "cohere",
       "speed": "balanced",
       "source": "cohere",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -292,6 +291,7 @@
         }
       ],
       "attribution": "Aya-23-8B (CohereForAI/aya-23-8B; GGUF imatrix by bartowski). General multilingual instruction model covering 23 languages; Q8_0 near-lossless. Non-commercial (CC-BY-NC-4.0).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -352,7 +352,6 @@
       "prompt_template": "cohere",
       "speed": "balanced",
       "source": "cohere",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -361,6 +360,7 @@
         }
       ],
       "attribution": "Aya Expanse 8B (CohereForAI/aya-expanse-8b; GGUF imatrix by bartowski). Cohere's upgraded 23-language frontier-class multilingual model (multilingual arbitrage training); translation direction controlled via the Cohere chat prompt. Non-commercial (CC-BY-NC-4.0).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -421,7 +421,6 @@
       "prompt_template": "cohere",
       "speed": "balanced",
       "source": "cohere",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -430,6 +429,7 @@
         }
       ],
       "attribution": "Aya Expanse 8B (CohereForAI/aya-expanse-8b; GGUF imatrix by bartowski). Upgraded 23-language multilingual model; Q8_0 near-lossless. Non-commercial (CC-BY-NC-4.0).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -468,7 +468,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -477,6 +476,7 @@
         }
       ],
       "attribution": "Canary 180M Flash (NVIDIA, repackaged by audio-cpp). English/Spanish/German/French; F32 full precision. Weights retain the upstream CC BY 4.0 licence.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -518,7 +518,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -527,6 +526,7 @@
         }
       ],
       "attribution": "Canary 180M Flash (NVIDIA, repackaged by audio-cpp). English/Spanish/German/French; 249 MB — the lightest ASR entry. Weights retain the upstream CC BY 4.0 licence.",
+      "commercial_use": "allowed",
       "status": "unverified",
       "modes": [
         "offline"
@@ -559,7 +559,6 @@
       ],
       "speed": "fast",
       "source": "nvidia",
-      "tier": "optional",
       "license": "NGC TERMS OF USE",
       "licenses": [
         {
@@ -567,6 +566,7 @@
         }
       ],
       "attribution": "Citrinet-256 (NVIDIA NeMo stt_en_citrinet_256, repackaged by audio-cpp). Offline English CTC ASR; upstream card unreachable from this environment, license chosen from the NGC model page (待核对).",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -615,7 +615,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -624,6 +623,7 @@
         }
       ],
       "attribution": "Cohere Transcribe 03-2026 (CohereLabs/cohere-transcribe-03-2026). 14 languages; offline quiet-energy chunks up to 35s; no timestamps or diarization; Apache-2.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -672,7 +672,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -681,6 +680,7 @@
         }
       ],
       "attribution": "Cohere Transcribe 03-2026 (CohereLabs/cohere-transcribe-03-2026). 14 languages; offline quiet-energy chunks up to 35s; no timestamps or diarization; Apache-2.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -729,7 +729,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -738,6 +737,7 @@
         }
       ],
       "attribution": "Cohere Transcribe 03-2026 (CohereLabs/cohere-transcribe-03-2026). 14 languages; offline quiet-energy chunks up to 35s; no timestamps or diarization; Apache-2.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -805,7 +805,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "NetEase Youdao Model Use License Agreement",
       "licenses": [
         {
@@ -814,6 +813,7 @@
         }
       ],
       "attribution": "Confucius4-R2T2 (netease-youdao/Confucius4-R2T2; Qwen3-ASR-1.7B fine-tune). Low-latency append-only streaming transcription; no timestamps, no speaker diarization. Weights under the NetEase Youdao Model Use License Agreement (separate commercial license above 100M MAU / RMB 1B revenue).",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -882,7 +882,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "NetEase Youdao Model Use License Agreement",
       "licenses": [
         {
@@ -891,6 +890,7 @@
         }
       ],
       "attribution": "Confucius4-R2T2 (netease-youdao/Confucius4-R2T2; Qwen3-ASR-1.7B fine-tune). Low-latency append-only streaming transcription; no timestamps, no speaker diarization. Weights under the NetEase Youdao Model Use License Agreement (separate commercial license above 100M MAU / RMB 1B revenue).",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -959,7 +959,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "NetEase Youdao Model Use License Agreement",
       "licenses": [
         {
@@ -968,6 +967,7 @@
         }
       ],
       "attribution": "Confucius4-R2T2 (netease-youdao/Confucius4-R2T2; Qwen3-ASR-1.7B fine-tune). Low-latency append-only streaming transcription; no timestamps, no speaker diarization. Weights under the NetEase Youdao Model Use License Agreement (separate commercial license above 100M MAU / RMB 1B revenue).",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1008,7 +1008,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "recommended",
       "license": "nyra health Non-Commercial Research License",
       "licenses": [
         {
@@ -1016,6 +1015,7 @@
         }
       ],
       "attribution": "CrisperWhisper 2.0 Large (nyralabs/CrisperWhisper2.0_large). Verbatim/intended transcription with word timestamps; inference code MIT, model weights and outputs under the nyra health Non-Commercial Research License (non-commercial use only; commercial use requires a separate license).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1056,7 +1056,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "recommended",
       "license": "nyra health Non-Commercial Research License",
       "licenses": [
         {
@@ -1064,6 +1063,7 @@
         }
       ],
       "attribution": "CrisperWhisper 2.0 Large (nyralabs/CrisperWhisper2.0_large). Verbatim/intended transcription with word timestamps; inference code MIT, model weights and outputs under the nyra health Non-Commercial Research License (non-commercial use only; commercial use requires a separate license).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1104,7 +1104,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "recommended",
       "license": "nyra health Non-Commercial Research License",
       "licenses": [
         {
@@ -1112,6 +1111,7 @@
         }
       ],
       "attribution": "CrisperWhisper 2.0 Large (nyralabs/CrisperWhisper2.0_large). Verbatim/intended transcription with word timestamps; inference code MIT, model weights and outputs under the nyra health Non-Commercial Research License (non-commercial use only; commercial use requires a separate license).",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1148,7 +1148,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -1157,6 +1156,7 @@
         }
       ],
       "attribution": "FireRedAudio (FireRedTeam/FireRedAudio, repackaged by audio-cpp). Unified audio LLM; the ASR path (template_name=asr) covers Chinese/English.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1192,7 +1192,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -1201,6 +1200,7 @@
         }
       ],
       "attribution": "FireRedAudio (FireRedTeam/FireRedAudio, repackaged by audio-cpp). Unified audio LLM; the ASR path (template_name=asr) covers Chinese/English.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1241,7 +1241,6 @@
       ],
       "speed": "balanced",
       "source": "tongyi",
-      "tier": "optional",
       "license": "FunASR Model License v1.1",
       "licenses": [
         {
@@ -1250,6 +1249,7 @@
         }
       ],
       "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf). Offline ASR for auto/zh/en/ja; FunASR Model License v1.1.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1290,7 +1290,6 @@
       ],
       "speed": "balanced",
       "source": "tongyi",
-      "tier": "recommended",
       "license": "FunASR Model License v1.1",
       "licenses": [
         {
@@ -1299,6 +1298,7 @@
         }
       ],
       "attribution": "Fun-ASR-Nano-2512 (FunAudioLLM/Fun-ASR-Nano-2512-hf)",
+      "commercial_use": "allowed",
       "status": "supported",
       "modes": [
         "offline"
@@ -1354,7 +1354,6 @@
       "prompt_template": "gemma",
       "speed": "slow",
       "source": "google",
-      "tier": "optional",
       "license": "Gemma Terms of Use",
       "licenses": [
         {
@@ -1363,6 +1362,7 @@
         }
       ],
       "attribution": "Gemma 3 12B-it (Google DeepMind, March 2025). Largest sub-16GB Gemma 3 text variant; generic LLM translation driven by prompt. Q8_0 (~12.5GB) leaves no KV headroom and is omitted.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -1417,7 +1417,6 @@
       "prompt_template": "gemma",
       "speed": "fast",
       "source": "google",
-      "tier": "optional",
       "license": "Gemma Terms of Use",
       "licenses": [
         {
@@ -1426,6 +1425,7 @@
         }
       ],
       "attribution": "Gemma 3 1B-it (Google DeepMind, March 2025). Smallest Gemma 3 instruction-tuned multilingual model; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -1480,7 +1480,6 @@
       "prompt_template": "gemma",
       "speed": "fast",
       "source": "google",
-      "tier": "optional",
       "license": "Gemma Terms of Use",
       "licenses": [
         {
@@ -1489,6 +1488,7 @@
         }
       ],
       "attribution": "Gemma 3 1B-it (Google DeepMind, March 2025). Q8_0 near-lossless quant; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -1543,7 +1543,6 @@
       "prompt_template": "gemma",
       "speed": "balanced",
       "source": "google",
-      "tier": "recommended",
       "license": "Gemma Terms of Use",
       "licenses": [
         {
@@ -1552,6 +1551,7 @@
         }
       ],
       "attribution": "Gemma 3 4B-it (Google DeepMind, March 2025). Mid-size Gemma 3 instruction model, 128K context, multilingual; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -1606,7 +1606,6 @@
       "prompt_template": "gemma",
       "speed": "balanced",
       "source": "google",
-      "tier": "optional",
       "license": "Gemma Terms of Use",
       "licenses": [
         {
@@ -1615,6 +1614,7 @@
         }
       ],
       "attribution": "Gemma 3 4B-it (Google DeepMind, March 2025). Q8_0 near-lossless quant; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -1651,7 +1651,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1660,6 +1659,7 @@
         }
       ],
       "attribution": "GigaAM Multilingual CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1699,7 +1699,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1708,6 +1707,7 @@
         }
       ],
       "attribution": "GigaAM Multilingual CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1747,7 +1747,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1756,6 +1755,7 @@
         }
       ],
       "attribution": "GigaAM Multilingual Large CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1795,7 +1795,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1804,6 +1803,7 @@
         }
       ],
       "attribution": "GigaAM Multilingual Large CTC (ai-sage/GigaAM-Multilingual, repackaged by audio-cpp). Russian/Kazakh/Kyrgyz/Uzbek/English; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1839,7 +1839,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1848,6 +1847,7 @@
         }
       ],
       "attribution": "GigaAM v3 CTC (ai-sage/GigaAM-v3, repackaged by audio-cpp). Russian; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1883,7 +1883,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1892,6 +1891,7 @@
         }
       ],
       "attribution": "GigaAM v3 E2E CTC (ai-sage/GigaAM-v3, repackaged by audio-cpp). Restores punctuation/capitalization; Russian; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1927,7 +1927,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1936,6 +1935,7 @@
         }
       ],
       "attribution": "GigaAM v3 E2E RNN-T (ai-sage/GigaAM-v3, repackaged by audio-cpp). Restores punctuation/capitalization; Russian; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -1971,7 +1971,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -1980,6 +1979,7 @@
         }
       ],
       "attribution": "GigaAM v3 RNN-T (ai-sage/GigaAM-v3, repackaged by audio-cpp). Russian; optional word timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2014,7 +2014,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -2023,6 +2022,7 @@
         }
       ],
       "attribution": "IBM Granite Speech 5.0 470M TurboCTC (IBM, repackaged by audio-cpp). Ultra-fast Conformer-CTC English ASR; the model guide states word timestamps are produced (supports_timestamps=true).",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2047,7 +2047,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Boson Higgs Audio v3 Research and Non-Commercial License (待核对)",
       "licenses": [
         {
@@ -2066,6 +2065,7 @@
         }
       ],
       "attribution": "Higgs Audio v3 STT (bosonai/higgs-audio-v3-stt, repackaged by audio-cpp). English; timestamps not exposed. License name pending upstream card verification.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2090,7 +2090,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Boson Higgs Audio v3 Research and Non-Commercial License (待核对)",
       "licenses": [
         {
@@ -2109,6 +2108,7 @@
         }
       ],
       "attribution": "Higgs Audio v3 STT (bosonai/higgs-audio-v3-stt, repackaged by audio-cpp). English; timestamps not exposed. License name pending upstream card verification.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2144,7 +2144,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -2153,6 +2152,7 @@
         }
       ],
       "attribution": "Hviske v5.3 (syvai/hviske-v5.3). Offline Danish ASR; Conformer-based Cohere-style path, no timestamps.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2230,7 +2230,6 @@
       "prompt_template": "hy_mt",
       "speed": "fast",
       "source": "other",
-      "tier": "default",
       "license": "Tencent HY Community License Agreement",
       "licenses": [
         {
@@ -2239,7 +2238,8 @@
         }
       ],
       "attribution": "HY-MT1.5-1.8B (Tencent Hunyuan). Dedicated translation model run by the bundled llama-server; the source language is passed via the prompt, and zh/zh-Hant are treated as distinct targets.",
-      "status": "unverified"
+      "commercial_use": "restricted",
+      "status": "supported"
     },
     {
       "id": "kroko_en_community_64_l_q8_0",
@@ -2278,7 +2278,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-SA-4.0",
       "licenses": [
         {
@@ -2287,6 +2286,7 @@
         }
       ],
       "attribution": "Kroko Community 64-L English (Banafo/Kroko-ASR, repackaged by audio-cpp). Native offline/streaming Zipformer2/RNN-T transcription with word timestamps; community free models are CC-BY-SA.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2357,7 +2357,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2366,6 +2365,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B (LiquidAI/LFM2.5-Audio-1.5B-GGUF). End-to-end speech model; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2436,7 +2436,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2445,6 +2444,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2515,7 +2515,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2524,6 +2523,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2594,7 +2594,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2603,6 +2602,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization. Q4_0 S2S may repeat sentences; use Q8_0/F16 for S2S.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2673,7 +2673,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2682,6 +2681,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B JP (LiquidAI/LFM2.5-Audio-1.5B-JP-GGUF). Japanese checkpoint; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2752,7 +2752,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2761,6 +2760,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B (LiquidAI/LFM2.5-Audio-1.5B-GGUF). End-to-end speech model; ASR is offline-only greedy decoding, no timestamps or speaker diarization. Q4_0 S2S may repeat sentences; use Q8_0/F16 for S2S.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2831,7 +2831,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "LFM Open License v1.0",
       "licenses": [
         {
@@ -2840,6 +2839,7 @@
         }
       ],
       "attribution": "LFM2.5-Audio 1.5B (LiquidAI/LFM2.5-Audio-1.5B-GGUF). Default package; end-to-end speech model; ASR is offline-only greedy decoding, no timestamps or speaker diarization.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -2895,7 +2895,6 @@
       "prompt_template": "llama3",
       "speed": "balanced",
       "source": "meta",
-      "tier": "optional",
       "license": "Llama 3 Community License",
       "licenses": [
         {
@@ -2904,6 +2903,7 @@
         }
       ],
       "attribution": "Llama 3.1 8B Instruct (Meta, July 2024). 128K-context multilingual instruction model; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -2955,7 +2955,6 @@
       "prompt_template": "llama3",
       "speed": "slow",
       "source": "meta",
-      "tier": "optional",
       "license": "Llama 3 Community License",
       "licenses": [
         {
@@ -2964,6 +2963,7 @@
         }
       ],
       "attribution": "Llama 3.1 8B Instruct (Meta, July 2024). Q8_0 near-lossless quant; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -3012,7 +3012,6 @@
       "prompt_template": "llama3",
       "speed": "fast",
       "source": "meta",
-      "tier": "optional",
       "license": "Llama 3 Community License",
       "licenses": [
         {
@@ -3021,6 +3020,7 @@
         }
       ],
       "attribution": "Llama 3.2 1B Instruct (Meta, Sept 2024). Tiny edge-class instruction model; generic LLM translation driven by prompt, English-strong.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -3069,7 +3069,6 @@
       "prompt_template": "llama3",
       "speed": "fast",
       "source": "meta",
-      "tier": "optional",
       "license": "Llama 3 Community License",
       "licenses": [
         {
@@ -3078,6 +3077,7 @@
         }
       ],
       "attribution": "Llama 3.2 1B Instruct (Meta, Sept 2024). Q8_0 near-lossless quant; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -3126,7 +3126,6 @@
       "prompt_template": "llama3",
       "speed": "balanced",
       "source": "meta",
-      "tier": "optional",
       "license": "Llama 3 Community License",
       "licenses": [
         {
@@ -3135,6 +3134,7 @@
         }
       ],
       "attribution": "Llama 3.2 3B Instruct (Meta, Sept 2024). Edge-class multilingual instruction model; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -3183,7 +3183,6 @@
       "prompt_template": "llama3",
       "speed": "balanced",
       "source": "meta",
-      "tier": "optional",
       "license": "Llama 3 Community License",
       "licenses": [
         {
@@ -3192,6 +3191,7 @@
         }
       ],
       "attribution": "Llama 3.2 3B Instruct (Meta, Sept 2024). Q8_0 near-lossless quant; generic LLM translation driven by prompt.",
+      "commercial_use": "restricted",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -3236,7 +3236,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "mistral",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -3245,6 +3244,7 @@
         }
       ],
       "attribution": "Mistral-7B-Instruct-v0.2 (Mistral AI, Sept 2023, Apache-2.0). Community Q4_K_M mirror on ModelScope; generic LLM translation driven by prompt. Only Q4_K_M available in this mirror.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -3290,7 +3290,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "mistral",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -3299,6 +3298,7 @@
         }
       ],
       "attribution": "Mistral-7B-Instruct-v0.3 (Mistral AI, May 2024, Apache-2.0). Extended-vocabulary 7B instruct model; generic LLM translation driven by prompt. Built-in chat template omitted; GGUF-embedded template is used.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -3344,7 +3344,6 @@
       "engine": "llamacpp",
       "speed": "slow",
       "source": "mistral",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -3353,6 +3352,7 @@
         }
       ],
       "attribution": "Mistral-7B-Instruct-v0.3 (Mistral AI, May 2024, Apache-2.0). Q8_0 near-lossless quant; generic LLM translation driven by prompt.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -3385,7 +3385,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -3394,6 +3393,7 @@
         }
       ],
       "attribution": "Moonshine Streaming Medium (moonshine-ai/moonshine-streaming-medium). English on-device streaming ASR; MIT; timestamps not exposed.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3429,7 +3429,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -3438,6 +3437,7 @@
         }
       ],
       "attribution": "Moonshine Streaming Small (moonshine-ai/moonshine-streaming-small). English on-device streaming ASR; MIT; timestamps not exposed.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3473,7 +3473,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -3482,6 +3481,7 @@
         }
       ],
       "attribution": "Moonshine Streaming Tiny (moonshine-ai/moonshine-streaming-tiny). English on-device streaming ASR; MIT; timestamps not exposed.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3533,7 +3533,6 @@
       ],
       "speed": "balanced",
       "source": "openmoss",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -3542,6 +3541,7 @@
         }
       ],
       "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. BF16 full-precision weights; optional tier.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3593,7 +3593,6 @@
       ],
       "speed": "accurate",
       "source": "openmoss",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -3602,6 +3601,7 @@
         }
       ],
       "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Upstream README marks Q4_K 'not parity-safe: segment/timestamp drift' (up to 680 ms on matched segments) — do not use when faithful timing is required.",
+      "commercial_use": "allowed",
       "status": "unverified",
       "modes": [
         "offline",
@@ -3651,7 +3651,6 @@
       ],
       "speed": "balanced",
       "source": "openmoss",
-      "tier": "recommended",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -3660,6 +3659,7 @@
         }
       ],
       "attribution": "MOSS-Transcribe-Diarize (OpenMOSS-Team/MOSS-Transcribe-Diarize, rev 704aa4a9). Single call yields text + segment timestamps + speaker labels. Q8_0 preserves words and speakers; the recommended passthrough default.",
+      "commercial_use": "allowed",
       "status": "supported",
       "modes": [
         "offline",
@@ -3693,7 +3693,6 @@
       ],
       "speed": "balanced",
       "source": "nvidia",
-      "tier": "optional",
       "license": "OpenMDW-1.1",
       "licenses": [
         {
@@ -3702,6 +3701,7 @@
         }
       ],
       "attribution": "Nemotron 3.5 ASR Streaming 0.6B (nvidia/Nemotron-3.5-ASR-Streaming-0.6B). RNNT offline/streaming ASR; optional token-level timestamps via --words-out; governed by OpenMDW-1.1.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3737,7 +3737,6 @@
       ],
       "speed": "balanced",
       "source": "nvidia",
-      "tier": "optional",
       "license": "OpenMDW-1.1",
       "licenses": [
         {
@@ -3746,6 +3745,7 @@
         }
       ],
       "attribution": "Nemotron 3.5 ASR Streaming 0.6B (nvidia/Nemotron-3.5-ASR-Streaming-0.6B). RNNT offline/streaming ASR; optional token-level timestamps via --words-out; governed by OpenMDW-1.1.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3785,7 +3785,6 @@
       ],
       "speed": "balanced",
       "source": "nvidia",
-      "tier": "recommended",
       "license": "OpenMDW-1.1",
       "licenses": [
         {
@@ -3794,6 +3793,7 @@
         }
       ],
       "attribution": "Nemotron 3 Diarization (NVIDIA). Up to 8 speakers, batch/stream modes; BF16 default checkpoint, pairs with nemotron_asr for speaker-tagged transcription.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3833,7 +3833,6 @@
       ],
       "speed": "balanced",
       "source": "nvidia",
-      "tier": "default",
       "license": "OpenMDW-1.1",
       "licenses": [
         {
@@ -3842,6 +3841,7 @@
         }
       ],
       "attribution": "Nemotron 3 Diarization (NVIDIA). Up to 8 speakers, batch/stream modes; pairs with nemotron_asr for speaker-tagged transcription.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3877,7 +3877,6 @@
       ],
       "speed": "fast",
       "source": "nvidia",
-      "tier": "optional",
       "license": "Upstream license unpublished (待核对)",
       "licenses": [
         {
@@ -3885,6 +3884,7 @@
         }
       ],
       "attribution": "Niagara 19M Batch English (NVIDIA, repackaged by audio-cpp). Offline batch English ASR; upstream card unreachable from this environment, license not verified (待核对).",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3919,7 +3919,6 @@
       ],
       "speed": "fast",
       "source": "nvidia",
-      "tier": "optional",
       "license": "Upstream license unpublished (待核对)",
       "licenses": [
         {
@@ -3927,6 +3926,7 @@
         }
       ],
       "attribution": "Niagara 38M Batch English (NVIDIA, repackaged by audio-cpp). Offline batch English ASR; upstream card unreachable from this environment, license not verified (待核对).",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -3986,7 +3986,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -3995,6 +3994,7 @@
         }
       ],
       "attribution": "OWSM-CTC v4 1B (espnet/owsm_ctc_v4_1B). Non-autoregressive self-conditioned CTC ASR/ST; no timestamps; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4055,7 +4055,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4064,6 +4063,7 @@
         }
       ],
       "attribution": "OWSM-CTC v4 1B (espnet/owsm_ctc_v4_1B). Non-autoregressive self-conditioned CTC ASR/ST; no timestamps; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4124,7 +4124,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4133,6 +4132,7 @@
         }
       ],
       "attribution": "OWSM v4 Base 102M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4193,7 +4193,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4202,6 +4201,7 @@
         }
       ],
       "attribution": "OWSM v4 Base 102M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4262,7 +4262,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4271,6 +4270,7 @@
         }
       ],
       "attribution": "OWSM v4 Medium 1B (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4331,7 +4331,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4340,6 +4339,7 @@
         }
       ],
       "attribution": "OWSM v4 Medium 1B (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4400,7 +4400,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4409,6 +4408,7 @@
         }
       ],
       "attribution": "OWSM v4 Medium 1B (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4469,7 +4469,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4478,6 +4477,7 @@
         }
       ],
       "attribution": "OWSM v4 Small 370M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4538,7 +4538,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4547,6 +4546,7 @@
         }
       ],
       "attribution": "OWSM v4 Small 370M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4607,7 +4607,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4616,6 +4615,7 @@
         }
       ],
       "attribution": "OWSM v4 Small 370M (espnet OWSM v4). Multilingual ASR/speech translation; F32 default, Q8_0/Q4_K smaller options; weights under CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4676,7 +4676,6 @@
       ],
       "speed": "balanced",
       "source": "nvidia",
-      "tier": "recommended",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4685,6 +4684,7 @@
         }
       ],
       "attribution": "Parakeet-TDT-0.6B-v3 (nvidia/parakeet-tdt-0.6b-v3, repackaged by audio-cpp). 25 European languages with auto-detect; word-level timestamps; CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4745,7 +4745,6 @@
       ],
       "speed": "balanced",
       "source": "nvidia",
-      "tier": "recommended",
       "license": "CC-BY-4.0",
       "licenses": [
         {
@@ -4754,6 +4753,7 @@
         }
       ],
       "attribution": "Parakeet-TDT-0.6B-v3 (nvidia/parakeet-tdt-0.6b-v3, repackaged by audio-cpp). 25 European languages with auto-detect; word-level timestamps; CC-BY-4.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4792,7 +4792,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -4801,6 +4800,7 @@
         }
       ],
       "attribution": "PulseVAD 2.1k Student (Aydin Adnan). 81 KB pulse-based student VAD; the 81k teacher package is pulsevad_81k_f32.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -4838,7 +4838,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "recommended",
       "license": "MIT",
       "licenses": [
         {
@@ -4847,6 +4846,7 @@
         }
       ],
       "attribution": "PulseVAD 81k (Aydin Adnan). 394 KB pulse-based VAD; on a 32.9 s two-speaker clip it covered the whole file (525892 samples) whereas bundled Silero stopped at 290336 samples (55%). Test VAD candidate.",
+      "commercial_use": "allowed",
       "status": "unverified",
       "modes": [
         "offline"
@@ -4920,7 +4920,6 @@
       "engine": "llamacpp",
       "speed": "fast",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -4929,6 +4928,7 @@
         }
       ],
       "attribution": "Qwen2.5-0.5B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM; translation driven by the prompt, source language auto-detected.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5002,7 +5002,6 @@
       "engine": "llamacpp",
       "speed": "fast",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5011,6 +5010,7 @@
         }
       ],
       "attribution": "Qwen2.5-0.5B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM; translation driven by the prompt, source language auto-detected.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5102,7 +5102,6 @@
       "engine": "llamacpp",
       "speed": "slow",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5111,6 +5110,7 @@
         }
       ],
       "attribution": "Qwen2.5-14B-Instruct (Alibaba Qwen). Largest in-family dense instruct LLM that still fits <16GB; prompt-driven multilingual translation, Q8_0 exceeds the VRAM budget.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5184,7 +5184,6 @@
       "engine": "llamacpp",
       "speed": "fast",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5193,6 +5192,7 @@
         }
       ],
       "attribution": "Qwen2.5-1.5B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM; translation driven by the prompt, source language auto-detected.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5266,7 +5266,6 @@
       "engine": "llamacpp",
       "speed": "fast",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5275,6 +5274,7 @@
         }
       ],
       "attribution": "Qwen2.5-1.5B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM; translation driven by the prompt, source language auto-detected.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5348,7 +5348,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Qwen Research License Agreement",
       "licenses": [
         {
@@ -5357,6 +5356,7 @@
         }
       ],
       "attribution": "Qwen2.5-3B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM under the Qwen Research License (non-commercial); translation driven by the prompt.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5430,7 +5430,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Qwen Research License Agreement",
       "licenses": [
         {
@@ -5439,6 +5438,7 @@
         }
       ],
       "attribution": "Qwen2.5-3B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM under the Qwen Research License (non-commercial); translation driven by the prompt.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5521,7 +5521,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "recommended",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5530,6 +5529,7 @@
         }
       ],
       "attribution": "Qwen2.5-7B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM; balanced size for prompt-driven multilingual translation, source language auto-detected.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5621,7 +5621,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5630,6 +5629,7 @@
         }
       ],
       "attribution": "Qwen2.5-7B-Instruct (Alibaba Qwen). General-purpose dense instruct LLM; Q8_0 near-lossless for prompt-driven multilingual translation.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5703,7 +5703,6 @@
       "engine": "llamacpp",
       "speed": "fast",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5712,6 +5711,7 @@
         }
       ],
       "attribution": "Qwen3-0.6B dense (Alibaba Qwen). Official ModelScope GGUF ships Q8_0 only; prompt-driven multilingual translation, non-thinking mode recommended.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5785,7 +5785,6 @@
       "engine": "llamacpp",
       "speed": "slow",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5794,6 +5793,7 @@
         }
       ],
       "attribution": "Qwen3-14B dense (Alibaba Qwen). Largest Qwen3 dense that fits <16GB; Q8_0 (15.7GB) exceeds the VRAM budget; non-thinking mode recommended.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5867,7 +5867,6 @@
       "engine": "llamacpp",
       "speed": "fast",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5876,6 +5875,7 @@
         }
       ],
       "attribution": "Qwen3-1.7B dense (Alibaba Qwen). Official ModelScope GGUF ships Q8_0 only; prompt-driven multilingual translation, non-thinking mode recommended.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -5949,7 +5949,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -5958,6 +5957,7 @@
         }
       ],
       "attribution": "Qwen3-4B dense (Alibaba Qwen). 100+ languages with explicit translation support; prompt-driven, non-thinking mode recommended for subtitles.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -6031,7 +6031,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6040,6 +6039,7 @@
         }
       ],
       "attribution": "Qwen3-4B dense (Alibaba Qwen). 100+ languages with explicit translation support; Q8_0 near-lossless, non-thinking mode recommended.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -6113,7 +6113,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "recommended",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6122,6 +6121,7 @@
         }
       ],
       "attribution": "Qwen3-8B dense (Alibaba Qwen). Best-balance Qwen3 size for prompt-driven multilingual translation; use non-thinking mode (/no_think) for fast subtitle translation.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -6195,7 +6195,6 @@
       "engine": "llamacpp",
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6204,6 +6203,7 @@
         }
       ],
       "attribution": "Qwen3-8B dense (Alibaba Qwen). Q8_0 near-lossless; prompt-driven multilingual translation, non-thinking mode recommended.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "prompt_template": "generic",
@@ -6269,7 +6269,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6278,6 +6277,7 @@
         }
       ],
       "attribution": "Qwen3-ASR-0.6B (Qwen/Qwen3-ASR-0.6B-hf). 30 languages; word timestamps require the forced aligner and are offline-only.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6336,7 +6336,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6345,6 +6344,7 @@
         }
       ],
       "attribution": "Qwen3-ASR-0.6B (Qwen/Qwen3-ASR-0.6B). Word-level timestamps need the qwen3_forced_aligner entry (separate ~1.13 GB download, declared in `requires`).",
+      "commercial_use": "allowed",
       "requires": [
         "qwen3_forced_aligner_0_6b_q8_0"
       ],
@@ -6479,7 +6479,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6488,6 +6487,7 @@
         }
       ],
       "attribution": "Qwen3-ForcedAligner-0.6B (Qwen/Qwen3-ForcedAligner-0.6B). Not bundled: downloaded on demand. word_timestamps for qwen3_asr, also the `align` task.",
+      "commercial_use": "allowed",
       "status": "supported",
       "modes": [
         "offline"
@@ -6550,7 +6550,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6559,6 +6558,7 @@
         }
       ],
       "attribution": "Qwen3-ASR-1.7B (Qwen/Qwen3-ASR-1.7B-hf). 30 languages; word timestamps require the forced aligner and are offline-only.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6624,7 +6624,6 @@
       ],
       "speed": "balanced",
       "source": "qwen",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -6633,6 +6632,7 @@
         }
       ],
       "attribution": "Qwen3-ASR-1.7B (Qwen/Qwen3-ASR-1.7B-hf). 30 languages; word timestamps require the forced aligner and are offline-only.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6668,7 +6668,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "experimental",
       "license": "No upstream license published (SamsungLabs/samsone)",
       "licenses": [
         {
@@ -6676,6 +6675,7 @@
         }
       ],
       "attribution": "SAMSONE 134M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6710,7 +6710,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "experimental",
       "license": "No upstream license published (SamsungLabs/samsone)",
       "licenses": [
         {
@@ -6718,6 +6717,7 @@
         }
       ],
       "attribution": "SAMSONE 134M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6752,7 +6752,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "experimental",
       "license": "No upstream license published (SamsungLabs/samsone)",
       "licenses": [
         {
@@ -6760,6 +6759,7 @@
         }
       ],
       "attribution": "SAMSONE 356M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6794,7 +6794,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "experimental",
       "license": "No upstream license published (SamsungLabs/samsone)",
       "licenses": [
         {
@@ -6802,6 +6801,7 @@
         }
       ],
       "attribution": "SAMSONE 356M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6836,7 +6836,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "experimental",
       "license": "No upstream license published (SamsungLabs/samsone)",
       "licenses": [
         {
@@ -6844,6 +6843,7 @@
         }
       ],
       "attribution": "SAMSONE 99M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6878,7 +6878,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "experimental",
       "license": "No upstream license published (SamsungLabs/samsone)",
       "licenses": [
         {
@@ -6886,6 +6885,7 @@
         }
       ],
       "attribution": "SAMSONE 99M (SamsungLabs/samsone). Compact English audio-language model for captioning, QA, and sound/music/speech understanding; experimental.",
+      "commercial_use": "unknown",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -6944,7 +6944,6 @@
       ],
       "speed": "fast",
       "source": "tongyi",
-      "tier": "default",
       "license": "FunASR Model License v1.1",
       "licenses": [
         {
@@ -6953,6 +6952,7 @@
         }
       ],
       "attribution": "SenseVoice-Small (FunAudioLLM/SenseVoiceSmall)",
+      "commercial_use": "allowed",
       "status": "supported",
       "modes": [
         "offline",
@@ -6989,7 +6989,6 @@
       ],
       "speed": "fast",
       "source": "nvidia",
-      "tier": "experimental",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -6998,6 +6997,7 @@
         }
       ],
       "attribution": "Sortformer Diar 4spk v1 (nvidia/diar_sortformer_4spk-v1). CC-BY-NC-4.0 — non-commercial use only; MonoSub is a personal learning project, so it is listed for attribution and local use. Speaker turns only (max 4 speakers), no text. NOT SUPPORTED (v5): marked unsupported because its encoder graph is fixed at 120 s of audio and it caps out at 4 speakers; nemotron_3_diar has neither limit and a permissive licence. Kept in the catalogue so the measurement stays next to the model.",
+      "commercial_use": "noncommercial",
       "max_session_seconds": 120,
       "status": "unsupported",
       "modes": [
@@ -7034,7 +7034,6 @@
       ],
       "speed": "fast",
       "source": "nvidia",
-      "tier": "experimental",
       "license": "CC-BY-NC-4.0",
       "licenses": [
         {
@@ -7043,6 +7042,7 @@
         }
       ],
       "attribution": "Sortformer Diar 4spk v1 (nvidia/diar_sortformer_4spk-v1). Speaker turns only (max 4 speakers), no text; F16 sibling of sortformer_diar_4spk_q8_0. CC-BY-NC-4.0 — non-commercial use only. NOT SUPPORTED (v5): marked unsupported because its encoder graph is fixed at 120 s of audio and it caps out at 4 speakers; nemotron_3_diar has neither limit and a permissive licence. Kept in the catalogue so the measurement stays next to the model.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "max_session_seconds": 120,
@@ -7094,7 +7094,6 @@
       "prompt_template": "chatml",
       "speed": "balanced",
       "source": "unbabel",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0 (source) / Llama 2 Community License (base)",
       "licenses": [
         {
@@ -7107,6 +7106,7 @@
         }
       ],
       "attribution": "TowerInstruct-7B-v0.1 (Unbabel, fine-tuned from TowerBase on Llama 2). Translation-focused generative LLM covering 10 languages (en/zh/pt/es/fr/de/nl/it/ko/ru); ChatML prompt; source weights are non-commercial CC-BY-NC-4.0.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -7154,7 +7154,6 @@
       "prompt_template": "chatml",
       "speed": "balanced",
       "source": "unbabel",
-      "tier": "optional",
       "license": "CC-BY-NC-4.0 (source) / Llama 2 Community License (base)",
       "licenses": [
         {
@@ -7167,6 +7166,7 @@
         }
       ],
       "attribution": "TowerInstruct-7B-v0.1 (Unbabel, fine-tuned from TowerBase on Llama 2). High-fidelity Q8_0 quant of the translation-focused generative LLM covering 10 languages (en/zh/pt/es/fr/de/nl/it/ko/ru); ChatML prompt; source weights are non-commercial CC-BY-NC-4.0.",
+      "commercial_use": "noncommercial",
       "requires": [],
       "language_tokens": [],
       "status": "unverified"
@@ -7212,7 +7212,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "experimental",
       "license": "MIT",
       "licenses": [
         {
@@ -7221,6 +7220,7 @@
         }
       ],
       "attribution": "VibeASR (microsoft/VibeVoice-ASR-BitNet; port microsoft/VibeASR.cpp, MIT). CPU-only edge ASR: I8_S INT8 VAE encoder plus ternary I2_S Qwen2 decoder. audio.cpp loading requires running tools/community_models/convert_vibeasr_gguf.py to remap the GGUF type ids before use.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7269,7 +7269,6 @@
       ],
       "speed": "fast",
       "source": "other",
-      "tier": "experimental",
       "license": "MIT",
       "licenses": [
         {
@@ -7278,6 +7277,7 @@
         }
       ],
       "attribution": "VibeASR (microsoft/VibeVoice-ASR-BitNet; port microsoft/VibeASR.cpp, MIT). CPU-only edge ASR: I8_S INT8 VAE encoder plus ternary I2_S Qwen2 decoder. audio.cpp loading requires running tools/community_models/convert_vibeasr_gguf.py to remap the GGUF type ids before use.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7301,7 +7301,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -7321,6 +7320,7 @@
         }
       ],
       "attribution": "VibeVoice ASR (microsoft/VibeVoice-ASR, MIT). Offline long-form ASR; optional segment timestamps (--segments-out) and speaker turns (--turns-out).",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7344,7 +7344,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -7364,6 +7363,7 @@
         }
       ],
       "attribution": "VibeVoice ASR (microsoft/VibeVoice-ASR, MIT). Offline long-form ASR; optional segment timestamps (--segments-out) and speaker turns (--turns-out).",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7411,7 +7411,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -7420,6 +7419,7 @@
         }
       ],
       "attribution": "VibeVoice ASR Streaming 1.5B (upstream microsoft/VibeVoice-ASR-Streaming-1.5B, MIT; GGUF repack by christopherthompson81). Streaming speaker-attributed transcription; no timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7468,7 +7468,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -7477,6 +7476,7 @@
         }
       ],
       "attribution": "VibeVoice ASR Streaming 1.5B (upstream microsoft/VibeVoice-ASR-Streaming-1.5B, MIT; GGUF repack by christopherthompson81). Streaming speaker-attributed transcription; no timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7525,7 +7525,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "recommended",
       "license": "MIT",
       "licenses": [
         {
@@ -7534,6 +7533,7 @@
         }
       ],
       "attribution": "VibeVoice ASR Streaming 1.5B (upstream microsoft/VibeVoice-ASR-Streaming-1.5B, MIT; GGUF repack by christopherthompson81). Streaming speaker-attributed transcription; no timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7582,7 +7582,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -7591,6 +7590,7 @@
         }
       ],
       "attribution": "VibeVoice ASR Streaming 7B (microsoft/VibeVoice-ASR-Streaming-7B, MIT). Streaming speaker-attributed transcription; emits speaker/text turns but no timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7639,7 +7639,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "MIT",
       "licenses": [
         {
@@ -7648,6 +7647,7 @@
         }
       ],
       "attribution": "VibeVoice ASR Streaming 7B (microsoft/VibeVoice-ASR-Streaming-7B, MIT). Streaming speaker-attributed transcription; emits speaker/text turns but no timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7696,7 +7696,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "recommended",
       "license": "MIT",
       "licenses": [
         {
@@ -7705,6 +7704,7 @@
         }
       ],
       "attribution": "VibeVoice ASR Streaming 7B (microsoft/VibeVoice-ASR-Streaming-7B, MIT). Streaming speaker-attributed transcription; emits speaker/text turns but no timestamps.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7740,7 +7740,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -7749,6 +7748,7 @@
         }
       ],
       "attribution": "Voxtral Mini 4B Realtime 2602 (mistralai/Voxtral-Mini-4B-Realtime-2602). Offline and live-streaming ASR; timestamps not exposed; Apache-2.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7784,7 +7784,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -7793,6 +7792,7 @@
         }
       ],
       "attribution": "Voxtral Mini 4B Realtime 2602 (mistralai/Voxtral-Mini-4B-Realtime-2602). Offline and live-streaming ASR; timestamps not exposed; Apache-2.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
@@ -7828,7 +7828,6 @@
       ],
       "speed": "balanced",
       "source": "other",
-      "tier": "optional",
       "license": "Apache-2.0",
       "licenses": [
         {
@@ -7837,6 +7836,7 @@
         }
       ],
       "attribution": "Voxtral Mini 4B Realtime 2602 (mistralai/Voxtral-Mini-4B-Realtime-2602). Offline and live-streaming ASR; timestamps not exposed; Apache-2.0.",
+      "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
       "status": "unverified",
