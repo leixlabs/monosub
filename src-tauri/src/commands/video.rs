@@ -303,6 +303,42 @@ fn fallback_video_thumbnail() -> ThumbnailResult {
     }
 }
 
+/// The decoder prefix for an accelerated thumbnail frame, when this platform
+/// has one worth naming.
+///
+/// Only macOS is listed, and that is a measured choice rather than a platform
+/// limit. The bundled Windows ffmpeg (BtbN LGPL 8.1.3) does expose the
+/// accelerators — `-hwaccels` reports cuda, dxva2, qsv, d3d11va, d3d12va, amf —
+/// and each one decodes the frame correctly. It just costs more than it saves
+/// for a single frame, because the device has to be created per process:
+///
+/// | input (seek 3 s, one JPEG frame) | software | d3d11va | cuda |
+/// |---|---|---|---|
+/// | 720p H.264  | 148 ms | 382 ms | 315 ms |
+/// | 1080p H.264 | 160 ms | 392 ms | 315 ms |
+/// | 4K H.264    | 296 ms | 556 ms | 466 ms |
+/// | 4K HEVC     | 332 ms | 560 ms | 450 ms |
+///
+/// (Best of three, Windows 11.) Decoding ~90 frames in software is cheaper than
+/// initialising a decoder, so Windows/Linux take the software path only. The
+/// macOS entry is unchanged from how this shipped: VideoToolbox was added for
+/// its decoder coverage, and it cannot be measured from a Windows checkout.
+///
+/// For the record, the old unconditional argument did not even degrade quietly
+/// on Windows: `-hwaccel videotoolbox` there exits 127 with
+/// `Device creation failed` and writes no thumbnail, so every file paid ~120 ms
+/// for a guaranteed failure before the software retry ran.
+fn hwaccel_args() -> Option<&'static [&'static str]> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(&["-hwaccel", "videotoolbox"])
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 /// An ffmpeg invocation for thumbnail extraction, with the Windows console
 /// suppressed.
 ///
@@ -366,24 +402,9 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
     let ffmpeg_cmd = get_ffmpeg_path(&crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?);
     tracing::debug!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, "Using ffmpeg command");
 
-    // Try with hardware acceleration first (needed for AV1 etc.), fall back to software decoding
+    // Try with hardware acceleration first where the platform has a decoder
+    // worth naming, then fall back to software decoding.
     let thumbnail_out = thumbnail_path.to_str().unwrap();
-    let args_hwaccel = vec![
-        "-hwaccel",
-        "videotoolbox",
-        "-i",
-        &path,
-        "-ss",
-        "00:00:03",
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale=240:-1",
-        "-update",
-        "1",
-        "-y",
-        thumbnail_out,
-    ];
     let args_software = vec![
         "-i",
         &path,
@@ -399,11 +420,22 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
         thumbnail_out,
     ];
 
+    // `None` on platforms without an accelerated path. The macOS-only decoder
+    // name used to be passed everywhere, so on Windows every thumbnail paid for
+    // an attempt the build could not honour before the software retry produced
+    // the frame. Windows GPU decoding was measured and is slower here — see
+    // [`hwaccel_args`].
+    let accelerated = hwaccel_args().map(|prefix| {
+        let mut args = prefix.to_vec();
+        args.extend(&args_software);
+        ffmpeg_for_thumbnail(&ffmpeg_cmd, &args).output()
+    });
+
     // A fresh `Command` per attempt: `args()` appends, so reusing one would
     // concatenate the hardware and software argument lists instead of retrying
     // with the software list alone.
-    let output = match ffmpeg_for_thumbnail(&ffmpeg_cmd, &args_hwaccel).output() {
-        Ok(o) if o.status.success() => o,
+    let output = match accelerated {
+        Some(Ok(o)) if o.status.success() => o,
         _ => {
             // Retry without hardware acceleration
             match ffmpeg_for_thumbnail(&ffmpeg_cmd, &args_software).output() {
