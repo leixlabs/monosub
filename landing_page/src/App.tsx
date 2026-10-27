@@ -6,6 +6,7 @@ import { Hero } from './components/Hero';
 import { Showcase } from './components/Showcase';
 import { PainPoints } from './components/PainPoints';
 import { Features } from './components/Features';
+import { Pricing } from './components/Pricing';
 import { FAQ } from './components/FAQ';
 import { FinalCTA } from './components/FinalCTA';
 import { Footer } from './components/Footer';
@@ -23,7 +24,7 @@ function App() {
     <HelmetProvider>
       <Helmet>
         <title>{t.page_title}</title>
-        <meta name="description" content={t.hero_subtitle_line1 + ' - ' + t.hero_subtitle_line2} />
+        <meta name="description" content={t.hero_subtitle_line1 + '. ' + t.hero_subtitle_line2} />
         
         {/* Canonical */}
         <link rel="canonical" href={`https://monosub.leix.dev/${lang}/`} />
@@ -63,6 +64,7 @@ function App() {
         <Showcase />
         <PainPoints />
         <Features />
+        <Pricing />
         <FAQ />
         <FinalCTA />
         <Footer />

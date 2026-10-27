@@ -1,4 +1,5 @@
 import { useLanguage } from '../hooks/useLanguage';
+import { STORE_URL, RELEASES_URL } from '../lib/links';
 import { HeroCarousel } from './HeroCarousel';
 
 export const Hero = () => {
@@ -10,7 +11,7 @@ export const Hero = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Main headline card — full width */}
           <div className="md:col-span-2 lg:col-span-3 card p-8 md:p-12 rounded-3xl fade-in flex flex-col md:flex-row md:items-end justify-between gap-8">
-            <div>
+            <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-3 mb-6">
                 <div className="inline-block px-4 py-1.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-sm font-semibold">
                   {t.hero_trust}
@@ -19,23 +20,33 @@ export const Hero = () => {
                   {t.hero_platform}
                 </div>
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold leading-tight">
+              <h1 className="text-4xl md:text-5xl font-bold leading-tight">
                 {t.hero_title_line1}
                 <br />
                 <span className="gradient-text">{t.hero_title_line2}</span>
+                <br />
                 {t.hero_title_line3}
               </h1>
             </div>
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 md:max-w-[19rem]">
               <a
-                href="https://github.com/leixlabs/monosub/releases/latest"
+                href={STORE_URL}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-block cta-button text-white font-semibold px-8 py-4 rounded-xl text-lg transition-all"
+                className="block text-center cta-button text-white font-semibold px-6 py-4 rounded-xl text-lg transition-all"
               >
                 {t.hero_cta}
               </a>
-              <div className="mt-3">
+              <p className="mt-3 text-sm text-gray-400">{t.hero_price_note}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                <a
+                  href={RELEASES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 inline-block text-sm hover:text-primary transition-colors"
+                >
+                  {t.hero_cta_mac} →
+                </a>
                 <a
                   href="#features"
                   className="text-gray-400 inline-block text-sm hover:text-primary transition-colors"
@@ -63,7 +74,7 @@ export const Hero = () => {
             </div>
           </div>
 
-          {/* Badge card: completely free */}
+          {/* Badge card: one-time purchase */}
           <div className="card p-6 md:p-8 rounded-3xl fade-in flex items-center justify-center">
             <div className="flex items-start gap-4">
               <div className="w-12 h-12 rounded-2xl bg-green-500/10 border border-green-500/30 flex items-center justify-center text-2xl flex-shrink-0">

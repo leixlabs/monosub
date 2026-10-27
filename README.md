@@ -4,7 +4,7 @@
 
 **Turn your videos & audio into text. Locally. No cloud.**
 
-[中文文档](README_CN.md) · [Download](#-download) · [FAQ](#-faq)
+[中文文档](README_CN.md) · [Microsoft Store](https://apps.microsoft.com/detail/9P6WTCCRQTVW) · [Download](#-download) · [FAQ](#-faq)
 
 </div>
 
@@ -45,19 +45,29 @@ Drag in a video or audio file. Get a transcript. That's it.
 
 ## 📥 Download
 
-**Latest Release:** [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest)
+| Platform | Where |
+|---|---|
+| **Windows** 10 / 11 (x64) | [**Microsoft Store**](https://apps.microsoft.com/detail/9P6WTCCRQTVW) — **$9.99 / ¥48, one-time** |
+| **macOS** 11.0+ (Apple Silicon) | [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest) |
+| **Linux** | Coming soon |
 
-### System Requirements
+<a href="https://apps.microsoft.com/detail/9P6WTCCRQTVW">
+  <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft Store" height="52" />
+</a>
 
-- **macOS** 11.0+ (Apple Silicon M1/M2/M3 optimized)
-- **Windows** (Coming Soon)
-- **Linux** (Coming Soon)
+**Windows** is a paid app: **$9.99 / ¥48 once**, no subscription, no in-app purchase.
+The Store build is signed and validated by Microsoft, installs in one click, and updates
+itself. What you pay for is packaging and upkeep, not capability — the same program
+builds from this repository's source (see [Pricing](#-pricing)).
+
+**macOS** is distributed through [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest).
 
 ---
 
 ## 🚀 Quick Start
 
-1. **Download** MonoSub from [Releases](https://github.com/leixlabs/monosub/releases/latest)
+1. **Get** MonoSub from the [Microsoft Store](https://apps.microsoft.com/detail/9P6WTCCRQTVW)
+   ($9.99 / ¥48), or from [Releases](https://github.com/leixlabs/monosub/releases/latest) on macOS
 2. **Open Settings → Models** and download the speech model (~250 MB, one time)
 3. **Drag** video/audio files into the app
 4. **Click** "Start"
@@ -91,28 +101,29 @@ monosub-cli *.mp4 --json
 
 ## 💎 Pricing
 
-**The source is public. The store builds are paid.**
+**Windows: $9.99 / ¥48, once, through the Microsoft Store.** No subscription, no
+in-app purchase, no upsell. The transaction is over when you buy it.
 
-MonoSub is a public repository. Everything described above runs from a checkout of this  
-repo — no license key, no account, no feature gates. Build it yourself and it costs  
-nothing.
+| | Microsoft Store (Windows) | macOS · GitHub Releases | Build from source |
+| --- | --- | --- | --- |
+| Price | **$9.99 / ¥48, one-time** | See Releases | Free |
+| Transcription | ✅ Unlimited | ✅ Unlimited | ✅ Unlimited |
+| Export SRT, TXT, VTT, MD | ✅ | ✅ | ✅ |
+| Batch processing | ✅ | ✅ | ✅ |
+| Subtitle translation | ✅ | ✅ | ✅ |
+| Speaker diarization (who spoke when) | ✅ | ✅ | ✅ |
+| Word-level timestamps | ✅ | ✅ | ✅ |
+| Signed & verified by the platform | ✅ Microsoft | ❌ (xattr workaround, see FAQ) | ❌ |
+| **Automatic updates** | **✅** | **❌** | **❌** |
+| Setup effort | One click | One drag | Toolchain + a build |
 
-Paid listings are being prepared for the **Mac App Store** and **Microsoft Store**.  
-What they sell is packaging, not capability:
+**What the $9.99 buys.** Microsoft's signing, one-click install, and updates that
+arrive without you thinking about them. Not features — every feature listed above is
+in the free source build too.
 
-|                                             | GitHub Releases / build from source | Mac App Store · Microsoft Store |
-| ------------------------------------------- | ----------------------------------- | ------------------------------- |
-| Transcription                               | ✅ Unlimited                         | ✅ Unlimited                     |
-| Export to SRT, TXT, VTT, MD                 | ✅                                   | ✅                               |
-| Batch processing                            | ✅                                   | ✅                               |
-| Speaker diarization (who spoke when)        | ✅                                   | ✅                               |
-| Signed & notarized — no Gatekeeper warnings | **❌**                               | **✅**                           |
-| **Automatic updates**                       | **❌**                               | **✅**                           |
-
-**One-time purchase. No subscription.**
-
-Submissions are currently in review and the listings are not live yet. Until they  
-are, use [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest).
+**Paying is optional.** MonoSub's source is public under a source-available licence
+(see below). Clone it, build it, and you get the exact same program: no licence key,
+no account, no feature gates, no telemetry. The Store listing sells convenience.
 
 ---
 
@@ -161,11 +172,23 @@ If it has audio, MonoSub can transcribe it.
 
 Currently supports Chinese (Mandarin), English, and more languages are being added. The AI automatically detects the language.
 
+### How much does it cost?
+
+On Windows, **$9.99 / ¥48 once**, through the Microsoft Store — no subscription, no
+in-app purchases. On macOS, see
+[Releases](https://github.com/leixlabs/monosub/releases/latest). Building from source
+costs nothing on either platform.
+
 ### Is there a refund policy?
 
-Store purchases are refunded by Apple or Microsoft under their own refund  
-policies — MonoSub never handles the payment. The GitHub Releases build is free  
-and has no in-app purchases, so there is nothing to refund.
+Microsoft Store purchases are refunded by Microsoft under
+[their own policy](https://support.microsoft.com/help/2884681) — MonoSub never handles
+the payment, so the refund comes from the Store.
+
+### Does the paid build have more features?
+
+No. Same engine, same models, same features, same output formats. The Store build adds
+Microsoft's signing, one-click install, and automatic updates.
 
 ---
 
@@ -173,6 +196,6 @@ and has no in-app purchases, so there is nothing to refund.
 
 Made for people who just want their videos in text format.
 
-[Download Now](https://github.com/leixlabs/monosub/releases/latest)
+[**Get it for Windows**](https://apps.microsoft.com/detail/9P6WTCCRQTVW) · [Download for macOS](https://github.com/leixlabs/monosub/releases/latest)
 
 </div>

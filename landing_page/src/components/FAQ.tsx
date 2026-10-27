@@ -8,8 +8,10 @@ export const FAQ = () => {
   const faqs = [
     { q: t.faq_1_q, a: t.faq_1_a },
     { q: t.faq_2_q, a: t.faq_2_a },
+    { q: t.faq_5_q, a: t.faq_5_a },
     { q: t.faq_3_q, a: t.faq_3_a },
-    { q: t.faq_4_q, a: t.faq_4_a }
+    { q: t.faq_4_q, a: t.faq_4_a },
+    { q: t.faq_6_q, a: t.faq_6_a }
   ];
 
   return (
@@ -20,12 +22,13 @@ export const FAQ = () => {
           <p className="text-xl text-gray-400">{t.faq_subtitle}</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid md:grid-cols-2 gap-6 items-start">
           {faqs.map((faq, idx) => (
             <div key={idx} className="card rounded-3xl overflow-hidden fade-in">
               <button
                 onClick={() => setOpenIndex(openIndex === idx ? null : idx)}
                 className="w-full p-6 text-left flex items-center justify-between hover:bg-dark-card/50 transition-colors"
+                aria-expanded={openIndex === idx}
               >
                 <span className="font-bold text-lg pr-4">{faq.q}</span>
                 <svg

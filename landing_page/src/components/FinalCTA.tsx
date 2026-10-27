@@ -1,12 +1,15 @@
 import { useLanguage } from '../hooks/useLanguage';
+import { STORE_URL, RELEASES_URL } from '../lib/links';
 
 export const FinalCTA = () => {
   const { t } = useLanguage();
 
+  // Inline SVG rather than emoji: emoji render in whatever palette the platform
+  // chose, and this page has a strict no-blue palette.
   const trust = [
-    { icon: '🛡️', text: t.final_trust_1 },
-    { icon: '🔑', text: t.final_trust_2 },
-    { icon: '⚡', text: t.final_trust_3 }
+    { path: 'M2 7h20v10H2z M2 10h20', text: t.final_trust_1 },
+    { path: 'M4 12a8 8 0 1 1 8 8', text: t.final_trust_2 },
+    { path: 'M3 4h18v12H3z M8 20h8', text: t.final_trust_3 }
   ];
 
   return (
@@ -21,21 +24,43 @@ export const FinalCTA = () => {
             <p className="text-xl text-gray-400 mb-10 max-w-2xl mx-auto">{t.final_subtitle}</p>
 
             <a
-              href="https://github.com/leixlabs/monosub/releases/latest"
+              href={STORE_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block cta-button text-white font-semibold px-10 py-5 rounded-xl text-xl transition-all mb-10"
+              className="inline-block cta-button text-white font-semibold px-10 py-5 rounded-xl text-xl transition-all"
             >
               {t.final_cta}
             </a>
 
-            <div className="flex flex-wrap items-center justify-center gap-4">
+            <div className="mt-5">
+              <a
+                href={RELEASES_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gray-400 text-sm hover:text-primary transition-colors"
+              >
+                {t.hero_cta_mac} →
+              </a>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-4 mt-10">
               {trust.map((item, idx) => (
                 <div
                   key={idx}
                   className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-dark-card border border-dark-border text-sm text-gray-400"
                 >
-                  <span className="text-lg">{item.icon}</span>
+                  <svg
+                    className="w-5 h-5 text-primary flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.6}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path d={item.path} />
+                  </svg>
                   <span>{item.text}</span>
                 </div>
               ))}

@@ -24,10 +24,11 @@ export const LanguageSwitcher = () => {
     <div className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-dark-card border border-dark-border hover:border-primary transition-colors"
+        className="flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg bg-dark-card border border-dark-border hover:border-primary transition-colors"
+        aria-label={config.name}
       >
         <span className="text-xl">{config.flag}</span>
-        <span className="hidden sm:inline text-sm">{config.name}</span>
+        <span className="hidden xl:inline text-sm">{config.name}</span>
         <svg
           className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
@@ -44,7 +45,7 @@ export const LanguageSwitcher = () => {
             className="fixed inset-0 z-40"
             onClick={() => setIsOpen(false)}
           />
-          <div className="absolute right-0 mt-2 w-64 max-h-96 overflow-y-auto bg-dark-card border border-dark-border rounded-lg shadow-xl z-50">
+          <div className="absolute right-0 mt-2 w-56 max-h-96 overflow-y-auto bg-dark-card border border-dark-border rounded-lg shadow-xl z-50">
             {languageConfigs.map((langConfig) => (
               <button
                 key={langConfig.code}

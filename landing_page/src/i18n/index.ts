@@ -12,7 +12,9 @@ export interface Translation {
   // Navigation
   nav_features: string;
   nav_screenshots: string;
+  nav_pricing: string;
   nav_faq: string;
+  nav_cta: string;
 
   // Hero
   hero_title_line1: string;
@@ -21,6 +23,8 @@ export interface Translation {
   hero_subtitle_line1: string;
   hero_subtitle_line2: string;
   hero_cta: string;
+  hero_cta_mac: string;
+  hero_price_note: string;
   hero_learn_more: string;
   hero_trust: string;
   hero_platform: string;
@@ -89,7 +93,38 @@ export interface Translation {
   feature_7_desc: string;
   feature_8_title: string;
   feature_8_desc: string;
-  
+
+  // Pricing
+  pricing_title: string;
+  pricing_subtitle: string;
+  pricing_windows_platform: string;
+  pricing_windows_price: string;
+  pricing_windows_price_note: string;
+  pricing_windows_cta: string;
+  pricing_mac_platform: string;
+  pricing_mac_price: string;
+  pricing_mac_price_note: string;
+  pricing_mac_cta: string;
+  pricing_table_title: string;
+  pricing_col_feature: string;
+  pricing_col_store: string;
+  pricing_col_mac: string;
+  pricing_row_transcription: string;
+  pricing_row_export: string;
+  pricing_row_batch: string;
+  pricing_row_translate: string;
+  pricing_row_speakers: string;
+  pricing_row_words: string;
+  pricing_row_signed: string;
+  pricing_row_updates: string;
+  pricing_row_setup: string;
+  pricing_setup_store: string;
+  pricing_setup_mac: string;
+  pricing_footnote: string;
+  pricing_note_title: string;
+  pricing_note_body: string;
+  pricing_source_note: string;
+
   // FAQ
   faq_title: string;
   faq_subtitle: string;
@@ -101,6 +136,10 @@ export interface Translation {
   faq_3_a: string;
   faq_4_q: string;
   faq_4_a: string;
+  faq_5_q: string;
+  faq_5_a: string;
+  faq_6_q: string;
+  faq_6_a: string;
   
   // Final CTA
   final_title: string;
