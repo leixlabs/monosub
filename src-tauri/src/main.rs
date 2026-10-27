@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+
 // The modules live in `lib.rs` so a second binary (`src/bin/monosub-cli.rs`) can
 // share them: a `[[bin]]` is its own crate root and cannot `use crate::engine`.
 // `monosub::` is the crate name from Cargo.toml.

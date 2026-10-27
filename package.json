@@ -14,6 +14,7 @@
     "tauri": "tauri",
     "release": "node scripts/release/release.mjs",
     "release:package": "node scripts/release/package.mjs",
+    "release:exe": "node scripts/release/installer.mjs",
     "release:resources": "node scripts/release/prepare-resources.mjs",
     "release:verify": "node scripts/release/verify.mjs",
     "publish": "node scripts/publish/publish.mjs",

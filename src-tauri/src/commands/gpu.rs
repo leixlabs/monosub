@@ -175,9 +175,17 @@ async fn probe() -> Result<Vec<Gpu>, ProbeError> {
         "--format=csv,noheader",
     ];
 
+    let mut command = Command::new("nvidia-smi");
+    command.args(args);
+    // `nvidia-smi` is a console-subsystem executable. A GUI-subsystem parent
+    // does not inherit a console, so Windows would briefly create a new one for
+    // this startup probe unless it is explicitly suppressed.
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
     let output = match tokio::time::timeout(
         PROBE_TIMEOUT,
-        Command::new("nvidia-smi").args(args).output(),
+        command.output(),
     )
     .await
     {

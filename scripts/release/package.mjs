@@ -182,10 +182,10 @@ function buildWindows() {
     // Center, all of them literals here because there is exactly one Store
     // submission and a typo costs a full re-upload:
     //
-    //   Identity/Name          "Invalid package identity name: monosub
-    //                          (expected: leixlabs.monosub)"
-    //   Identity/Publisher     "Invalid package publisher name: CN=leix
-    //                          (expected: CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E)"
+    //   Identity/Name          must match the reserved Store identity
+    //                          (BuyOnceLabs.monosub)
+    //   Identity/Publisher     must match the Store publisher ID
+    //                          (CN=3AFDD6AB-7CB4-4064-8C0B-7F48F2BC7DFA)
     //                          — the guid is the Store's publisher ID, not the
     //                          account name and not the display name.
     //   PublisherDisplayName   the account's display name, see below.
@@ -193,9 +193,9 @@ function buildWindows() {
     // Identity/Name and Publisher together derive the package family name
     // (`<Name>_<hash>`, hash over the publisher string), which the Store also
     // compares — verify.mjs recomputes it and fails the build if it drifts.
-    const packageName = process.env.MONOSUB_MSIX_NAME || 'leixlabs.monosub';
-    const publisher = process.env.MONOSUB_MSIX_PUBLISHER || 'CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E';
-    const publisherDisplayName = process.env.MONOSUB_MSIX_PUBLISHER_DISPLAY_NAME || 'leixlabs';
+    const packageName = process.env.MONOSUB_MSIX_NAME || 'BuyOnceLabs.monosub';
+    const publisher = process.env.MONOSUB_MSIX_PUBLISHER || 'CN=3AFDD6AB-7CB4-4064-8C0B-7F48F2BC7DFA';
+    const publisherDisplayName = process.env.MONOSUB_MSIX_PUBLISHER_DISPLAY_NAME || 'BuyOnce Labs';
     // The artifact keeps the short `monosub_<version>.0_x64.msix` name: the Store
     // ignores uploaded file names, and release.mjs, publish.mjs and the docs all
     // key off this one. Only the identity inside the manifest is Store-validated.

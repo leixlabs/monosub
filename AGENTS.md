@@ -192,6 +192,7 @@ monosub/
 │   ├── release/                 # local artifacts only — never touches GitHub
 │   │   ├── release.mjs          # Read version → package → inventory dist/
 │   │   ├── package.mjs          # macOS → dist/MonoSub-<v>.dmg, Windows → .msix
+│   │   ├── installer.mjs        # Windows only: self-install NSIS .exe (not the Store)
 │   │   ├── prepare-resources.mjs # Fetches the runtime binaries, regenerates MANIFEST
 │   │   ├── verify.mjs           # DMG: ad-hoc signature + engine smoke test
 │   │   │                        # MSIX: spec §5.7 checklist over the built package
@@ -303,6 +304,7 @@ bun run tauri build   # Full native bundle (runs `build` via beforeBuildCommand)
 # produces a DMG on macOS and an MSIX on Windows.
 bun run release       # build + package + verify (scripts/release/release.mjs)
 bun run release:package # package only, no dist/ inventory
+bun run release:exe     # Windows only: self-install NSIS .exe (not the Store build)
 bun run publish       # Upload dist/ to GitHub Releases (scripts/publish/publish.mjs)
 bun run publish:macos # ... restricted to dist/*.dmg
 bun run publish:msix  # ... restricted to dist/*.msix
@@ -347,6 +349,55 @@ node scripts\publish\publish.mjs   # upload to GitHub Releases
 --sign`, `bun run release -- --skip-resources`); `bun run publish:msix` is the upload.
 Flags are POSIX-style and order does not matter; an unknown flag aborts rather than
 being ignored.
+
+#### Windows self-install: NSIS `.exe` (not the Store package)
+
+`bun run release:exe` → `dist\<productName>_<version>_x64-setup.exe`. One double-click,
+no certificate, no PowerShell, no Store. This is the artifact for "install it on my own
+machine"; the MSIX stays the Store artifact.
+
+| Artifact | Built by | Installs to | Needs |
+|---|---|---|---|
+| `MonoSub-<v>.dmg` | `release:package` (macOS) | `/Applications` | ad-hoc signed |
+| `monosub_<v>.0_x64.msix` | `release:package` (Windows) | version-stamped `WindowsApps` | `.cer` in the **Root** store |
+| `<productName>_<v>_x64-setup.exe` | `release:exe` (Windows) | `%LOCALAPPDATA%\MonoSub` | nothing |
+
+- NSIS is Tauri's own bundler, so the shortcut, uninstaller and the Settings → Apps
+  entry come for free — which is exactly why this script does **not** use
+  `--no-bundle` the way the MSIX flow does. It passes `--bundles nsis` to keep
+  `targets: "all"` from also producing a WiX/MSI payload.
+- `bundle.windows.nsis.installMode` is pinned to `currentUser`: no UAC prompt, and the
+  app ends up at `%LOCALAPPDATA%\MonoSub` with `resources\` beside `monosub.exe` — the
+  layout `paths::resolve_resources_root` already probes.
+- `monosub-cli.exe` must be staged into `resources\bin\` **before** `tauri build`: the
+  bundler copies the resources tree at build time, unlike the MSIX branch which
+  assembles its payload afterwards. The bundler additionally copies the crate's second
+  `[[bin]]` target to the install root (`%LOCALAPPDATA%\MonoSub\monosub-cli.exe`), so the
+  NSIS install ends up with the CLI in two places and **neither is on `PATH`** — there is
+  no execution alias here, that mechanism is MSIX-only.
+- **NSIS cannot emit an installer whose data section exceeds ~2 GB** (it is 32-bit;
+  `makensis` dies with `error mmapping file ... is out of range`, or writes a ~100 KB
+  stub and exits 0). Both CUDA engines put `resources\` at ~2.0 GB *uncompressed*; the
+  2 GB ceiling applies to the compressed output, and LZMA measurably lands the whole
+  1.98 GB payload at **1.31 GB** (`MonoSub_2.0.0_x64-setup.exe`, ~6 min of compression).
+  `installer.mjs` prints the payload size before the run and refuses to copy out an
+  installer smaller than 10% of the payload, so a stub can never be mistaken for a
+  build. If the engines grow enough to break this, the answer is not a bigger limit —
+  it is shipping the heavy runtime as a download instead of a bundle.
+- The NSIS toolset is fetched once into `%LOCALAPPDATA%\tauri\NSIS`. That download is
+  the flakiest part of the flow: a dropped connection gives `peer closed connection
+  without sending TLS close_notify`, and a later run answers "NSIS directory is missing
+  some files. Recreating it." and retries. Both die *before* compression starts, so
+  re-running is safe. To skip it entirely, recreate the directory by hand — it must
+  hold the unzipped `nsis-3.13.zip` contents at the root, plus the utils plugin
+  (`nsis_tauri_utils-v0.5.3/nsis_tauri_utils.dll`, SHA1 `75197fee…`, into
+  `Plugins\x86-unicode\additional\`), which is what the completeness check looks for.
+- Unsigned by design: SmartScreen warns once ("More info" → "Run anyway"). Self-signing
+  buys nothing here — SmartScreen reputation needs a real (ideally EV) certificate.
+- `dist/` doubles as Vite's `outDir`, so the `bun run build` inside `tauri build` wipes
+  it — including a previously built `.msix` sitting there. `installer.mjs` warns when it
+  finds one before the build, because the deletion is otherwise silent.
+
 
 Six things about the Windows path that are easy to get wrong:
 

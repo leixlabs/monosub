@@ -140,9 +140,9 @@ winapp init
 
 | 提示项 | 值 |
 | --- | --- |
-| Package name | `leixlabs.monosub`（Partner Center「Identity details」的 identity Name，**不是**文件名，也不能等于 "MonoSub"） |
-| Publisher name | `CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E`（发布者 **ID**；不是账户名 `leixlabs`，填成 `CN=leix` 会被拒） |
-| Publisher display name | `leixlabs`（发布者**显示名**，与上一项是两个不同的值） |
+| Package name | `BuyOnceLabs.monosub`（Partner Center「Identity details」的 identity Name，**不是**文件名，也不能等于 "MonoSub"） |
+| Publisher name | `CN=3AFDD6AB-7CB4-4064-8C0B-7F48F2BC7DFA`（发布者 **ID**；不是账户名或显示名） |
+| Publisher display name | `BuyOnce Labs`（发布者**显示名**，与上一项是两个不同的值） |
 | Version | `2.0.0.0`（四段式，与 tauri.conf.json 的 2.0.0 对应） |
 | Entry point | `monosub.exe`（GUI 主程序；项目 `default-run = "monosub"` 已保证主程序名） |
 | Setup SDKs | **Do not setup SDKs**（Tauri 用 Rust windows crate，不需要 C++ SDK 管理） |
@@ -153,11 +153,11 @@ winapp init
 >
 > | 清单位置 | 值 | 不匹配时的报错 |
 > | --- | --- | --- |
-> | `Package/Identity/Name` | `leixlabs.monosub` | `Invalid package identity name: monosub (expected: leixlabs.monosub)` |
-> | `Package/Identity/Publisher` | `CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E` | `Invalid package publisher name: CN=leix (expected: CN=26B9D6B3-…)` |
-> | `Package/Properties/PublisherDisplayName` | `leixlabs` | `The PublisherDisplayName element … doesn't match your publisher display name` |
+> | `Package/Identity/Name` | `BuyOnceLabs.monosub` | 必须与 Partner Center identity Name 一致 |
+> | `Package/Identity/Publisher` | `CN=3AFDD6AB-7CB4-4064-8C0B-7F48F2BC7DFA` | 必须与 Partner Center publisher ID 一致 |
+> | `Package/Properties/PublisherDisplayName` | `BuyOnce Labs` | 必须与 Partner Center publisher display name 一致 |
 >
-> 包族名（PFN）由前两项推导，不写进清单：`leixlabs.monosub_ay3jbxdght5hg`。
+> 包族名（PFN）由前两项推导，不写进清单：`BuyOnceLabs.monosub_3jbgsq2x4ngec`。
 > `scripts/release/package.mjs` 已把这三个值写成默认值，`verify.mjs` 会重算 PFN 并断言一致——本地打包就能拦住这类错误。
 
 > 双二进制说明：项目含 `monosub`（GUI）与 `monosub-cli` 两个 binary。**两个都进包**：
@@ -182,7 +182,7 @@ resources\bin\monosub-cli-x86_64-pc-windows-msvc.exe
 它必须能在终端里直接敲 `monosub-cli`，而这**不能靠改 PATH 实现**。MSIX 安装在
 
 ```
-C:\Program Files\WindowsApps\leixlabs.monosub_<版本>_x64__<发布者哈希>\
+C:\Program Files\WindowsApps\BuyOnceLabs.monosub_<版本>_x64__<发布者哈希>\
 ```
 
 路径里带版本号，所以任何把安装目录写进用户 PATH 的做法**下次更新就失效**。正确机制是
@@ -412,11 +412,14 @@ Add-AppxPackage .\monosub_2.0.0.0_x64.msix
 | 含义 | 值 |
 | --- | --- |
 | 产品名（Partner Center / manifest DisplayName） | monosub（显示名 MonoSub） |
-| 包身份名（`Package/Identity/Name`） | leixlabs.monosub |
-| 发布者 ID（`Package/Identity/Publisher`） | CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E |
-| 发布者显示名（`PublisherDisplayName`） | leixlabs |
-| 包族名（PFN，推导值） | leixlabs.monosub_ay3jbxdght5hg |
-| Store ID | 9M2ZTV1F9N |
+| 包身份名（`Package/Identity/Name`） | BuyOnceLabs.monosub |
+| 发布者 ID（`Package/Identity/Publisher`） | CN=3AFDD6AB-7CB4-4064-8C0B-7F48F2BC7DFA |
+| 发布者显示名（`PublisherDisplayName`） | BuyOnce Labs |
+| 包族名（PFN，推导值） | BuyOnceLabs.monosub_3jbgsq2x4ngec |
+| Store ID | 9P6WTCQRQ1VW |
+| Store 页面 | https://apps.microsoft.com/detail/9P6WTCQRQ1VW |
+| Store 协议链接 | `ms-windows-store://pdp/?productid=9P6WTCQRQ1VW` |
+| MSA app ID | 28043347-260a-4443-a3d9-356dc783adfb |
 | 入口程序 | monosub.exe |
 | 命令行入口别名 | monosub-cli.exe → `resources\bin\monosub-cli.exe` |
 | Windows x64 目标三元组 | x86_64-pc-windows-msvc |

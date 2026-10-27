@@ -195,23 +195,19 @@ function verifyDmg(dmgPath) {
 // ---------------------------------------------------------------------------
 
 /**
- * The identity Partner Center accepts for this product, quoted verbatim from its
- * own rejections:
- *
- *   Invalid package identity name: monosub (expected: leixlabs.monosub)
- *   Invalid package publisher name: CN=leix
- *       (expected: CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E)
+ * The identity reserved in Partner Center for this product, taken from the
+ * Store's Product identity page.
  *
  * Kept here as a *contract*, deliberately duplicated from package.mjs: if the
  * packaging script and this table ever disagree, that disagreement is the bug and
  * the build must stop rather than ship whichever value happened to win.
  */
 const STORE_IDENTITY = {
-    name: 'leixlabs.monosub',
-    publisher: 'CN=26B9D6B3-981A-4C13-BC1E-234DFA00861E',
-    publisherDisplayName: 'leixlabs',
+    name: 'BuyOnceLabs.monosub',
+    publisher: 'CN=3AFDD6AB-7CB4-4064-8C0B-7F48F2BC7DFA',
+    publisherDisplayName: 'BuyOnce Labs',
     // What Partner Center reports for that identity; recomputed below.
-    packageFamilyName: 'leixlabs.monosub_ay3jbxdght5hg',
+    packageFamilyName: 'BuyOnceLabs.monosub_3jbgsq2x4ngec',
 };
 
 /**
