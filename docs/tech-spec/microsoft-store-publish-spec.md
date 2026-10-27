@@ -312,6 +312,11 @@ winapp package build\msix\app `
 
 产物：`dist\monosub_2.0.0.0_x64.msix`。
 
+> **版本号并非固定为 2.0.0.0**：本文所有 `2.0.0.0` 都是首次上架时的实际值。四段式规则是
+> `<tauri.conf.json 的 x.y.z>.0` —— 例如 2.0.1 → `2.0.1.0`，文件名为
+> `dist\monosub_2.0.1.0_x64.msix`。`scripts/release/package.mjs` 会按当前版本自动命名并写
+> manifest，手打命令时才需要自己替换。
+
 ### 5.6 本机安装验证
 
 ```powershell

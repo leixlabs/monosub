@@ -379,7 +379,8 @@ machine"; the MSIX stays the Store artifact.
   `makensis` dies with `error mmapping file ... is out of range`, or writes a ~100 KB
   stub and exits 0). Both CUDA engines put `resources\` at ~2.0 GB *uncompressed*; the
   2 GB ceiling applies to the compressed output, and LZMA measurably lands the whole
-  1.98 GB payload at **1.31 GB** (`MonoSub_2.0.0_x64-setup.exe`, ~6 min of compression).
+  1.98 GB payload at **1.31 GB** (`MonoSub_2.0.0_x64-setup.exe`, ~6 min of compression —
+  measured on 2.0.0; the file name tracks whatever version is being built).
   `installer.mjs` prints the payload size before the run and refuses to copy out an
   installer smaller than 10% of the payload, so a stub can never be mistaken for a
   build. If the engines grow enough to break this, the answer is not a bigger limit —
@@ -1853,6 +1854,33 @@ URL cannot escape it). It acts on the import stage alone — once a `Queued` out
 emitted the job is finished and cancelling means `cancel_transcription` or removing the queue
 row — and it deliberately keeps an already downloaded audio file so re-importing the same URL
 reuses it: only the partial extensions are removed, never the finished media.
+
+### Only one instance runs at a time
+
+`tauri-plugin-single-instance` is registered as the **first** plugin in `main.rs`, before
+dialog / shell / notification / clipboard. Plugin `setup` runs before the app's own
+`setup`, so the named mutex is claimed before a second process can build a window or a
+tray icon — the two things that made "launch it twice" look like two running apps. Order
+is the whole guarantee here; moving the registration down would let a rival get far
+enough to double the tray icon.
+
+The second process does **not** reach `run`: the plugin hands it the first instance's
+window by `WM_COPYDATA` and exits. The callback runs in the *first* instance and does what
+the tray's Show item does — `unminimize` (a minimised window shown without it stays in the
+taskbar as a strip), `show`, `set_focus`. A relaunch is therefore "raise the window I
+already have", never "start a second queue".
+
+Two consequences worth knowing:
+
+- Logging is initialised **above** the builder, so a rejected second launch still writes one
+  `MonoSub application starting...` line to `monosub.<date>.log`. Harmless, and cheaper than
+  duplicating the plugin's platform logic to suppress it.
+- The mutex name is the bundle identifier (`leixlabs.monosub`), so a `tauri dev` build and an
+  installed release **exclude each other**. Quit the installed app before `tauri dev`.
+  (`cargo run --bin monosub-cli` is unaffected — it never registers the plugin.)
+
+`monosub-cli` is deliberately outside this: it is a batch entry point that may legitimately
+run alongside the GUI, and it links `lib.rs` rather than `main.rs`.
 
 ### The menu-bar item shows transcription progress
 

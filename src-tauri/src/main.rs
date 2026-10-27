@@ -5,10 +5,9 @@
 // `monosub::` is the crate name from Cargo.toml.
 use monosub::commands::*;
 use monosub::{logging, tray};
-// `Manager` supplies `get_webview_window`, and both call sites are macOS-only
-// (title bar overlay, Dock reopen), so importing it unconditionally leaves an
-// unused import on Windows.
-#[cfg(target_os = "macos")]
+// `Manager` supplies `get_webview_window`. It used to be macOS-only (title bar
+// overlay, Dock reopen), but the single-instance callback below also calls it on
+// every platform, so the import is now unconditional.
 use tauri::Manager;
 
 fn main() {
@@ -24,6 +23,30 @@ fn main() {
     monosub::commands::transcribe::ensure_transcription_limit();
 
     let builder = tauri::Builder::default()
+        // MUST be the first plugin registered. Plugin setup runs before the
+        // app's own `setup` callback, so the named mutex is claimed before a
+        // second instance can build a window or a tray icon — the two things
+        // that made "launch it twice" look like two running apps. (Logging is
+        // initialised above this line, so a rejected second launch does leave
+        // one extra "application starting" line in the log; that is harmless,
+        // and the alternative is duplicating the plugin's platform logic.)
+        //
+        // The callback runs in the *first* instance, so "open the app again"
+        // means "bring the window I already have to the front" — the same
+        // thing the tray's Show item does.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // A second launch reached us instead of starting a rival process.
+            // Logged because the user-visible effect ("my window came back") is
+            // otherwise indistinguishable from having clicked the tray icon.
+            tracing::info!("single_instance: second launch detected, restoring main window");
+            if let Some(window) = app.get_webview_window("main") {
+                // `unminimize` first: a minimised window shown without it stays
+                // in the taskbar as a strip rather than becoming usable.
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())

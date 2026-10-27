@@ -1,6 +1,6 @@
 [package]
 name = "monosub"
-version = "2.0.0"
+version = "2.0.1"
 description = "Local voice to article desktop app"
 authors = ["VoiceToText"]
 license = "PolyForm-Small-Business-1.0.0"
@@ -53,6 +53,12 @@ futures-util = "0.3"
 # Debug-only UI testing/automation bridge (tauri-pilot). Inert in release builds.
 tauri-plugin-pilot = { git = "https://github.com/mpiton/tauri-pilot", tag = "v0.8.1" }
 tauri-plugin-clipboard-manager = "2.5.0"
+# Single instance: a second launch (shortcut double-click, taskbar pin, or a
+# second `tauri dev`) must not start a rival process with its own tray icon and
+# its own copy of the queue. On Windows this is a named mutex + window probe;
+# the plugin hands the new process's argv to the instance that already owns the
+# name and exits the new one.
+tauri-plugin-single-instance = "2"
 
 [profile.dev]
 incremental = true
