@@ -34,7 +34,10 @@
 //! 3. The frontend swallowed that `Err`; `SettingsModelsDir.tsx` now shows it.
 //!
 //! Every path goes in as its own `argv` element — never a shell string — so a
-//! folder named `模型 目录` needs no escaping and cannot be split.
+//! folder named `模型 目录` needs no escaping and cannot be split. Windows
+//! `explorer` is the one exception: it parses its switches out of the raw command
+//! line, so there the path is quoted by [`quote_for_explorer`] and the fragment is
+//! appended verbatim. See that function for the bug this fixes.
 
 use std::path::Path;
 use tokio::process::Command;
@@ -119,12 +122,49 @@ fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (Str
     }
 }
 
+/// How `explorer` must be quoted on Windows.
+///
+/// `explorer` does not use `CommandLineToArgvW` rules for its switches: it parses
+/// `/select,` out of the raw command line and expects the *path* to carry the
+/// quotes. Handing std one argv element `/select,C:\a b.mp4` makes std quote the
+/// **whole** token, producing
+///
+/// ```text
+/// explorer "/select,C:\a b.mp4"
+/// ```
+///
+/// where the leading quote now sits before the slash — so the switch is no longer
+/// a switch. Measured on Windows 11: explorer ignores it and falls back to its
+/// default folder, which is why "打开" on a file whose path contains a space
+/// opened 文档 (Documents) instead of the video's directory. The same argv without
+/// a space works, which is what made this look intermittent.
+///
+/// The fix is to build explorer's command line verbatim: the switch stays outside
+/// the quotes, only the path is quoted. [`run`] appends these fragments with
+/// `raw_arg`, so nothing re-quotes them.
+#[cfg(target_os = "windows")]
+fn quote_for_explorer(path: &str) -> String {
+    // A drive root (`D:\`) cannot contain a space, and `"D:\"` would let the
+    // trailing backslash escape the closing quote — so it is passed bare. This
+    // is the only path where dropping the backslash would name something else.
+    if path.len() == 3 && path.ends_with(":\\") {
+        return path.to_string();
+    }
+    // Any other trailing backslash is redundant for explorer and would escape
+    // the closing quote, so it goes.
+    let trimmed = path.trim_end_matches('\\');
+    let trimmed = if trimmed.is_empty() { path } else { trimmed };
+    format!("\"{trimmed}\"")
+}
+
 #[cfg(target_os = "windows")]
 fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (String, Vec<String>) {
     let program = "explorer".to_string();
     match (action, target) {
         // `start "" <path>`: `start` treats a quoted first argument as the
-        // window title, so the empty title keeps the path from being eaten.
+        // window title, so the empty title keeps the path from being eaten. This
+        // one goes through std's own quoting (`cmd` does follow its rules), so
+        // the elements here are plain paths, not fragments.
         (OpenerAction::Open, OpenerTarget::File) => {
             ("cmd".to_string(), vec![
                 "/C".to_string(),
@@ -133,12 +173,19 @@ fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (Str
                 path.to_string(),
             ])
         }
-        (OpenerAction::Open, OpenerTarget::Directory) => (program, vec![path.to_string()]),
-        (OpenerAction::Reveal, OpenerTarget::Directory) => (program, vec![path.to_string()]),
-        // `/select,<file>` is one token, not two: explorer parses the path out
-        // of the same argument.
+        // Every `explorer` branch below is a **command-line fragment**, already
+        // quoted as explorer wants it — see `quote_for_explorer`.
+        (OpenerAction::Open, OpenerTarget::Directory) => {
+            (program, vec![quote_for_explorer(path)])
+        }
+        (OpenerAction::Reveal, OpenerTarget::Directory) => {
+            (program, vec![quote_for_explorer(path)])
+        }
+        // `/select,<file>` is one token, not two: explorer parses the path out of
+        // the same argument, so the comma must not be separated from the switch
+        // and the path must be the only quoted part.
         (OpenerAction::Reveal, OpenerTarget::File) => {
-            (program, vec![format!("/select,{path}")])
+            (program, vec![format!("/select,{}", quote_for_explorer(path))])
         }
     }
 }
@@ -158,18 +205,40 @@ fn describe_status(status: &std::process::ExitStatus) -> String {
     }
 }
 
+/// Whether `program`'s arguments are raw command-line fragments that must not be
+/// re-quoted by std.
+///
+/// Only `explorer`, and only on Windows — see [`quote_for_explorer`]. `cmd` and
+/// the macOS/Linux tools all follow standard argv quoting, so their arguments
+/// stay plain.
+#[cfg(target_os = "windows")]
+fn args_are_raw(program: &str) -> bool {
+    program == "explorer"
+}
+
 /// Run one open and turn a failure into something a user can read.
 async fn run(action: OpenerAction, target: OpenerTarget, path: &Path) -> Result<(), String> {
     let (program, args) = opener_argv(action, target, path);
 
     let mut command = Command::new(&program);
     #[cfg(target_os = "windows")]
-    if program == "cmd" {
-        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    {
+        if program == "cmd" {
+            command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
+        if args_are_raw(&program) {
+            // One verbatim line: `explorer` re-parses its switches from the raw
+            // command line, so std's quoting would move the opening quote in
+            // front of `/select,` and the switch would stop being a switch.
+            command.raw_arg(args.join(" "));
+        } else {
+            command.args(&args);
+        }
     }
+    #[cfg(not(target_os = "windows"))]
+    command.args(&args);
 
     let output = command
-        .args(&args)
         .output()
         .await
         .map_err(|error| format!("could not launch {program}: {error}"))?;
@@ -237,6 +306,7 @@ mod tests {
     #[test]
     fn an_existing_directory_is_opened_rather_than_revealed() {
         let dir = temp_entry("existing-dir", true);
+        let dir_str = dir.to_string_lossy().to_string();
         let (_, args) = opener_argv(OpenerAction::Open, OpenerTarget::Directory, &dir);
 
         // Revealing a directory selects it inside its parent — measured: Finder
@@ -246,7 +316,11 @@ mod tests {
             !args.iter().any(|arg| arg == "-R"),
             "a directory must be opened, not revealed: {args:?}"
         );
-        assert_eq!(args, vec![dir.to_string_lossy().to_string()]);
+        // Windows: one raw command-line fragment, quoted around the path only.
+        #[cfg(target_os = "windows")]
+        assert_eq!(args, vec![format!("\"{dir_str}\"")]);
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(args, vec![dir_str]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -259,8 +333,9 @@ mod tests {
         #[cfg(target_os = "macos")]
         assert_eq!(args, vec!["-R".to_string(), file_str]);
 
+        // `/select,` outside the quotes, the path inside them.
         #[cfg(target_os = "windows")]
-        assert_eq!(args, vec![format!("/select,{file_str}")]);
+        assert_eq!(args, vec![format!("/select,\"{file_str}\"")]);
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -269,6 +344,42 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// The Windows quoting bug, pinned.
+    ///
+    /// Measured on Windows 11: `explorer "/select,C:\a b.mp4"` — what std
+    /// produces for one argv element containing a space — is not a `/select`
+    /// invocation at all. Explorer drops the unrecognised argument and opens its
+    /// default folder, so "打开" on `D:\monosub yt-dlp feature.mp4` opened 文档
+    /// instead of `D:\`. The switch must therefore sit outside the opening quote.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn a_path_with_a_space_keeps_the_switch_outside_the_quotes() {
+        let path = Path::new("D:\\monosub yt-dlp feature.mp4");
+        let (program, args) = opener_argv(OpenerAction::Reveal, OpenerTarget::File, path);
+
+        assert_eq!(program, "explorer");
+        assert_eq!(args, vec![r#"/select,"D:\monosub yt-dlp feature.mp4""#]);
+        // The failure mode this replaces, stated as an assertion: no fragment may
+        // begin with a quote, or explorer stops parsing the switch.
+        assert!(
+            !args[0].starts_with('"'),
+            "the switch must not be swallowed by std's quoting: {args:?}"
+        );
+    }
+
+    /// A trailing backslash must not escape the closing quote.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn explorer_quoting_survives_a_trailing_backslash_and_the_drive_root() {
+        // `"D:\folder\"` is one unterminated string as far as explorer is
+        // concerned, so the backslash has to go.
+        assert_eq!(quote_for_explorer(r"D:\my folder\"), r#""D:\my folder""#);
+        // The root is the one path where removing the backslash is not cosmetic
+        // (and it cannot contain a space), so it stays bare.
+        assert_eq!(quote_for_explorer(r"D:\"), r"D:\");
+        assert_eq!(quote_for_explorer(r"C:\plain"), r#""C:\plain""#);
     }
 
     #[test]
@@ -302,6 +413,9 @@ mod tests {
 
         // "Open it": every platform passes the path itself, verbatim, once.
         let (_, args) = opener_argv(OpenerAction::Open, OpenerTarget::Directory, &path);
+        #[cfg(target_os = "windows")]
+        assert_eq!(args, vec![format!("\"{expected}\"")]);
+        #[cfg(not(target_os = "windows"))]
         assert_eq!(args, vec![expected.clone()]);
 
         // "Reveal it": the path still rides inside exactly one argument.
@@ -311,7 +425,7 @@ mod tests {
         assert_eq!(args, vec!["-R".to_string(), expected]);
 
         #[cfg(target_os = "windows")]
-        assert_eq!(args, vec![format!("/select,{expected}")]);
+        assert_eq!(args, vec![format!("/select,\"{expected}\"")]);
 
         #[cfg(target_os = "linux")]
         assert_eq!(
@@ -370,6 +484,29 @@ mod tests {
         // so a flip here would either silence a real failure on macOS/Linux or
         // raise a false one on Windows.
         assert_eq!(status_decides_success(), !cfg!(target_os = "windows"));
+    }
+
+    /// Only `explorer` gets verbatim fragments; `cmd` and the POSIX tools keep
+    /// plain argv elements, so their existing quoting must not change.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn only_explorer_takes_raw_command_line_fragments() {
+        assert!(args_are_raw("explorer"));
+        assert!(!args_are_raw("cmd"));
+    }
+
+    /// Manual smoke test: actually launches explorer.
+    ///
+    /// `MONOSUB_OPENER_PROBE=<path> cargo test --lib -- --ignored --nocapture
+    /// opener_probe`, then look at which folder Windows opened.
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    #[ignore = "launches the real file manager; run by hand"]
+    async fn opener_probe() {
+        let path = std::env::var("MONOSUB_OPENER_PROBE").expect("MONOSUB_OPENER_PROBE");
+        let path = Path::new(&path);
+        println!("argv = {:?}", opener_argv(OpenerAction::Reveal, classify(path), path));
+        println!("result = {:?}", reveal_in_file_manager(path).await);
     }
 
     #[cfg(not(target_os = "windows"))]

@@ -1945,6 +1945,110 @@ useEffect(() => {
 | `MONOSUB_RESOURCES_DIR` | Override the `resources` root — `models.json`, `bin/`, `models/silero_vad` (the CLI would otherwise derive it from the executable's location) |
 | `APPLE_SIGNING_IDENTITY` | Code signing identity (optional) |
 | `APPLE_ID` / `APPLE_PASSWORD` / `APPLE_TEAM_ID` | Notarization credentials (optional) |
+| `VITE_SITE_URL` | Public origin of the landing page (`landing_page/` only). Defaults to `https://monosub.leix.dev` in `src/lib/site.ts`; set it in Cloudflare Pages to move domains |
+
+---
+
+## Landing Page (`landing_page/`)
+
+The marketing site is a **separate Vite + React app** with its own `package.json`,
+deployed to Cloudflare Pages as project `monosub`. It shares nothing with the Tauri
+frontend — no store, no Tauri APIs, no i18n files.
+
+```bash
+cd landing_page
+bun run dev        # vite dev server on :3000
+bun run build      # tsc → vite build → prerender (this is the deployable output)
+bun run deploy     # build, then `wrangler pages deploy dist --project-name=monosub`
+```
+
+### It is prerendered, not a SPA
+
+`bun run build` runs `scripts/prerender.mjs` after `vite build`. That script renders
+every page through `src/entry-server.tsx` and writes real HTML into the Vite shell,
+then generates `sitemap.xml`, `robots.txt`, `404.html` and `_redirects`.
+
+This is load-bearing, not an optimisation: as a pure SPA the served document was a
+785-byte shell with an empty `#root`, so Baidu — which largely does not run JS — saw
+nothing at all. If you add a page:
+
+1. Add it to `createAppRoutes()` in `src/routes.tsx`.
+2. Add it to `PRERENDER_PAGES` in `src/entry-server.tsx`.
+3. If it should be indexed, add it to `SITEMAP_PAGES` too.
+
+`vite build` alone produces a SPA shell (`bun run build:spa`); only the full
+`bun run build` produces what gets deployed.
+
+### URL and domain conventions
+
+- **One origin, one constant.** `src/lib/site.ts` owns `SITE_URL`, read from
+  `VITE_SITE_URL` at build time. No component hardcodes a domain — moving to a new
+  domain is an env var plus a Cloudflare Pages custom domain, not a code change.
+- **Trailing-slash canonicals.** Pages serves `zh/index.html` at `/zh/`, so that is
+  the canonical form; `_redirects` sends `/zh` onto it with a 301. Internal links go
+  through `pagePath()` in `src/lib/seo.ts` so they always agree.
+- **`/` is the English page, not a redirect.** A crawler landing on the bare domain
+  must find content. The canonical points at `/en/`, and the inline script in
+  `index.html` switches a `zh` visitor to `/zh/` before paint.
+- **`404.html` must exist.** Without it Pages treats the project as a SPA and returns
+  200 for every unknown path — a soft 404. The file is generated; do not add a
+  `*`-route redirect, which would reintroduce the same problem client-side.
+- **`/privacy` is `noindex, follow`.** It is required by the store listings, but it
+  should not compete with the product page for the brand.
+
+### Structured data
+
+`src/lib/structuredData.ts` emits one JSON-LD `@graph` with `SoftwareApplication`
+(including both offers), `FAQPage` and `WebSite`. The FAQ markup is generated from
+`src/lib/faq.ts` — the same list `components/FAQ.tsx` renders — because Google only
+accepts FAQ markup that matches visible content. Reorder the questions in one place.
+
+### The comparison blog (`/blog/`)
+
+A series of competitor comparisons at `/<lang>/blog/<slug>/`. Posts are **data, not
+JSX**: `src/content/blog/<slug>.ts` exports one typed `Post`, and two components
+(`BlogIndex.tsx`, `BlogPost.tsx`) render it. The index page is `/<lang>/blog/`.
+
+Why data: every post is prerendered through the same tree as the rest of the site, so
+article text lands in the served HTML (which is the whole reason a crawler that does
+not run JS can index it), and `Post` requires both `zh` and `en` so a post cannot ship
+in one language by accident.
+
+**Adding a post:**
+
+1. Create `src/content/blog/<slug>.ts` exporting a `Post` (see `types.ts` for the block
+   kinds: `p`, `h2`, `h3`, `ul`, `table`, `callout`).
+2. Add it to `POSTS` in `src/content/blog/index.ts`.
+3. Nothing else. `entry-server.tsx` derives the prerender list, the sitemap entries and
+   the `BlogPosting` JSON-LD from `POSTS`; the nav and footer link to the index.
+
+**Editorial rules the copy follows — keep them:**
+
+- **Say where the competitor wins.** Every post has a `callout` listing what MonoSub
+  cannot do, and the verdict states it plainly. A comparison that only flatters MonoSub
+  is worthless to a reader who has used both, and is indistinguishable to a search
+  engine from thin affiliate copy.
+- **No invented benchmarks.** No post claims a speed or accuracy ranking without
+  measured numbers; say what actually drives the difference instead.
+- **Prices carry a check date.** Every price table has a `note` with the date the
+  figures were verified and a pointer to the vendor site as authoritative. Prices on
+  competitor pages change; an undated number becomes a lie.
+- **Descriptions stay ≤160 chars (en) / ~110 (zh)** — beyond that search results
+  truncate them.
+
+**Competitor pool** (researched 2026-10-27; three shipped, the rest are candidates):
+
+| Segments | Tools | Status |
+| --- | --- | --- |
+| Free / open source | VideoCaptioner (卡卡字幕助手), Buzz, Subtitle Edit, vid2txt | VideoCaptioner shipped |
+| macOS paid | MacWhisper (€64 Gumroad / Whisper Transcription on MAS) | shipped |
+| Cloud, per-minute | 讯飞听见, 通义听悟, 飞书妙记 | shipped as one post |
+| Cloud, subscription | Otter.ai, Descript, Fathom, Rev | not written |
+| Paid Windows local | UIDCaption ($39), LocalCaptions, AI Video to SRT ($29), ArcTime Pro | not written |
+| Editors with ASR | 剪映 / CapCut (free), Subtitle Edit | 剪映 mentioned nowhere yet |
+
+The "paid Windows local" row is the most important gap: those are MonoSub's direct
+competitors on price and platform, and there is no post comparing them yet.
 
 ---
 
