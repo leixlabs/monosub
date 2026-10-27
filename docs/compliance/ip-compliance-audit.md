@@ -293,7 +293,7 @@ OpenMDW-1.1（Linux Foundation permissive）：**商用允许**，对输出无�
 | `moss_transcribe_diarize_q8_0` | 求解器高分候选 | supported | `allowed` | Apache-2.0 |
 | `qwen3_asr_0_6b_q8_0` | 求解器高分候选 | supported | `allowed` | Apache-2.0 |
 | `qwen3_forced_aligner_0_6b_q8_0` | 对齐依赖 | supported | `allowed` | Apache-2.0 |
-| `nemotron_3_diar_q8_0` | diar 候选 | unverified | `allowed` | OpenMDW-1.1 — 需保留声明 |
+| `nemotron_3_diar_q8_0` | diar 候选 | supported | `allowed` | OpenMDW-1.1 — 需保留声明 |
 | `crisperwhisper_2_large_*` | 已不再推荐 | unverified | `noncommercial` | nyra 非商用 |
 
 结论：**默认路径上已无不商用模型**。唯一的 `restricted` 默认是翻译模型，其风险是地域排除而非商用禁止。

@@ -3844,7 +3844,7 @@
       "commercial_use": "allowed",
       "requires": [],
       "language_tokens": [],
-      "status": "unverified",
+      "status": "supported",
       "modes": [
         "offline",
         "streaming"
