@@ -303,6 +303,19 @@ fn fallback_video_thumbnail() -> ThumbnailResult {
     }
 }
 
+/// An ffmpeg invocation for thumbnail extraction, with the Windows console
+/// suppressed.
+///
+/// ffmpeg is a console-subsystem program, and this runs while the GUI is up, so
+/// without the flag Windows would flash a terminal window for each thumbnail.
+fn ffmpeg_for_thumbnail(program: &str, args: &[&str]) -> Command {
+    let mut command = Command::new(program);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    command.args(args);
+    command
+}
+
 /// Generate thumbnail for media file (video: frame extract, audio: default icon)
 #[tauri::command]
 pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<ThumbnailResult, String> {
@@ -386,15 +399,14 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
         thumbnail_out,
     ];
 
-    let mut ffmpeg = Command::new(&ffmpeg_cmd);
-    #[cfg(target_os = "windows")]
-    ffmpeg.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-
-    let output = match ffmpeg.args(&args_hwaccel).output() {
+    // A fresh `Command` per attempt: `args()` appends, so reusing one would
+    // concatenate the hardware and software argument lists instead of retrying
+    // with the software list alone.
+    let output = match ffmpeg_for_thumbnail(&ffmpeg_cmd, &args_hwaccel).output() {
         Ok(o) if o.status.success() => o,
         _ => {
             // Retry without hardware acceleration
-            match ffmpeg.args(&args_software).output() {
+            match ffmpeg_for_thumbnail(&ffmpeg_cmd, &args_software).output() {
                 Ok(output) => output,
                 Err(e) => {
                     tracing::error!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, error = %e, "Failed to execute ffmpeg, using fallback thumbnail");
