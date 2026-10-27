@@ -2,19 +2,18 @@ import { useEffect, useState } from 'react';
 import { ClipboardPaste, FolderOpen, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
-import { useStore, COOKIES_BROWSERS, type CookiesBrowser } from '@/store/useStore';
-import { CustomSelect, type SelectOption } from '@/components/CustomSelect';
+import { useStore } from '@/store/useStore';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import { loadDefaultUrlImportDir } from '@/lib/urlImport';
 
 /**
- * Settings → URL import (url-import-design §5.4, §4.5, §7-2).
+ * Settings → URL import (url-import-design §5.4, §7-2).
  *
- * Three independent choices:
- * * where an import's media and subtitles are written (one directory for both);
- * * which browser's Bilibili cookies yt-dlp may read, default "not configured";
- * * whether to always recognise locally instead of taking the platform subtitle.
+ * Where an import's media and subtitles are written, whether to watch the
+ * clipboard, and whether to always recognise locally instead of taking the
+ * platform subtitle. There is deliberately no cookie setting: asking users to
+ * export a cookie jar is too much to ask (see §4.5).
  */
 export function SettingsUrlImport() {
   const { t } = useTranslation();
@@ -35,14 +34,6 @@ export function SettingsUrlImport() {
       cancelled = true;
     };
   }, []);
-
-  const browserOptions: SelectOption<CookiesBrowser>[] = [
-    { value: '', label: t('urlImport.settings.cookiesNone') },
-    ...COOKIES_BROWSERS.map((browser) => ({
-      value: browser as CookiesBrowser,
-      label: t(`urlImport.login.browsers.${browser}`),
-    })),
-  ];
 
   const handleChooseDir = async () => {
     try {
@@ -91,29 +82,6 @@ export function SettingsUrlImport() {
             </GlassButton>
           )}
         </div>
-      </div>
-
-      {/* Cookies */}
-      <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-text-primary dark:text-gray-200">
-              {t('urlImport.settings.cookiesBrowser')}
-            </p>
-            <p className="mt-0.5 text-xs text-text-secondary dark:text-gray-400">
-              {t('urlImport.settings.cookiesBrowserHint')}
-            </p>
-          </div>
-          <CustomSelect
-            value={settings.bilibiliCookiesBrowser}
-            onChange={(value) => updateSettings({ bilibiliCookiesBrowser: value })}
-            options={browserOptions}
-            className="w-[200px] shrink-0"
-          />
-        </div>
-        <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-relaxed">
-          {t('urlImport.settings.privacy')}
-        </p>
       </div>
 
       {/* Clipboard watch */}

@@ -195,13 +195,25 @@ pub fn select(setting: OutputLanguage, media: &SiteMedia) -> Option<Pick>;
 
 ### 4.5 登录与 cookies
 
+> **决策（2026-10-27）：前端不再提供任何 cookie 配置。** 浏览器选择器、`cookies.txt` 选择、
+> 失败行内的引导块和设置页分组均已删除——让用户自己导出 cookie 太重，且 B 站无 cookie 即可下载。
+> 前端请求固定发 `cookies_browser: null` / `cookies_file: null`；后端 `UrlImportRequest` 的两个
+> 字段与下表的重跑/归类逻辑保留（不再有入口，以备日后换方案）。遇到需要登录的内容只给出文字提示，
+> 不再引导配置。下表中「引导用户选择浏览器 / 选择 cookies.txt」的 UI 描述因此已失效。
+
 | 现象 | 来源 | 处理 |
 |------|------|------|
 | Resolve 报 `HTTP Error 412` | §9.6 | 失败，状态 `URL_IMPORT_NEEDS_COOKIES`。行内显示「需要登录 B 站」，并给一个浏览器选择器（Chrome / Edge / Firefox / Safari）。选定后写入设置，**重试该行** |
 | stderr 出现 `Subtitles are only available when logged in` | §9.12（yt-dlp 只发 warning，字幕列表为空） | **不失败**：照常降级去转录，但 `Queued` 结果带 `login_hint: true`，UI 提示「登录后可直接获取平台字幕」 |
+| stderr 报 `Could not copy Chrome cookie database` / `Failed to decrypt with DPAPI` | 浏览器正在运行、cookie 库被锁（Windows 常见，yt-dlp#7271），或 Chrome 127+ 的应用绑定加密（yt-dlp#10927，**无法解密，只能换来源**） | **不失败**：cookie 对所有阶段都是可选的，只有需要登录的内容才用得上。该阶段按去掉 cookie 重跑一次；重跑成功就照常走。判定收在 `error::is_cookie_database_failure`，且要求出现「could not / unable to / failed to」，避免无关的 `PermissionError` 误丢用户的 cookie |
+| 去掉 cookie 的重跑仍失败，且 stderr 归不到具体类别（如站点回 `Sign in to confirm you're not a bot`） | 上次失败是 cookie 读不出来，这次是以未登录状态发出的 | 报 `urlImport.cookiesUnreadable:<原文>`：说明「本次以未登录状态发出」。行内直接给「选择 cookies.txt 并重试」按钮（选完写入设置再重试同一行），因为 Windows 上浏览器 jar 加密/被锁时浏览器选择器修不好它。归类放在 `RunOutput::classified`，因为「匿名发出去」这个上下文只有 `run()` 知道 |
 
+- **两种 cookie 来源**：`--cookies-from-browser <browser>` 或 `--cookies <cookies.txt>`，
+  后者优先（`build_argv` 只发一个）。Chrome 127+ 的 jar 解不开，导出 cookies.txt 是唯一
+  可行路径；文件不存在时在 `execute` 里直接报 `urlImport.cookiesFileMissing`，不要交给
+  yt-dlp 去说一句含混的话。
 - 检测靠匹配 stderr 文本。这是 §4.3「不解析文案」的**唯一例外**，理由是 yt-dlp 不做
-  本地化。这两条匹配串作为常量集中定义，并配 fixture 单测。
+  本地化。这些匹配串作为常量集中定义，并配 fixture 单测。
 - 隐私：设置项默认「未配置」，并附说明「会读取所选浏览器中 bilibili.com 的 cookie，
   只用于本机请求」。用 Safari 时 macOS 需要给 MonoSub 授予「完全磁盘访问权限」；
   用 Chrome / Edge 时会弹出钥匙串授权。这两种情况的文案都要写明。
@@ -466,6 +478,10 @@ struct UrlImportRequest {
 3. **`words.json` 边车**：字幕命中路径没有词级数据，不写边车。
 4. **`ai-<x>` 是否放开**：见 §4.2 规则 3，取决于 U0-10。
 5. **长视频**：超过 1 小时的视频，字幕和音频的体积以及 writer 耗时待实测（U5-2）。
+6. **整体标记为 Beta**：依赖外部提取器与登录态，站点改动、cookie 加密、地区/年龄限制都会
+   让某个链接突然失败，所以设置里「链接导入」分类名旁固定显示 `Beta` 徽标，分组标题下
+   加一行说明（`settings.urlImport.beta` / `betaHint`）。徽标不随版本号或开关变化，避免
+   出现「一半功能算正式」的误解；功能稳定后再整体摘除。
 
 ---
 

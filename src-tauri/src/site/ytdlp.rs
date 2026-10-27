@@ -101,8 +101,22 @@ pub struct Invocation {
     pub url: String,
     /// `--cookies-from-browser <browser>`; `None` for "not configured".
     pub cookies_browser: Option<String>,
+    /// `--cookies <file>`: a Netscape `cookies.txt` the user exported.
+    ///
+    /// Takes precedence over [`Self::cookies_browser`] because it is the only
+    /// source that works for browsers whose jar cannot be decrypted in place
+    /// (Chrome 127+ app-bound encryption). Passing both flags would make yt-dlp
+    /// merge two jars and fail on the broken one anyway.
+    pub cookies_file: Option<PathBuf>,
     /// `--ffmpeg-location <bundled>`; only used when a merge is needed.
     pub ffmpeg: Option<PathBuf>,
+}
+
+impl Invocation {
+    /// Whether any cookie source is configured at all.
+    fn has_cookies(&self) -> bool {
+        self.cookies_file.is_some() || self.cookies_browser.as_deref().is_some_and(|b| !b.trim().is_empty())
+    }
 }
 
 /// `regex::escape` equivalent for the `--sub-langs` value.
@@ -134,7 +148,16 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
         argv.push(NO_PROGRESS_ARG.to_string());
     }
 
-    if let Some(browser) = invocation
+    if let Some(file) = invocation
+        .cookies_file
+        .as_deref()
+        .filter(|file| !file.as_os_str().is_empty())
+    {
+        // A jar the user exported wins over a browser: it is the only option for
+        // Chrome 127+, whose cookies yt-dlp cannot decrypt in place.
+        argv.push("--cookies".to_string());
+        argv.push(file.to_string_lossy().into_owned());
+    } else if let Some(browser) = invocation
         .cookies_browser
         .as_deref()
         .map(str::trim)
@@ -250,6 +273,12 @@ pub struct RunOutput {
     pub stderr: String,
     /// Exit status code, `None` when killed by a signal.
     pub code: Option<i32>,
+    /// True when this output comes from the retry that dropped the cookies,
+    /// because the first attempt could not read them. It is the one piece of
+    /// context the stderr alone cannot carry, and a generic failure such as a
+    /// site's bot check only makes sense once it is known the request went out
+    /// anonymously on purpose.
+    pub cookies_unreadable: bool,
 }
 
 impl RunOutput {
@@ -258,6 +287,23 @@ impl RunOutput {
     /// nothing (design §4.3, measured in §9.5).
     pub fn success(&self) -> bool {
         self.code == Some(0)
+    }
+
+    /// The failure this run represents.
+    ///
+    /// An unclassified failure after the cookies were dropped is reported as
+    /// "cookies unreachable" rather than as the site's raw wording: `Sign in to
+    /// confirm you're not a bot` is what an anonymous request gets, and the fix
+    /// is to fix the cookie source, not to retry the same import. A classified
+    /// failure (gone, rate-limited, needs a login) is specific enough to keep.
+    pub fn classified(&self) -> crate::site::error::ImportError {
+        use crate::site::error::ImportError;
+        match crate::site::error::classify(&self.stderr) {
+            ImportError::Other(detail) if self.cookies_unreadable => {
+                ImportError::CookiesUnreadable(detail)
+            }
+            other => other,
+        }
     }
 }
 
@@ -294,10 +340,57 @@ where
 /// both pipes, and a full stderr pipe would deadlock it while we read stdout.
 /// The child is `kill_on_drop(true)`, so aborting the owning task (a cancel)
 /// kills it, and `stdin` is closed.
+///
+/// One retry is built in: when the run failed only because the browser's cookie
+/// jar could not be read, the stage is repeated without
+/// `--cookies-from-browser` (see [`without_cookies`]).
 pub async fn run(
     app: Option<&tauri::AppHandle>,
     invocation: &Invocation,
     mut on_line: impl FnMut(&str) + Send,
+) -> Result<RunOutput, ImportError> {
+    let mut output = run_once(app, invocation, &mut on_line).await?;
+
+    let Some(retry) = without_cookies(invocation, &output) else {
+        return Ok(output);
+    };
+
+    tracing::warn!(
+        stderr = %output.stderr,
+        "yt-dlp could not read the cookies; retrying this stage without them"
+    );
+    output = run_once(app, &retry, &mut on_line).await?;
+    // The flag is what turns a generic "sign in / bot check" into an actionable
+    // "your cookie source could not be read" (see `RunOutput::classified`).
+    output.cookies_unreadable = true;
+    Ok(output)
+}
+
+/// The same invocation with the cookies stripped, when the failure was only
+/// about reading them.
+///
+/// Cookies are optional for every stage — only a login-gated subtitle needs
+/// them — so a locked Chrome database (yt-dlp#7271 on Windows), Chrome's
+/// app-bound encryption or a stale `cookies.txt` must not abort an import whose
+/// media is public. Pure, so the retry rule is pinned without spawning a process.
+pub fn without_cookies(invocation: &Invocation, output: &RunOutput) -> Option<Invocation> {
+    if output.success() || !invocation.has_cookies() {
+        return None;
+    }
+    if !crate::site::error::is_cookie_database_failure(&output.stderr) {
+        return None;
+    }
+
+    let mut retry = invocation.clone();
+    retry.cookies_browser = None;
+    retry.cookies_file = None;
+    Some(retry)
+}
+
+async fn run_once(
+    app: Option<&tauri::AppHandle>,
+    invocation: &Invocation,
+    on_line: &mut (impl FnMut(&str) + Send),
 ) -> Result<RunOutput, ImportError> {
     // `app` is only needed to resolve paths; the environment resolution used by
     // the CLI produces the same roots, so it is the fallback either way.
@@ -390,6 +483,7 @@ pub async fn run(
         stdout: collected,
         stderr,
         code: status.code(),
+        cookies_unreadable: false,
     };
 
     tracing::debug!(
@@ -410,6 +504,7 @@ mod tests {
             stage: Stage::Resolve,
             url: "https://www.bilibili.com/video/BV1GJ411x7h7".to_string(),
             cookies_browser: cookies.map(str::to_string),
+            cookies_file: None,
             ffmpeg: ffmpeg.map(PathBuf::from),
         }
     }
@@ -429,6 +524,7 @@ mod tests {
                 },
                 url: "u".to_string(),
                 cookies_browser: None,
+                cookies_file: None,
                 ffmpeg: None,
             },
             Invocation {
@@ -439,6 +535,7 @@ mod tests {
                 },
                 url: "u".to_string(),
                 cookies_browser: None,
+                cookies_file: None,
                 ffmpeg: None,
             },
         ];
@@ -473,6 +570,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: None,
         });
 
@@ -496,6 +594,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: None,
         });
         assert!(fetch.iter().any(|arg| arg == NO_PROGRESS_ARG), "{fetch:?}");
@@ -532,6 +631,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: None,
         });
         assert!(argv.iter().any(|arg| arg == "--convert-subs"), "{argv:?}");
@@ -573,6 +673,138 @@ mod tests {
         }
     }
 
+    /// A locked Chrome cookie database must not abort an import whose subtitles
+    /// are public: the stage is retried once without `--cookies-from-browser`.
+    #[test]
+    fn an_unreadable_cookie_jar_is_retried_without_cookies() {
+        let invocation = resolve_invocation(Some("chrome"), None);
+        let failed = RunOutput {
+            stdout: String::new(),
+            stderr: "ERROR: Could not copy Chrome cookie database. See \
+                     https://github.com/yt-dlp/yt-dlp/issues/7271 for more info"
+                .to_string(),
+            code: Some(1),
+            cookies_unreadable: false,
+        };
+
+        let retry = without_cookies(&invocation, &failed).expect("retry expected");
+        assert_eq!(retry.cookies_browser, None);
+        let argv = build_argv(&retry);
+        assert!(!argv.iter().any(|arg| arg == "--cookies-from-browser"), "{argv:?}");
+        // Everything else is untouched: it is the same stage, same URL.
+        assert_eq!(retry.url, invocation.url);
+        assert_eq!(format!("{:?}", retry.stage), format!("{:?}", invocation.stage));
+
+        // The app-bound-encryption wording (Chrome 127+) takes the same path.
+        let undecryptable = RunOutput {
+            stdout: String::new(),
+            stderr: "ERROR: Failed to decrypt with DPAPI. See \
+                     https://github.com/yt-dlp/yt-dlp/issues/10927 for more info"
+                .to_string(),
+            code: Some(1),
+            cookies_unreadable: false,
+        };
+        assert!(without_cookies(&invocation, &undecryptable).is_some());
+    }
+
+    /// The retry must stay narrow: a success, an unconfigured cookie jar, a
+    /// different failure and a bare `PermissionError` are all left alone.
+    #[test]
+    fn the_cookie_retry_is_not_a_general_retry() {
+        let invocation = resolve_invocation(Some("chrome"), None);
+        let failed = |stderr: &str| RunOutput {
+            stdout: String::new(),
+            stderr: stderr.to_string(),
+            code: Some(1),
+            cookies_unreadable: false,
+        };
+
+        // Already worked: nothing to retry.
+        assert!(without_cookies(&invocation, &RunOutput { code: Some(0), ..failed("") }).is_none());
+        // No cookies configured: the flag was never there.
+        assert!(without_cookies(&resolve_invocation(None, None), &failed(
+            "ERROR: Could not copy Chrome cookie database."
+        ))
+        .is_none());
+        // Unrelated failures must not lose the user's cookies.
+        assert!(without_cookies(
+            &invocation,
+            &failed("ERROR: [BiliBili] BV1x: HTTP Error 412: Precondition Failed")
+        )
+        .is_none());
+        assert!(without_cookies(
+            &invocation,
+            &failed("ERROR: unable to open output file: Permission denied")
+        )
+        .is_none());
+    }
+
+    /// An exported `cookies.txt` wins over the browser: it is the only source
+    /// that works when the browser's jar cannot be decrypted in place, and
+    /// passing both would make yt-dlp read two jars.
+    #[test]
+    fn an_exported_cookie_file_wins_over_the_browser() {
+        let mut invocation = resolve_invocation(Some("chrome"), None);
+        invocation.cookies_file = Some(PathBuf::from("/home/u/cookies.txt"));
+
+        let argv = build_argv(&invocation);
+        let index = argv
+            .iter()
+            .position(|arg| arg == "--cookies")
+            .expect("--cookies present");
+        assert_eq!(argv[index + 1], "/home/u/cookies.txt");
+        assert!(
+            !argv.iter().any(|arg| arg == "--cookies-from-browser"),
+            "{argv:?}"
+        );
+
+        // An empty path is "not configured", not `--cookies ""`.
+        invocation.cookies_file = Some(PathBuf::new());
+        let argv = build_argv(&invocation);
+        assert!(!argv.iter().any(|arg| arg == "--cookies"), "{argv:?}");
+        assert!(argv.iter().any(|arg| arg == "--cookies-from-browser"), "{argv:?}");
+    }
+
+    /// A failed anonymous retry must not surface the site's bot-check wording as
+    /// a mystery: it is reported as "the cookie source is unreadable".
+    #[test]
+    fn an_anonymous_retry_reports_the_cookie_source() {
+        let output = RunOutput {
+            stdout: String::new(),
+            stderr: "ERROR: [youtube] ixw8pLpXtYs: Sign in to confirm you’re not a bot."
+                .to_string(),
+            code: Some(1),
+            cookies_unreadable: true,
+        };
+        match output.classified() {
+            crate::site::error::ImportError::CookiesUnreadable(detail) => {
+                assert!(detail.contains("not a bot"), "{detail}")
+            }
+            other => panic!("expected CookiesUnreadable, got {other:?}"),
+        }
+
+        // A specific verdict is kept as-is: "video is private" is not about cookies.
+        let specific = RunOutput {
+            stderr: "ERROR: [x] BV1: This video is private".to_string(),
+            cookies_unreadable: true,
+            ..output.clone()
+        };
+        assert!(matches!(
+            specific.classified(),
+            crate::site::error::ImportError::Unavailable(_)
+        ));
+
+        // Without the flag the same stderr stays a plain message.
+        let plain = RunOutput {
+            cookies_unreadable: false,
+            ..output
+        };
+        assert!(matches!(
+            plain.classified(),
+            crate::site::error::ImportError::Other(_)
+        ));
+    }
+
     #[test]
     fn resolve_stage_asks_for_the_subtitle_list_and_the_info_dict() {
         let argv = build_argv(&resolve_invocation(None, None));
@@ -596,6 +828,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: None,
         };
         let argv = build_argv(&invocation);
@@ -648,6 +881,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: Some(PathBuf::from("/bin/ffmpeg")),
         });
 
@@ -696,6 +930,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: None,
         });
 
@@ -752,6 +987,7 @@ mod tests {
             },
             url: "u".to_string(),
             cookies_browser: None,
+            cookies_file: None,
             ffmpeg: None,
         });
         assert!(!audio.iter().any(|arg| arg == "--skip-download"), "{audio:?}");

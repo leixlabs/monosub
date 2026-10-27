@@ -33,6 +33,7 @@ import { getVersion } from '@tauri-apps/api/app';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
+import { cn } from '@/lib/utils';
 import { getLogDirectory, openLogsDirectory, reportFrontendError } from '@/lib/logging';
 import {
   cliInstallCommand,
@@ -43,7 +44,7 @@ import {
   type CliInfo,
 } from '@/lib/config';
 import { GlassButton } from '@/components/ui/glass-button';
-import { GlassBadge } from '@/components/ui/glass-badge';
+import { GlassBadge, glassBadgeVariants } from '@/components/ui/glass-badge';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import {
   MODEL_DOWNLOAD_COMPLETE_EVENT,
@@ -70,10 +71,35 @@ import {
  * * `files`     — interface language, subtitle format/language, processing
  * * `models`    — recognition plan + model management
  * * `translate` — local translation switch, target language, model
- * * `urlImport` — imported-subtitle directory, Bilibili cookie source, prefer-local
+ * * `urlImport` — imported-subtitle directory, cookie source (browser or
+ *   exported `cookies.txt`), prefer-local. Carries a Beta marker.
  * * `system`    — notifications + about/updates
  */
 type SettingsCategory = 'files' | 'models' | 'translate' | 'urlImport' | 'system';
+
+/**
+ * "Beta" marker for a whole settings group. Deliberately quieter than a status
+ * badge: it sits beside a label, so amber-on-transparent at the same text scale,
+ * and the label itself comes from i18n (`settings.urlImport.beta`).
+ *
+ * Rendered as a `<span>` rather than `GlassBadge` because one of its two homes
+ * is inside the category button, whose content must stay phrasing content.
+ */
+function BetaBadge({ className }: { className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <span
+      className={cn(
+        glassBadgeVariants({ variant: 'warning', size: 'sm' }),
+        'uppercase tracking-wide',
+        className,
+      )}
+      data-testid="settings-beta-badge"
+    >
+      {t('settings.urlImport.beta')}
+    </span>
+  );
+}
 
 /**
  * The only external link the About card offers. MonoSub is source-available
@@ -799,6 +825,7 @@ export function Settings() {
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="font-medium truncate">{item.label}</span>
+                    {item.id === 'urlImport' && <BetaBadge className="ml-auto shrink-0" />}
                   </GlassButton>
                 );
               })}
@@ -807,17 +834,25 @@ export function Settings() {
 
           <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-bg-tertiary/90 dark:bg-zinc-900/60">
             <div className="px-8 py-5 border-b border-glass-border-light dark:border-glass-border-dark bg-bg-tertiary/95 dark:bg-zinc-900/70">
-              <h3 className="text-base font-bold text-text-primary dark:text-white">
-                {
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-text-primary dark:text-white">
                   {
-                    files: t('settings.files.title'),
-                    models: t('settings.modelsGroup.title'),
-                    translate: t('settings.translate.title'),
-                    urlImport: t('settings.urlImport.title'),
-                    system: t('settings.system.title'),
-                  }[activeCategory]
-                }
-              </h3>
+                    {
+                      files: t('settings.files.title'),
+                      models: t('settings.modelsGroup.title'),
+                      translate: t('settings.translate.title'),
+                      urlImport: t('settings.urlImport.title'),
+                      system: t('settings.system.title'),
+                    }[activeCategory]
+                  }
+                </h3>
+                {activeCategory === 'urlImport' && <BetaBadge />}
+              </div>
+              {activeCategory === 'urlImport' && (
+                <p className="mt-1 text-xs text-text-tertiary dark:text-gray-500 leading-relaxed">
+                  {t('settings.urlImport.betaHint')}
+                </p>
+              )}
             </div>
 
             <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-8 py-6 bg-bg-secondary/60 dark:bg-zinc-900/50">

@@ -43,18 +43,6 @@ export type MemoryBudget = 'small' | 'medium' | 'large'
 export type ModelOverrideSlot = 'asr' | 'vad' | 'align' | 'diar'
 
 /**
- * Browser whose Bilibili cookies yt-dlp may read (`--cookies-from-browser`).
- *
- * `''` means "not configured", which is the default: reading a browser's cookie
- * store must be an explicit choice, never something that happens because the user
- * pasted a link (url-import-design §4.5).
- */
-export type CookiesBrowser = '' | 'chrome' | 'edge' | 'firefox' | 'safari'
-
-/** The browsers the login prompt offers, in the order it lists them. */
-export const COOKIES_BROWSERS: Exclude<CookiesBrowser, ''>[] = ['chrome', 'edge', 'firefox', 'safari']
-
-/**
  * One in-flight URL import.
  *
  * Kept in its own, **non-persisted** slice rather than in `files`: an import is
@@ -80,8 +68,6 @@ export interface UrlImportState {
   /** True when `skipExistingSubtitle` skipped every file. */
   skipped?: boolean
   error?: string
-  /** True when the fix is to configure cookies and retry. */
-  needsCookies?: boolean
   /** A URL that can be retried verbatim from the row. */
   url: string
 }
@@ -311,8 +297,6 @@ export interface AppSettings {
   // file the user will eventually clear.
   /** Output directory for imported subtitles. `''` means `~/Downloads/MonoSub`. */
   urlImportOutputDir: string
-  /** Browser to read Bilibili cookies from; `''` = not configured. */
-  bilibiliCookiesBrowser: CookiesBrowser
   /**
    * Skip the platform subtitle and always recognise locally.
    *
@@ -383,7 +367,6 @@ const defaultSettings: AppSettings = {
   translateTargetLanguage: 'en',
   translationModelId: '',
   urlImportOutputDir: '',
-  bilibiliCookiesBrowser: '',
   preferLocalRecognition: false,
   clipboardWatchEnabled: true,
   concurrency: 1,
@@ -450,9 +433,6 @@ export const TRANSLATE_TARGET_LANGUAGES: TranslateTargetLanguage[] = [
 
 const isTranslateTargetLanguage = (value: unknown): value is TranslateTargetLanguage =>
   typeof value === 'string' && (TRANSLATE_TARGET_LANGUAGES as string[]).includes(value)
-
-const isCookiesBrowser = (value: unknown): value is CookiesBrowser =>
-  value === '' || (typeof value === 'string' && (COOKIES_BROWSERS as string[]).includes(value))
 
 interface AppState {
   // File queue management
@@ -529,7 +509,9 @@ type PersistedAppState = Pick<
 // the one step that retires a field, and it migrates the value instead of
 // dropping it (see `memoryBudgetFromSpeed`).
 // v7 added `settings.concurrency`; v6 and older keep every field they had.
-const PERSIST_VERSION = 7
+// v8 briefly carried a cookie-file setting that was removed again; the version
+// stays so blobs that already hold the stale keys are rewritten without them.
+const PERSIST_VERSION = 8
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null
@@ -562,7 +544,6 @@ const normalizeSettings = (value: unknown): AppSettings => {
     translationModelId: typeof persisted.translationModelId === 'string' ? persisted.translationModelId : defaultSettings.translationModelId,
     // v4 blobs carry none of these; same add-only rule.
     urlImportOutputDir: typeof persisted.urlImportOutputDir === 'string' ? persisted.urlImportOutputDir : defaultSettings.urlImportOutputDir,
-    bilibiliCookiesBrowser: isCookiesBrowser(persisted.bilibiliCookiesBrowser) ? persisted.bilibiliCookiesBrowser : defaultSettings.bilibiliCookiesBrowser,
     preferLocalRecognition: typeof persisted.preferLocalRecognition === 'boolean' ? persisted.preferLocalRecognition : defaultSettings.preferLocalRecognition,
     clipboardWatchEnabled: typeof persisted.clipboardWatchEnabled === 'boolean' ? persisted.clipboardWatchEnabled : defaultSettings.clipboardWatchEnabled,
     // v7 added this. Clamped rather than trusted: the Rust side clamps too, and

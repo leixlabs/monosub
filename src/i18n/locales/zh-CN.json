@@ -165,7 +165,9 @@
       "cliCopyFailed": "复制命令失败"
     },
     "urlImport": {
-      "title": "链接导入"
+      "title": "链接导入",
+      "beta": "Beta",
+      "betaHint": "该功能仍在测试中：支持的站点、字幕与登录行为可能随时调整。"
     }
   },
   "notification": {
@@ -370,16 +372,7 @@
       "retry": "重试"
     },
     "login": {
-      "explain": "该字幕仅对已登录用户开放。选择你用于该站点的浏览器，然后重试。",
-      "privacy": "MonoSub 只会读取所选浏览器中该站点的 cookie，且仅用于本机请求。",
-      "safariHint": "使用 Safari 时，还需要在「系统设置 → 隐私与安全性」中为 MonoSub 授予「完全磁盘访问权限」。Chrome 与 Edge 会弹出钥匙串授权。",
-      "browsers": {
-        "chrome": "Chrome",
-        "edge": "Edge",
-        "firefox": "Firefox",
-        "safari": "Safari"
-      },
-      "queuedHint": "该视频的字幕仅对已登录用户开放。可在「设置 → 链接导入」中配置 cookie，下次就能直接取字幕。"
+      "queuedHint": "该视频的字幕仅对已登录用户开放，已改用本地识别生成字幕。"
     },
     "errors": {
       "unsupported_site": "不支持该链接",
@@ -390,11 +383,14 @@
       "rateLimited": "该站点暂时限制了请求频率，请稍后再试",
       "engineMissing": "下载器（yt-dlp）缺失，请重新安装 MonoSub。",
       "subtitleUnusable": "无法读取该视频的字幕",
+      "unavailable": "该视频不可用（可能已删除、设为私有或受地区限制）",
       "outputDirFailed": "无法创建输出目录",
       "writeFailed": "无法写入字幕文件",
       "cacheDirFailed": "无法创建缓存目录",
       "downloadFailed": "音频下载失败",
       "infoJsonFailed": "无法准备字幕下载",
+      "cookiesUnreadable": "该视频需要登录后才能获取，暂不支持。可稍后重试或换一个链接",
+      "cookiesFileMissing": "找不到 cookie 文件，请重新选择",
       "failed": "导入失败"
     },
     "settings": {
@@ -402,12 +398,8 @@
       "outputDir": "下载/保存目录",
       "outputDirHint": "下载的视频音频与字幕会放在同一个目录，文件名按视频标题命名。留空则使用 ~/Downloads/MonoSub。",
       "chooseFolder": "选择目录",
-      "cookiesBrowser": "站点 cookie 来源",
-      "cookiesBrowserHint": "只有在视频字幕需要登录时才需要配置。",
-      "cookiesNone": "未配置",
       "preferLocal": "优先本地识别",
       "preferLocalHint": "忽略平台字幕，始终走本地语音识别，结果与本地文件一致。",
-      "privacy": "只有在你选择浏览器后才会读取 cookie，且只读取该站点的 cookie、仅在本机使用。",
       "clipboardWatch": "监视剪贴板",
       "clipboardWatchHint": "复制受支持的视频链接时，直接弹出一键导入"
     }

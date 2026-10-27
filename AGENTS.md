@@ -101,7 +101,7 @@ monosub/
 │   │   ├── Settings.tsx         # Settings shell + 5 sidebar groups
 │   │   ├── SettingsModelPlan.tsx
 │   │   ├── SettingsTranslation.tsx
-│   │   ├── SettingsUrlImport.tsx # urlImport group: dir, cookies, prefer-local
+│   │   ├── SettingsUrlImport.tsx # urlImport group: dir, cookies (browser|file), prefer-local
 │   │   ├── UrlImportDialog.tsx  # Paste links; per-URL errors; mirrors Settings
 │   │   ├── UrlImportItem.tsx    # One import row above FileList (not in files)
 │   │   └── ThemeToggle.tsx
@@ -1334,7 +1334,7 @@ that would hand every engine a directory with no models in it. It is accepted on
 | `src/components/SettingsTranslation.tsx` | Translation **default** switch, target language, translation-model download; the target and the model are configure-once |
 | `src/components/BatchTranslationToggle.tsx` | Queue-toolbar translation switch: applies one value to every pending file, the way `BatchDiarizationToggle` does for speaker separation |
 | `src/components/BatchDiarizationToggle.tsx` | Queue-toolbar speaker-separation switch (all pending files at once) |
-| `src/components/SettingsUrlImport.tsx` | The `urlImport` Settings group (output dir, Bilibili cookie browser, prefer-local) |
+| `src/components/SettingsUrlImport.tsx` | The `urlImport` Settings group (output dir, cookie source — browser or exported `cookies.txt` — and prefer-local) |
 | `src/components/UrlImportDialog.tsx` | "From a link" panel: paste, per-row errors, language/output dir mirrored from Settings |
 | `src/components/UrlImportItem.tsx` | One import row rendered above `FileList`; never a member of `files` |
 | `src/lib/urlImport.ts` | `parse_url_input` / `start_url_import` wrappers + the `url_import_*` listeners |

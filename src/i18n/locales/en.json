@@ -165,7 +165,9 @@
       "cliCopyFailed": "Could not copy the command"
     },
     "urlImport": {
-      "title": "URL Import"
+      "title": "URL Import",
+      "beta": "Beta",
+      "betaHint": "This feature is still in testing: supported sites, subtitles and sign-in behaviour may change."
     }
   },
   "models": {
@@ -370,16 +372,7 @@
       "retry": "Retry"
     },
     "login": {
-      "explain": "This subtitle is only available to signed-in users. Pick the browser you use for this site, then retry.",
-      "privacy": "MonoSub reads only that site's cookies from the browser you pick, and only for the request on this machine.",
-      "safariHint": "Safari also needs Full Disk Access for MonoSub in System Settings → Privacy & Security. Chrome and Edge will ask for your keychain.",
-      "browsers": {
-        "chrome": "Chrome",
-        "edge": "Edge",
-        "firefox": "Firefox",
-        "safari": "Safari"
-      },
-      "queuedHint": "This video's subtitle is only available to signed-in users. Settings → URL Import can add your cookies to skip recognition next time."
+      "queuedHint": "This video's subtitle is only available to signed-in users, so it is being recognised locally instead."
     },
     "errors": {
       "unsupported_site": "This link is not supported",
@@ -390,11 +383,14 @@
       "rateLimited": "The site is rate-limiting requests, please try again later",
       "engineMissing": "The downloader (yt-dlp) is missing. Reinstall MonoSub.",
       "subtitleUnusable": "This video's subtitle could not be read",
+      "unavailable": "This video is unavailable (deleted, private, or region-locked)",
       "outputDirFailed": "Could not create the output folder",
       "writeFailed": "Could not write the subtitle file",
       "cacheDirFailed": "Could not create the cache folder",
       "downloadFailed": "The audio download failed",
       "infoJsonFailed": "Could not prepare the subtitle download",
+      "cookiesUnreadable": "This video requires a signed-in session and is not supported yet. Try again later or use another link",
+      "cookiesFileMissing": "The cookie file was not found, please choose it again",
       "failed": "The import failed"
     },
     "settings": {
@@ -402,12 +398,8 @@
       "outputDir": "Download and save to",
       "outputDirHint": "Downloaded video/audio and the subtitle go into this same folder, named after the video. Leave empty for ~/Downloads/MonoSub.",
       "chooseFolder": "Choose folder",
-      "cookiesBrowser": "Site cookies",
-      "cookiesBrowserHint": "Needed only for videos whose subtitles require a login.",
-      "cookiesNone": "Not configured",
       "preferLocal": "Always recognise locally",
       "preferLocalHint": "Ignore platform subtitles and always run speech recognition, so the result matches a local file.",
-      "privacy": "Reading cookies only happens when you pick a browser. Only that site's cookies are read, and only on this machine.",
       "clipboardWatch": "Watch the clipboard",
       "clipboardWatchHint": "Offer a one-click import when you copy a supported video link"
     }

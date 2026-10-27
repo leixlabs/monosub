@@ -7,12 +7,11 @@ import {
   Link2,
   Loader2,
   RotateCcw,
-  ShieldAlert,
   Subtitles,
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useStore, COOKIES_BROWSERS, type CookiesBrowser, type UrlImportState } from '@/store/useStore';
+import { useStore, type UrlImportState } from '@/store/useStore';
 import { GlassCard } from '@/components/ui/glass-card';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
@@ -48,13 +47,11 @@ const ACTIVE_STAGES: UrlImportState['status'][] = [
 export function UrlImportItem({ urlImport }: UrlImportItemProps) {
   const { t } = useTranslation();
   const settings = useStore((state) => state.settings);
-  const updateSettings = useStore((state) => state.updateSettings);
   const [isRetrying, setIsRetrying] = useState(false);
 
   const isActive = ACTIVE_STAGES.includes(urlImport.status);
   const isDone = urlImport.status === 'done';
   const isError = urlImport.status === 'error';
-  const needsCookies = Boolean(urlImport.needsCookies);
 
   const label = useMemo(() => {
     if (isDone) {
@@ -85,10 +82,6 @@ export function UrlImportItem({ urlImport }: UrlImportItemProps) {
   const handleReveal = async () => {
     if (!firstWrittenPath) return;
     await revealImportedFile(firstWrittenPath);
-  };
-
-  const handleBrowserChange = (browser: CookiesBrowser) => {
-    updateSettings({ bilibiliCookiesBrowser: browser });
   };
 
   return (
@@ -165,36 +158,6 @@ export function UrlImportItem({ urlImport }: UrlImportItemProps) {
                 ) : (
                   <div className="h-full w-1/3 bg-primary/70 rounded-full animate-pulse-soft" />
                 )}
-              </div>
-            )}
-
-            {/* Login guidance (design §4.5). Only on the 412 path: it is the one
-                failure a browser choice actually fixes. */}
-            {isError && needsCookies && (
-              <div className="p-2.5 rounded-xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50 space-y-2">
-                <p className="flex items-start gap-1.5 text-xs text-text-secondary dark:text-gray-400">
-                  <ShieldAlert className="w-3.5 h-3.5 mt-0.5 shrink-0 text-warning" />
-                  {t('urlImport.login.explain')}
-                </p>
-                <div className="flex flex-wrap items-center gap-1.5">
-                  {COOKIES_BROWSERS.map((browser) => (
-                    <GlassButton
-                      key={browser}
-                      variant={settings.bilibiliCookiesBrowser === browser ? 'primary' : 'outline'}
-                      size="sm"
-                      data-testid={`url-import-cookies-${browser}`}
-                      onClick={() => handleBrowserChange(browser)}
-                    >
-                      {t(`urlImport.login.browsers.${browser}`)}
-                    </GlassButton>
-                  ))}
-                </div>
-                <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-relaxed">
-                  {t('urlImport.login.privacy')}
-                </p>
-                <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-relaxed">
-                  {t('urlImport.login.safariHint')}
-                </p>
               </div>
             )}
           </div>

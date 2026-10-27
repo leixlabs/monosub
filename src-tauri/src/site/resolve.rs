@@ -188,6 +188,7 @@ pub async fn run(
         stage: crate::site::ytdlp::Stage::Resolve,
         url: request.url.clone(),
         cookies_browser: crate::site::cookies_of(request),
+        cookies_file: crate::site::cookies_file_of(request),
         ffmpeg: Some(crate::site::ffmpeg_of(app)),
     };
 
@@ -200,7 +201,7 @@ pub async fn run(
     // the stderr verdict is taken before the stdout one: it is the more specific
     // answer, and a login wall is the difference between "retry" and "configure
     // cookies".
-    let classified = crate::site::error::classify(&output.stderr);
+    let classified = output.classified();
     if !matches!(classified, ImportError::Other(_)) {
         return Err(classified);
     }

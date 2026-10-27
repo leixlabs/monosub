@@ -125,8 +125,10 @@ export const NEEDS_COOKIES_STATUS = 'URL_IMPORT_NEEDS_COOKIES';
  * Turn a backend status into the row's message.
  *
  * The backend may send a bare sentinel, an i18n key, or `key:detail` where the
- * detail is engine prose worth showing. A key that no locale defines falls back
- * to the raw string, so nothing is ever swallowed.
+ * detail is engine prose worth showing. The backend writes `urlImport.<name>`
+ * while the locale tree is `urlImport.errors.<name>`, so the lookup rewrites the
+ * prefix. A key that no locale defines falls back to the raw string, so nothing
+ * is ever swallowed.
  */
 export const describeStatus = (status: string): string => {
   if (status === NEEDS_COOKIES_STATUS) {
@@ -136,7 +138,10 @@ export const describeStatus = (status: string): string => {
   const [key, ...rest] = status.split(':');
   const detail = rest.join(':').trim();
   if (key.startsWith('urlImport.') || key.startsWith('errors.')) {
-    const translated = i18n.t(key, { defaultValue: '' });
+    const localeKey = key.startsWith('urlImport.')
+      ? `urlImport.errors.${key.slice('urlImport.'.length)}`
+      : key;
+    const translated = i18n.t(localeKey, { defaultValue: '' });
     if (translated) {
       return detail ? `${translated}: ${detail}` : translated;
     }
@@ -144,9 +149,6 @@ export const describeStatus = (status: string): string => {
 
   return status;
 };
-
-/** Whether a status means "configure cookies and retry". */
-export const isNeedsCookiesStatus = (status: string): boolean => status === NEEDS_COOKIES_STATUS;
 
 /** Whether a status is the `MODEL_NOT_INSTALLED[:<id>]` sentinel. */
 export const isModelNotInstalledStatus = (status: string): boolean =>
@@ -204,7 +206,6 @@ export const ensureUrlImportListeners = (): (() => void) => {
     useStore.getState().updateUrlImport(task_id, {
       status: 'error',
       progress: undefined,
-      needsCookies: isNeedsCookiesStatus(status),
       error: describeStatus(status),
     });
   });
@@ -339,7 +340,9 @@ export const startUrlImport = async (url: string): Promise<string> => {
         formats: state.settings.outputFormat,
         output_dir: resolveUrlImportOutputDir(),
         skip_existing: state.settings.skipExistingSubtitle,
-        cookies_browser: state.settings.bilibiliCookiesBrowser || null,
+        // No cookie source is ever sent: users are not asked to configure one.
+        cookies_browser: null,
+        cookies_file: null,
         // The URL-import dialog has no per-run switch (there is no queue row to
         // toggle before the job starts), so it takes the app-wide default. The
         // target and model are configure-once, as everywhere else.

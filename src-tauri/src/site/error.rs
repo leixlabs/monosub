@@ -33,6 +33,12 @@ pub mod stderr {
         "This video has been removed",
         "This video is not available in your country",
     ];
+    /// yt-dlp could not read the browser's cookie jar: the SQLite file was
+    /// locked (Chrome/Edge running on Windows), the profile path did not exist,
+    /// or Chrome's app-bound encryption defeated the decryption. Cookies are
+    /// optional for every stage, so this is only fatal if the retry without them
+    /// also fails.
+    pub const COOKIE_DB_UNREADABLE: &str = "cookie database";
     /// Network-level failures: worth a retry, never worth a login prompt.
     pub const NETWORK_MARKERS: [&str; 5] = [
         "Connection reset by peer",
@@ -58,6 +64,9 @@ pub enum ImportError {
     RateLimited,
     /// The bundled executable is missing or not executable.
     BinaryMissing(String),
+    /// The configured cookie source could not be read, so the request went out
+    /// anonymously and the site asked for a login/bot check.
+    CookiesUnreadable(String),
     /// A subtitle could not be parsed or was empty.
     SubtitleUnusable(String),
     /// Anything else, with the stderr tail for the log.
@@ -82,6 +91,9 @@ impl ImportError {
             ImportError::MultiPart => "urlImport.multiPart".to_string(),
             ImportError::Network(detail) => format!("urlImport.network:{}", detail),
             ImportError::RateLimited => "urlImport.rateLimited".to_string(),
+            ImportError::CookiesUnreadable(detail) => {
+                format!("urlImport.cookiesUnreadable:{}", detail)
+            }
             ImportError::BinaryMissing(detail) => format!("urlImport.engineMissing:{}", detail),
             ImportError::SubtitleUnusable(detail) => format!("urlImport.subtitleUnusable:{}", detail),
             ImportError::Other(detail) => detail.clone(),
@@ -96,10 +108,17 @@ impl ImportError {
     /// Whether falling back to transcription is a sane response. A login wall,
     /// a deleted video and a missing binary are not: the audio fetch would fail
     /// the same way, so the user would wait for nothing.
+    ///
+    /// An unreadable cookie jar is the exception among the auth failures: only
+    /// some sites gate *subtitles* behind a login, while the audio is public, so
+    /// one anonymous retry of the media path is still worth it (design §4.5).
     pub fn allows_fallback(&self) -> bool {
         matches!(
             self,
-            ImportError::RateLimited | ImportError::SubtitleUnusable(_) | ImportError::Other(_)
+            ImportError::RateLimited
+                | ImportError::SubtitleUnusable(_)
+                | ImportError::CookiesUnreadable(_)
+                | ImportError::Other(_)
         )
     }
 }
@@ -132,6 +151,36 @@ pub fn classify(stderr: &str) -> ImportError {
 /// logging in would have given them the platform subtitle (design §4.5).
 pub fn needs_login_hint(stderr: &str) -> bool {
     stderr.contains(stderr::NEEDS_LOGIN_SUBTITLES)
+}
+
+/// Whether yt-dlp aborted because it could not read the browser's cookie jar.
+///
+/// Checked *before* classifying, because the fix is not "log in" or "the video is
+/// gone" but "retry the same stage without `--cookies-from-browser`": a locked
+/// Chrome database (the common Windows case, yt-dlp#7271) or Chrome's app-bound
+/// encryption breaks cookie *reading*, yet the subtitles of an ordinary public
+/// video never needed cookies in the first place. Treating it as a hard failure
+/// aborts an import that would otherwise have succeeded.
+///
+/// The quoted yt-dlp wording is matched case-insensitively and paired with a
+/// qualifier, so an unrelated `PermissionError` (say, an unwritable output path)
+/// does not silently drop the user's cookies.
+pub fn is_cookie_database_failure(stderr: &str) -> bool {
+    let text = stderr.to_ascii_lowercase();
+    let names_the_db = text.contains(stderr::COOKIE_DB_UNREADABLE)
+        || text.contains("cookies database")
+        // Chrome 127+ app-bound encryption: the copy succeeds, the decryption
+        // does not, and yt-dlp names DPAPI rather than the database.
+        || text.contains("failed to decrypt with dpapi")
+        || (text.contains("cookie") && text.contains("failed to decrypt"));
+
+    if !names_the_db {
+        return false;
+    }
+
+    // `Could not copy …`, `could not find chrome cookies database in …` and the
+    // decrypt path are all "the jars were unreadable".
+    text.contains("could not") || text.contains("unable to") || text.contains("failed to")
 }
 
 /// The `ERROR: …` line if there is one, else the last non-empty line. Used so a
@@ -208,6 +257,36 @@ WARNING: [BiliBili] Subtitles are only available when logged in. Use --cookies-f
         assert_eq!(classify(mixed), ImportError::RateLimited);
     }
 
+    /// Chrome's cookie database locked (`yt-dlp#7271`) or made unreadable by its
+    /// app-bound encryption must be recognised, because the fix is a retry
+    /// without cookies rather than a login prompt.
+    #[test]
+    fn recognises_an_unreadable_browser_cookie_jar() {
+        for stderr in [
+            "ERROR: Could not copy Chrome cookie database. See \
+             https://github.com/yt-dlp/yt-dlp/issues/7271 for more info",
+            "ERROR: Could not copy Edge cookie database. See \
+             https://github.com/yt-dlp/yt-dlp/issues/7271 for more info",
+            "ERROR: could not find firefox cookies database in \
+             \"C:\\Users\\x\\AppData\\Roaming\\Mozilla\\Firefox\\Profiles\\x\"",
+            "ERROR: Failed to decrypt with DPAPI. See \
+             https://github.com/yt-dlp/yt-dlp/issues/10927 for more info",
+        ] {
+            assert!(is_cookie_database_failure(stderr), "{stderr}");
+        }
+
+        for stderr in [
+            "",
+            "ERROR: [BiliBili] BV1x: HTTP Error 412: Precondition Failed",
+            // A permission failure that has nothing to do with the cookie jar.
+            "ERROR: unable to open output file: Permission denied",
+            // Mentions cookies but the run was fine.
+            "WARNING: Extracting cookies from chrome succeeded",
+        ] {
+            assert!(!is_cookie_database_failure(stderr), "{stderr}");
+        }
+    }
+
     #[test]
     fn detects_the_needs_login_subtitle_warning() {
         assert!(needs_login_hint(LOGIN_HINT));
@@ -231,6 +310,10 @@ WARNING: [BiliBili] Subtitles are only available when logged in. Use --cookies-f
             ImportError::BinaryMissing("no yt-dlp".into()).status(),
             "urlImport.engineMissing:no yt-dlp"
         );
+        assert_eq!(
+            ImportError::CookiesUnreadable("bot check".into()).status(),
+            "urlImport.cookiesUnreadable:bot check"
+        );
         // `Other` is a message, shown verbatim.
         assert_eq!(ImportError::Other("boom".into()).status(), "boom");
     }
@@ -246,10 +329,15 @@ WARNING: [BiliBili] Subtitles are only available when logged in. Use --cookies-f
         assert!(!ImportError::BinaryMissing("x".into()).is_retryable());
 
         // Fallback to transcription: 429 (design §5.9), an unusable subtitle,
-        // and an unclassified failure. Not a login wall or a dead video.
+        // an unreadable cookie jar (the media may still be public) and an
+        // unclassified failure. Not a login wall or a dead video.
         assert!(ImportError::RateLimited.allows_fallback());
         assert!(ImportError::SubtitleUnusable("empty".into()).allows_fallback());
+        assert!(ImportError::CookiesUnreadable("bot check".into()).allows_fallback());
         assert!(ImportError::Other("?".into()).allows_fallback());
+        // A cookie jar that cannot be read is a configuration problem, so a
+        // plain retry of the same request changes nothing.
+        assert!(!ImportError::CookiesUnreadable("x".into()).is_retryable());
         assert!(!ImportError::NeedsCookies.allows_fallback());
         assert!(!ImportError::Unavailable("gone".into()).allows_fallback());
         assert!(!ImportError::MultiPart.allows_fallback());
@@ -286,6 +374,54 @@ ERROR: [BiliBili] BV1x: something specific went wrong";
         match classify(stderr) {
             ImportError::Unavailable(detail) => assert!(detail.contains("private"), "{detail}"),
             other => panic!("expected Unavailable, got {other:?}"),
+        }
+    }
+
+    /// The import statuses are i18n keys, not sentences: the frontend rewrites
+    /// `urlImport.<name>` to `urlImport.errors.<name>` and falls back to the raw
+    /// string. Pin every emitted name against the locale tree, so a rename
+    /// cannot silently show the raw key again (exactly what hid the
+    /// cookiesUnreadable message for weeks).
+    #[test]
+    fn import_statuses_emit_i18n_keys_that_exist_in_the_locales() {
+        let cases = [
+            ImportError::Unavailable("gone".into()),
+            ImportError::MultiPart,
+            ImportError::Network("timeout".into()),
+            ImportError::RateLimited,
+            ImportError::CookiesUnreadable("bot check".into()),
+            ImportError::BinaryMissing("no yt-dlp".into()),
+            ImportError::SubtitleUnusable("empty".into()),
+        ];
+
+        let locales = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("src/i18n/locales");
+
+        for err in cases {
+            let status = err.status();
+            let key = status.split(':').next().unwrap();
+            let name = key.strip_prefix("urlImport.").expect("status prefix");
+
+            for entry in std::fs::read_dir(&locales).expect("read locales") {
+                let path = entry.expect("entry").path();
+                if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                    continue;
+                }
+                let body = std::fs::read_to_string(&path).expect("read locale");
+                let json: serde_json::Value = serde_json::from_str(&body)
+                    .unwrap_or_else(|error| panic!("{}: {}", path.display(), error));
+                assert!(
+                    json.get("urlImport")
+                        .and_then(|u| u.get("errors"))
+                        .and_then(|e| e.get(name))
+                        .is_some(),
+                    "{} is missing urlImport.errors.{}",
+                    path.display(),
+                    name
+                );
+            }
         }
     }
 }

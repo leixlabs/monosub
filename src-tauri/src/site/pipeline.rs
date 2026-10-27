@@ -246,6 +246,7 @@ mod tests {
                 output_dir: output_dir.to_string_lossy().into_owned(),
                 skip_existing: false,
                 cookies_browser: None,
+                cookies_file: None,
                 translate_enabled: None,
                 target_language: None,
                 translation_model: None,

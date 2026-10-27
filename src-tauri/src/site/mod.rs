@@ -154,6 +154,9 @@ pub struct UrlImportRequest {
     pub skip_existing: bool,
     /// `None` = cookies not configured; `chrome`/`edge`/`firefox`/`safari`.
     pub cookies_browser: Option<String>,
+    /// Path to an exported Netscape `cookies.txt`, when the user picked one.
+    /// Takes precedence over `cookies_browser`; see [`cookies_file_of`].
+    pub cookies_file: Option<String>,
     /// Same three fields as `TranscribeRequest`, same meaning.
     pub translate_enabled: Option<bool>,
     pub target_language: Option<String>,
@@ -426,6 +429,17 @@ async fn unregister(task_id: &str) {
 /// translation plan (which needs the catalogue, hence the `AppHandle`).
 async fn execute(app: &AppHandle, params: &JobParams) -> Result<Outcome, ImportError> {
     let request = &params.request;
+    // Fail early and actionably on a stale cookie file path: yt-dlp's own wording
+    // for a missing jar is easy to mistake for "the site rejected me", and the
+    // user's fix is to pick the file again.
+    if let Some(file) = cookies_file_of(request) {
+        if !file.is_file() {
+            return Err(ImportError::Other(format!(
+                "urlImport.cookiesFileMissing:{}",
+                file.display()
+            )));
+        }
+    }
     let paths = crate::paths::AppPaths::from_app(app)
         .map_err(|error| ImportError::Other(format!("urlImport.pathsFailed:{error}")))?;
     let catalogue = crate::engine::catalog::catalog(&paths).ok();
@@ -501,6 +515,7 @@ pub(crate) async fn fetch_subtitle_text(
         },
         url: params.request.url.clone(),
         cookies_browser: cookies(&params.request),
+        cookies_file: cookies_file_of(&params.request),
         ffmpeg: Some(ffmpeg_path(app)),
     };
 
@@ -513,7 +528,7 @@ pub(crate) async fn fetch_subtitle_text(
                 None => Err(if output.success() {
                     ImportError::SubtitleUnusable(format!("no subtitle file for {}", tag))
                 } else {
-                    error::classify(&output.stderr)
+                    output.classified()
                 }),
             }
         })
@@ -625,6 +640,7 @@ pub(crate) async fn download_audio(
         },
         url: request.url.clone(),
         cookies_browser: cookies(request),
+        cookies_file: cookies_file_of(request),
         ffmpeg: Some(ffmpeg_path(app)),
     };
 
@@ -654,7 +670,7 @@ pub(crate) async fn download_audio(
     .await?;
 
     if !output.success() {
-        return Err(error::classify(&output.stderr));
+        return Err(output.classified());
     }
 
     let home_dir = PathBuf::from(&request.output_dir);
@@ -785,6 +801,19 @@ pub(crate) fn cookies_of(request: &UrlImportRequest) -> Option<String> {
     cookies(request)
 }
 
+/// `--cookies <file>`, or `None` when not configured.
+///
+/// Wins over [`cookies_of`]: a jar the user exported is the only cookie source
+/// that works for browsers whose store cannot be decrypted in place.
+pub(crate) fn cookies_file_of(request: &UrlImportRequest) -> Option<PathBuf> {
+    request
+        .cookies_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+}
+
 fn ffmpeg_path(app: &AppHandle) -> PathBuf {
     // Falls back to the environment resolution when the Tauri paths are
     // unavailable: the bundled ffmpeg lives in the same `resources/bin` either
@@ -911,6 +940,7 @@ mod tests {
             output_dir: "/tmp/out".to_string(),
             skip_existing: false,
             cookies_browser: None,
+            cookies_file: None,
             translate_enabled: None,
             target_language: None,
             translation_model: None,
@@ -992,6 +1022,7 @@ mod tests {
                 output_dir: dir.to_string_lossy().into_owned(),
                 skip_existing: false,
                 cookies_browser: None,
+                cookies_file: None,
                 translate_enabled: None,
                 target_language: None,
                 translation_model: None,
