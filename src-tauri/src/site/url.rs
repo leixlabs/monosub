@@ -68,12 +68,27 @@ const TRACKING_PARAMS: [&str; 8] = [
     "share_source",
 ];
 
-/// Hosts whose `/video/BV…` or `/video/av…` path is a single video.
+/// Share-tracking parameters added by the mobile share sheet. Dropping them is
+/// what lets `youtu.be/<id>` and `watch?v=<id>&si=…` de-duplicate to one row.
+/// `list` and `t` stay: they change what gets imported.
+const YOUTUBE_TRACKING_PARAMS: [&str; 4] = ["si", "pp", "feature", "ab_channel"];
+
+/// Hosts whose video URL forms are supported by yt-dlp.
 const VIDEO_HOSTS: [&str; 3] = ["bilibili.com", "www.bilibili.com", "m.bilibili.com"];
+const YOUTUBE_HOSTS: [&str; 6] = [
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "music.youtube.com",
+    "youtube-nocookie.com",
+    "youtu.be",
+];
 /// Short-link host; yt-dlp's generic extractor follows the redirect itself.
 const SHORT_HOST: &str = "b23.tv";
-/// Every accepted video host is rewritten to this one before de-duplication.
+/// Every accepted Bilibili video host is rewritten to this one before de-duplication.
 const CANONICAL_VIDEO_HOST: &str = "www.bilibili.com";
+/// Every accepted YouTube host is rewritten to this one before de-duplication.
+const CANONICAL_YOUTUBE_HOST: &str = "www.youtube.com";
 
 /// Path prefixes that a supported site serves but this build refuses.
 ///
@@ -165,6 +180,52 @@ fn normalise(input: &str) -> Result<String, UrlError> {
     // follows the redirect, so the URL is passed through untouched. It is
     // checked before the `www.` trimming below, which would not match `b23.tv`.
     if raw_host == SHORT_HOST {
+        url.set_fragment(None);
+        return Ok(url.to_string());
+    }
+
+    if YOUTUBE_HOSTS.contains(&raw_host.as_str()) {
+        let path = url.path();
+        let is_watch = path == "/watch" && url.query_pairs().any(|(key, value)| key == "v" && !value.is_empty());
+        let is_video_path = ["/shorts/", "/live/", "/embed/", "/v/"]
+            .iter()
+            .any(|prefix| path.strip_prefix(prefix).is_some_and(|id| !id.is_empty() && !id.contains('/')));
+        let is_short_link = raw_host == "youtu.be"
+            && path.trim_matches('/').split('/').count() == 1
+            && !path.trim_matches('/').is_empty();
+        if !(is_watch || is_video_path || is_short_link) {
+            return Err(UrlError::UnsupportedKind);
+        }
+
+        if is_short_link {
+            let video_id = url.path().trim_matches('/').to_string();
+            url.set_host(Some(CANONICAL_YOUTUBE_HOST))
+                .map_err(|_| UrlError::UnsupportedSite)?;
+            url.set_path("/watch");
+            url.set_query(None);
+            url.query_pairs_mut().append_pair("v", &video_id);
+        } else {
+            url.set_host(Some(CANONICAL_YOUTUBE_HOST))
+                .map_err(|_| UrlError::UnsupportedSite)?;
+
+            let kept: Vec<(String, String)> = url
+                .query_pairs()
+                .filter(|(key, _)| !YOUTUBE_TRACKING_PARAMS.contains(&key.as_ref()))
+                .map(|(key, value)| (key.into_owned(), value.into_owned()))
+                .collect();
+            if kept.is_empty() {
+                url.set_query(None);
+            } else {
+                url.set_query(Some(
+                    &kept
+                        .iter()
+                        .map(|(key, value)| format!("{}={}", key, value))
+                        .collect::<Vec<_>>()
+                        .join("&"),
+                ));
+            }
+        }
+        url.set_scheme("https").ok();
         url.set_fragment(None);
         return Ok(url.to_string());
     }
@@ -325,10 +386,56 @@ mod tests {
     }
 
     #[test]
+    fn accepts_youtube_video_url_forms() {
+        for input in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123",
+            "https://youtube.com/shorts/dQw4w9WgXcQ",
+            "https://m.youtube.com/live/dQw4w9WgXcQ",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtu.be/dQw4w9WgXcQ?t=42",
+        ] {
+            assert_eq!(ok(input).len(), 1, "{input} should be accepted");
+        }
+        assert_eq!(
+            ok("http://youtu.be/dQw4w9WgXcQ?t=42#fragment"),
+            vec!["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+        );
+        assert_eq!(
+            ok("https://www.youtube.com/watch?v=dQw4w9WgXcQ https://youtu.be/dQw4w9WgXcQ"),
+            vec!["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+        );
+        // Share-tracking is dropped, so the mobile share link dedupes too...
+        assert_eq!(
+            ok("https://youtu.be/dQw4w9WgXcQ?si=abc https://www.youtube.com/watch?v=dQw4w9WgXcQ&feature=share"),
+            vec!["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+        );
+        // ...but a playlist selector and a start time are kept.
+        assert_eq!(
+            ok("https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1&si=abc"),
+            vec!["https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1"]
+        );
+    }
+
+    #[test]
+    fn rejects_youtube_pages_that_are_not_a_single_video() {
+        for input in [
+            "https://www.youtube.com/",
+            "https://www.youtube.com/@someone",
+            "https://www.youtube.com/playlist?list=PL123",
+            "https://www.youtube.com/watch?v=",
+            "https://www.youtube.com/results?search_query=x",
+            "https://youtu.be/",
+            "https://youtu.be/a/b",
+        ] {
+            let errors = errors(input);
+            assert_eq!(errors.len(), 1, "{input} should be rejected");
+            assert_eq!(errors[0].1, UrlError::UnsupportedKind, "{input}");
+        }
+    }
+
+    #[test]
     fn rejects_other_sites() {
         let cases = [
-            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "https://youtu.be/dQw4w9WgXcQ",
             "https://example.com/video/BV1GJ411x7h7",
             "not-a-url",
             "ftp://www.bilibili.com/video/BV1GJ411x7h7",
@@ -379,9 +486,9 @@ mod tests {
         assert_eq!(json, "\"unsupported_kind\"");
 
         // ...and the whole payload round-trips the way Tauri will send it.
-        let parsed = parse_input("https://youtu.be/x");
+        let parsed = parse_input("https://example.com/watch?v=x");
         let json = serde_json::to_value(&parsed).unwrap();
         assert_eq!(json[0]["Err"]["error"], "unsupported_site");
-        assert_eq!(json[0]["Err"]["input"], "https://youtu.be/x");
+        assert_eq!(json[0]["Err"]["input"], "https://example.com/watch?v=x");
     }
 }

@@ -162,7 +162,13 @@ fn describe_status(status: &std::process::ExitStatus) -> String {
 async fn run(action: OpenerAction, target: OpenerTarget, path: &Path) -> Result<(), String> {
     let (program, args) = opener_argv(action, target, path);
 
-    let output = Command::new(&program)
+    let mut command = Command::new(&program);
+    #[cfg(target_os = "windows")]
+    if program == "cmd" {
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+
+    let output = command
         .args(&args)
         .output()
         .await

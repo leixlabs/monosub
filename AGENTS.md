@@ -10,7 +10,7 @@
 Speech recognition runs through **audio.cpp** (`audiocpp_cli`) and translation through
 **llama.cpp** (`llama-server`), both C++ inference engines distributed as prebuilt binaries
 and run as **separate child processes** — neither is linked into the app. A third bundled
-binary, **yt-dlp**, downloads Bilibili subtitles or audio for URL import. There is
+binary, **yt-dlp**, downloads platform subtitles or audio for URL import. There is
 **no Python** in the runtime.
 
 ### Key Features
@@ -22,8 +22,8 @@ binary, **yt-dlp**, downloads Bilibili subtitles or audio for URL import. There 
   timestamps, speaker diarization, language); Tongyi/FunASR models preferred
 - 🌍 **Local subtitle translation** - Optional post-recognition pass with a dedicated
   translation model (HY-MT1.5-1.8B); writes `<stem>.<lang>.<ext>` and never touches the originals
-- 🔗 **URL import (Bilibili)** - Paste links to fetch the platform subtitle directly, or fall
-  back to downloading the audio and transcribing it locally
+- 🔗 **URL import** - Paste a supported video link to fetch its platform subtitle directly,
+  or fall back to downloading the audio and transcribing it locally
 - 📦 **In-app model management** - Download/remove models on demand; nothing large is bundled
 - 📝 **Multiple output formats** - SRT, VTT, TXT, MD (and JSON)
 - 🌐 **Bilingual UI** - Simplified Chinese and English (`zh-CN`, `en`)

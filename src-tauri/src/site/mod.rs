@@ -478,8 +478,10 @@ pub(crate) async fn fetch_subtitle_text(
     params: &JobParams,
     media: &SiteMedia,
     tag: &str,
+    automatic: bool,
 ) -> Result<String, ImportError> {
-    if let Some(track) = media.subs.get(tag) {
+    let tracks = if automatic { &media.auto_subs } else { &media.subs };
+    if let Some(track) = tracks.get(tag) {
         if let Some(data) = track.data.as_deref().filter(|data| !data.trim().is_empty()) {
             tracing::info!(tag = %tag, bytes = data.len(), "using inline subtitle data");
             return Ok(data.to_string());
@@ -495,6 +497,7 @@ pub(crate) async fn fetch_subtitle_text(
         stage: ytdlp::Stage::FetchSubtitles {
             work_dir: params.work_dir.clone(),
             tag: tag.to_string(),
+            automatic,
         },
         url: params.request.url.clone(),
         cookies_browser: cookies(&params.request),
@@ -516,34 +519,40 @@ pub(crate) async fn fetch_subtitle_text(
         })
 }
 
+fn tracks_as_json(
+    tracks: &std::collections::BTreeMap<String, resolve::SubTrack>,
+) -> serde_json::Map<String, serde_json::Value> {
+    tracks.iter().map(|(tag, track)| {
+        let entry = match (&track.raw, &track.data) {
+            (Some(raw), _) => serde_json::json!([raw]),
+            (None, Some(data)) => serde_json::json!([{ "ext": track.ext, "data": data }]),
+            (None, None) => serde_json::json!([{ "ext": track.ext }]),
+        };
+        (tag.clone(), entry)
+    }).collect()
+}
+
 /// Write the info dict the fetch stage reads.
 ///
-/// The dict is re-serialised from the parsed `SiteMedia` rather than copied from
-/// stdout: the fields that matter (`id`, `subtitles[].data`) survive, and the file
-/// cannot carry a stray table line.
+/// The original dict is written verbatim when Resolve kept it; the reconstruction
+/// below is the fallback for a `SiteMedia` built without one (tests, CLI paths).
 fn write_info_json(params: &JobParams, media: &SiteMedia) -> Result<(), ImportError> {
-    let subs: serde_json::Map<String, serde_json::Value> = media
-        .subs
-        .iter()
-        .map(|(tag, track)| {
-            let (ext, data) = (&track.ext, &track.data);
-            let entry = match data {
-                Some(data) => serde_json::json!([{ "ext": ext, "data": data }]),
-                None => serde_json::json!([{ "ext": ext }]),
-            };
-            (tag.clone(), entry)
-        })
-        .collect();
-
-    let info = serde_json::json!({
-        "id": media.id,
-        "title": media.title,
-        "duration": media.duration,
-        "subtitles": subs,
-    });
-
-    let body = serde_json::to_string(&info)
-        .map_err(|error| ImportError::Other(format!("urlImport.infoJsonFailed:{error}")))?;
+    // Prefer the untouched dict: it carries `webpage_url`, `formats` and the
+    // subtitle entries exactly as the extractor built them.
+    let body = match &media.raw_info {
+        Some(raw) => raw.clone(),
+        None => {
+            let info = serde_json::json!({
+                "id": media.id,
+                "title": media.title,
+                "duration": media.duration,
+                "subtitles": tracks_as_json(&media.subs),
+                "automatic_captions": tracks_as_json(&media.auto_subs),
+            });
+            serde_json::to_string(&info)
+                .map_err(|error| ImportError::Other(format!("urlImport.infoJsonFailed:{error}")))?
+        }
+    };
     let path = params.work_dir.join("info.json");
     std::fs::write(&path, body).map_err(|error| {
         ImportError::Other(format!("urlImport.infoJsonFailed:{}: {error}", path.display()))
@@ -553,13 +562,23 @@ fn write_info_json(params: &JobParams, media: &SiteMedia) -> Result<(), ImportEr
     Ok(())
 }
 
-/// `--write-subs` prefixes the language, so the expected name is
-/// `<work_dir>/<id>/<id>.<tag>.srt`. The verdict requires non-empty content.
+/// yt-dlp prefixes the language, so the expected name is
+/// `<work_dir>/<id>/<id>.<tag>.srt` for both `--write-subs` and
+/// `--write-auto-subs`. The directory is scanned rather than one path being
+/// assumed: the tag's casing and the extension the extractor settles on are not
+/// ours to predict, and the verdict requires non-empty content either way.
 fn read_subtitle_file(params: &JobParams, media: &SiteMedia, tag: &str) -> Option<String> {
-    let path = params
-        .work_dir
-        .join(&media.id)
-        .join(format!("{}.{}.srt", media.id, tag));
+    let dir = params.work_dir.join(&media.id);
+    let suffix = format!(".{}.srt", tag);
+    let mut candidates = std::fs::read_dir(&dir).ok()?.filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
+            name.ends_with(&suffix) && name.starts_with(&format!("{}.", media.id))
+        }))
+        .collect::<Vec<_>>();
+    candidates.sort();
+    let path = candidates.into_iter().next()?;
     let text = std::fs::read_to_string(&path).ok()?;
     if text.trim().is_empty() {
         tracing::warn!(path = %path.display(), "subtitle file exists but is empty");
@@ -989,6 +1008,8 @@ mod tests {
             title: title.to_string(),
             duration: Some(1.0),
             subs: Default::default(),
+            auto_subs: Default::default(),
+            raw_info: None,
         }
     }
 

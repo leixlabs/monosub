@@ -236,6 +236,9 @@ pub async fn spawn(
     );
 
     let mut command = tokio::process::Command::new(&program);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
     command
         .args(&argv)
         .stdin(Stdio::null())

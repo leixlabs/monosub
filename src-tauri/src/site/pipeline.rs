@@ -73,7 +73,9 @@ async fn materialize<D: Deps + ?Sized>(
     let request = &params.request;
     let task_id = &request.task_id;
 
-    let srt_text = deps.fetch_subtitle(params, media, &pick.tag).await?;
+    let srt_text = deps
+        .fetch_subtitle(params, media, &pick.tag, pick.automatic)
+        .await?;
     let segments = srt::parse(&srt_text);
     if segments.is_empty() {
         return Err(ImportError::SubtitleUnusable(format!(
@@ -220,6 +222,7 @@ mod tests {
                 SubTrack {
                     ext: (*ext).to_string(),
                     data: data.map(str::to_string),
+                    raw: None,
                 },
             );
         }
@@ -228,6 +231,8 @@ mod tests {
             title: "Title".to_string(),
             duration: Some(212.4),
             subs,
+            auto_subs: BTreeMap::new(),
+            raw_info: None,
         }
     }
 

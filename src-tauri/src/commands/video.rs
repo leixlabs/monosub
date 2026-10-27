@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use tauri::AppHandle;
 
 // Audio file extensions
@@ -199,7 +201,11 @@ pub async fn get_video_metadata(app: AppHandle, path: String) -> Result<VideoMet
     let ffprobe_cmd = get_ffprobe_path(&crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?);
     tracing::debug!(path = %path, ffprobe_cmd = %ffprobe_cmd, "Using ffprobe command");
 
-    let output = Command::new(&ffprobe_cmd)
+    let mut ffprobe = Command::new(&ffprobe_cmd);
+    #[cfg(target_os = "windows")]
+    ffprobe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
+    let output = ffprobe
         .args(&[
             "-v",
             "error",
@@ -380,11 +386,15 @@ pub async fn generate_thumbnail(app: AppHandle, path: String) -> Result<Thumbnai
         thumbnail_out,
     ];
 
-    let output = match Command::new(&ffmpeg_cmd).args(&args_hwaccel).output() {
+    let mut ffmpeg = Command::new(&ffmpeg_cmd);
+    #[cfg(target_os = "windows")]
+    ffmpeg.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
+    let output = match ffmpeg.args(&args_hwaccel).output() {
         Ok(o) if o.status.success() => o,
         _ => {
             // Retry without hardware acceleration
-            match Command::new(&ffmpeg_cmd).args(&args_software).output() {
+            match ffmpeg.args(&args_software).output() {
                 Ok(output) => output,
                 Err(e) => {
                     tracing::error!(path = %path, ffmpeg_cmd = %ffmpeg_cmd, error = %e, "Failed to execute ffmpeg, using fallback thumbnail");

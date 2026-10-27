@@ -58,6 +58,9 @@ impl OutputLanguage {
     }
 }
 
+use std::collections::BTreeMap;
+
+use crate::site::resolve::SubTrack;
 pub use crate::site::resolve::SiteMedia;
 
 /// Whether a selected track is the platform's own CC or its ASR.
@@ -86,6 +89,8 @@ pub struct Pick {
     /// The language of the *text*, handed to the translation stage so
     /// `should_translate` can skip a same-language run exactly (design §5.6).
     pub source_lang: &'static str,
+    /// Whether this track comes from yt-dlp's automatic_captions map.
+    pub automatic: bool,
 }
 
 /// The tag that is never a subtitle: `danmaku` is the XML bullet-comment track.
@@ -139,21 +144,44 @@ pub fn select(setting: OutputLanguage, media: &SiteMedia) -> Option<Pick> {
 
     candidates
         .iter()
-        .find(|(tag, kind, _)| accepts(media, tag, *kind))
+        .find(|(tag, kind, _)| accepts(&media.subs, tag, *kind))
         .map(|(tag, kind, source_lang)| Pick {
             tag: (*tag).to_string(),
             kind: *kind,
             source_lang,
+            automatic: false,
+        })
+        .or_else(|| {
+            // Original ASR tracks use `<lang>-orig`; bare auto tags may represent
+            // translated speech and are therefore not eligible as source text.
+            let (tag, source_lang) = match setting {
+                OutputLanguage::Zh => ("zh-orig", "zh"),
+                OutputLanguage::ZhTw => ("zh-TW-orig", "zh-tw"),
+                OutputLanguage::En => ("en-orig", "en"),
+                OutputLanguage::Ja => ("ja-orig", "ja"),
+                OutputLanguage::Ko => ("ko-orig", "ko"),
+                OutputLanguage::Es => ("es-orig", "es"),
+                OutputLanguage::De => ("de-orig", "de"),
+                OutputLanguage::Fr => ("fr-orig", "fr"),
+                OutputLanguage::Pt => ("pt-orig", "pt"),
+                OutputLanguage::Auto => return None,
+            };
+            accepts_auto(&media.auto_subs, tag).then(|| Pick {
+                tag: tag.to_string(),
+                kind: SubKind::Ai,
+                source_lang,
+                automatic: true,
+            })
         })
 }
 
 /// A candidate only counts when the track exists, is not the danmaku XML, and
 /// is the kind the list says it is (an `ai-*` tag must not be picked as human).
-fn accepts(media: &SiteMedia, tag: &str, kind: SubKind) -> bool {
+fn accepts(tracks: &BTreeMap<String, SubTrack>, tag: &str, kind: SubKind) -> bool {
     if tag == DANMAKU {
         return false;
     }
-    let Some(track) = media.subs.get(tag) else {
+    let Some(track) = tracks.get(tag) else {
         return false;
     };
     // `xml` is the danmaku container even when the tag is something else; a
@@ -162,6 +190,18 @@ fn accepts(media: &SiteMedia, tag: &str, kind: SubKind) -> bool {
         return false;
     }
     is_ai_tag(tag) == (kind == SubKind::Ai)
+}
+
+/// An automatic track counts when the container is one we can read. There is no
+/// `ai-` prefix rule here: every entry in `automatic_captions` is machine-made,
+/// which is why the caller only ever asks for `<lang>-orig`.
+fn accepts_auto(tracks: &BTreeMap<String, SubTrack>, tag: &str) -> bool {
+    if tag == DANMAKU {
+        return false;
+    }
+    tracks
+        .get(tag)
+        .is_some_and(|track| is_subtitle_ext(&track.ext))
 }
 
 /// Extensions we can read as subtitle text. `best` never appears here; it is only
@@ -210,6 +250,7 @@ mod tests {
                 SubTrack {
                     ext: (*ext).to_string(),
                     data: None,
+                    raw: None,
                 },
             );
         }
@@ -218,6 +259,8 @@ mod tests {
             title: "t".to_string(),
             duration: Some(1.0),
             subs,
+            auto_subs: BTreeMap::new(),
+            raw_info: None,
         }
     }
 
@@ -253,6 +296,7 @@ mod tests {
         assert_eq!(pick.tag, "ai-zh");
         assert_eq!(pick.kind, SubKind::Ai);
         assert_eq!(pick.source_lang, "zh");
+        assert!(!pick.automatic);
 
         // `ai-en` is a machine translation OF ai-zh, so it is not English.
         let ai_english = media(&[("ai-en", "srt")]);
@@ -260,6 +304,28 @@ mod tests {
 
         // ...and the traditional setting must not take `ai-zh` either.
         assert_eq!(select(OutputLanguage::ZhTw, &ai_only), None);
+    }
+
+    #[test]
+    fn youtube_original_asr_is_selected_but_translated_auto_tracks_are_not() {
+        let mut media = media(&[]);
+        media.auto_subs.insert(
+            "en-orig".to_string(),
+            SubTrack { ext: "vtt".to_string(), data: None, raw: None },
+        );
+        media.auto_subs.insert(
+            "zh".to_string(),
+            SubTrack { ext: "vtt".to_string(), data: None, raw: None },
+        );
+
+        let english = select(OutputLanguage::En, &media).unwrap();
+        assert_eq!(english.tag, "en-orig");
+        assert!(english.automatic);
+        assert_eq!(english.kind, SubKind::Ai);
+        assert_eq!(english.source_lang, "en");
+        // A bare `zh` automatic caption is a translated ASR track per YouTube's
+        // extractor naming and must not be treated as the original speech.
+        assert_eq!(select(OutputLanguage::Zh, &media), None);
     }
 
     #[test]
@@ -311,6 +377,7 @@ mod tests {
             assert_eq!(pick.tag, tag);
             assert_eq!(pick.kind, SubKind::Human);
             assert_eq!(pick.source_lang, source_lang);
+            assert!(!pick.automatic);
         }
     }
 

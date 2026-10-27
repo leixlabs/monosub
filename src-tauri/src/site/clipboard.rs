@@ -1,9 +1,9 @@
 //! Clipboard watch: decide whether the text the user just copied is a single
-//! Bilibili video worth offering to import.
+//! supported video worth offering to import.
 //!
 //! Why this lives in Rust rather than in the polling frontend: the rule has
 //! edges (a URL pasted from a chat message, a two-link batch, tracking
-//! parameters, a YouTube link) and the frontend has no test runner. The frontend
+//! parameters, an unsupported site) and the frontend has no test runner. The frontend
 //! only polls and renders; every judgement is made here and covered by tests.
 //!
 //! The bar is deliberately **high precision**: a prompt that appears for the
@@ -19,7 +19,7 @@ use crate::site::url::{parse_input, ParsedUrl};
 /// would be noise.
 pub const MAX_CLIPBOARD_CHARS: usize = 500;
 
-/// A single Bilibili video the user could import with one click.
+/// A single supported video the user could import with one click.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ClipboardHit {
     /// Normalised URL, ready to hand to `start_url_import`.
@@ -78,14 +78,31 @@ fn video_id(url: &str) -> Option<String> {
         return None;
     }
 
-    let segment = url
-        .split('/')
-        .next_back()
-        .map(|tail| tail.split(['?', '#']).next().unwrap_or(tail))
-        .filter(|id| !id.is_empty())?;
+    let parsed = match ::url::Url::parse(url) {
+        Ok(parsed) => parsed,
+        // A bare id pasted from a chat message is not a URL, and is already the
+        // id the UI wants to show.
+        Err(_) => {
+            let segment = url.split(['?', '#']).next().unwrap_or(url).trim_matches('/');
+            return (!segment.is_empty()).then(|| segment.to_string());
+        }
+    };
+    let host = parsed.host_str().unwrap_or_default();
+    if host == "www.youtube.com" {
+        if let Some(id) = parsed
+            .query_pairs()
+            .find(|(key, value)| key == "v" && !value.is_empty())
+            .map(|(_, value)| value.into_owned())
+        {
+            return Some(id);
+        }
+    }
 
-    // Only a Bilibili video id is shown as an id. Anything else (an `av` number is
-    // fine too) still names the video, so it is kept.
+    let segment = parsed
+        .path_segments()?
+        .filter(|segment| !segment.is_empty())
+        .next_back()?;
+
     Some(segment.to_string())
 }
 
@@ -107,6 +124,19 @@ mod tests {
         assert_eq!(hit.url, "https://www.bilibili.com/video/BV1GJ411x7h7");
         assert_eq!(hit.id.as_deref(), Some("BV1GJ411x7h7"));
         assert_eq!(hit.text, "https://www.bilibili.com/video/BV1GJ411x7h7");
+    }
+
+    #[test]
+    fn youtube_video_links_are_clipboard_hits_with_the_video_id() {
+        for url in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://youtu.be/dQw4w9WgXcQ?t=42",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        ] {
+            let hit = classify(url).unwrap();
+            assert_eq!(hit.id.as_deref(), Some("dQw4w9WgXcQ"), "{url}");
+            assert!(hit.url.starts_with("https://www.youtube.com/"), "{url}");
+        }
     }
 
     #[test]
@@ -166,8 +196,7 @@ mod tests {
     #[test]
     fn unsupported_or_out_of_scope_links_do_not_prompt() {
         for text in [
-            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "https://youtu.be/dQw4w9WgXcQ",
+            "https://www.youtube.com/",
             "https://www.bilibili.com/bangumi/play/ep123456",
             "https://www.bilibili.com/cheese/play/ep123456",
             "https://www.bilibili.com/",

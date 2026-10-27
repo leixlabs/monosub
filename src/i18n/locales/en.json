@@ -342,8 +342,9 @@
   "urlImport": {
     "title": "Import from a link",
     "placeholder": "Paste video links here",
-    "hint": "One link per line, or separated by spaces. Unsupported sites are rejected.",
+    "hint": "Supported video links only. One link per line, or separated by spaces.",
     "subtitleLanguage": "Subtitle language",
+    "followsInterfaceLanguage": "Follows the interface language",
     "followingSettings": "{{value}} (follows Settings)",
     "outputDir": "Download to",
     "outputDirDefault": "Follow Settings",

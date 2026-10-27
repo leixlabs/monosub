@@ -22,6 +22,8 @@ pub struct SubTrack {
     /// Inline subtitle text, when the extractor already converted it (Bilibili
     /// inlines SRT through `json2srt`; U0-9 confirmed).
     pub data: Option<String>,
+    /// Original yt-dlp format entry, including URL and protocol metadata.
+    pub raw: Option<Value>,
 }
 
 /// What Resolve learned about one video (url-import-design §4.1).
@@ -33,6 +35,16 @@ pub struct SiteMedia {
     /// Tag → tracks. A tag usually has exactly one track; the map is keyed by tag
     /// because that is what `--sub-langs` takes.
     pub subs: BTreeMap<String, SubTrack>,
+    /// YouTube automatic captions, kept separate because identical language tags
+    /// may otherwise silently select a translated ASR track.
+    pub auto_subs: BTreeMap<String, SubTrack>,
+    /// The info dict exactly as yt-dlp printed it.
+    ///
+    /// The fetch stage re-feeds an info dict to yt-dlp, and a trimmed one is not
+    /// enough: `webpage_url`, `formats` and `requested_subtitles` are all read
+    /// from it, so a reconstruction can turn a subtitle hit into "no subtitle
+    /// file". Keeping the original text avoids that entirely.
+    pub raw_info: Option<String>,
 }
 
 impl SiteMedia {
@@ -54,7 +66,11 @@ pub fn parse_resolve_output(stdout: &str) -> Result<SiteMedia, ImportError> {
     let info = find_info_dict(stdout).ok_or_else(|| {
         ImportError::Other("yt-dlp printed no info dict".to_string())
     })?;
-    from_info_dict(&info)
+    let mut media = from_info_dict(&info)?;
+    // Keep the original line, not a re-serialisation: the fetch stage needs the
+    // fields this screen does not read.
+    media.raw_info = Some(info.to_string());
+    Ok(media)
 }
 
 /// The first JSON object line that carries a string `id`.
@@ -100,15 +116,16 @@ pub fn from_info_dict(info: &Value) -> Result<SiteMedia, ImportError> {
         title,
         duration,
         // `subtitles` may be absent or explicitly null; either means "none".
-        subs: subtitle_tracks(info),
+        subs: subtitle_tracks(info, "subtitles"),
+        auto_subs: subtitle_tracks(info, "automatic_captions"),
+        raw_info: None,
     })
 }
 
-/// `subtitles` → tag → track. `automatic_captions` is deliberately ignored:
-/// Bilibili puts everything, including `ai-zh`, under `subtitles` (design §4.2).
-fn subtitle_tracks(info: &Value) -> BTreeMap<String, SubTrack> {
+/// Read a yt-dlp subtitle map (`subtitles` or `automatic_captions`) into tags.
+fn subtitle_tracks(info: &Value, key: &str) -> BTreeMap<String, SubTrack> {
     let mut tracks = BTreeMap::new();
-    let Some(entries) = info.get("subtitles").and_then(Value::as_object) else {
+    let Some(entries) = info.get(key).and_then(Value::as_object) else {
         return tracks;
     };
 
@@ -136,7 +153,7 @@ fn track_from_json(value: &Value) -> Option<SubTrack> {
         .and_then(Value::as_str)
         .filter(|data| !data.trim().is_empty())
         .map(str::to_string);
-    Some(SubTrack { ext, data })
+    Some(SubTrack { ext, data, raw: Some(value.clone()) })
 }
 
 /// What one Resolve call produced.
@@ -315,6 +332,7 @@ Language Formats
         ] {
             let media = from_info_dict(&info).expect("id is present");
             assert!(media.subs.is_empty(), "{info}");
+            assert!(media.auto_subs.is_empty(), "{info}");
         }
     }
 
@@ -332,6 +350,20 @@ Language Formats
         assert!(!media.has("broken"), "no container format means unusable");
         assert_eq!(media.subs["empty"].data, None, "blank data is treated as absent");
         assert!(media.subs["good"].data.is_some());
+    }
+
+    #[test]
+    fn keeps_youtube_automatic_captions_separate_from_manual_subtitles() {
+        let info = serde_json::json!({
+            "id": "dQw4w9WgXcQ",
+            "subtitles": {"en": [{"ext": "vtt", "url": "https://example/manual.vtt"}]},
+            "automatic_captions": {"en-orig": [{"ext": "vtt", "url": "https://example/original.vtt"}], "zh": [{"ext": "vtt", "url": "https://example/translated.vtt"}]}
+        });
+        let media = from_info_dict(&info).unwrap();
+        assert!(media.subs.contains_key("en"));
+        assert!(media.auto_subs.contains_key("en-orig"));
+        assert!(media.auto_subs.contains_key("zh"));
+        assert!(!media.subs.contains_key("zh"));
     }
 
     #[test]

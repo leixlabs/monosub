@@ -1710,7 +1710,11 @@ async fn run_ffmpeg(
     output: &Path,
     filters: Option<&str>,
 ) -> Result<(), EngineError> {
-    let result = tokio::process::Command::new(ffmpeg)
+    let mut command = tokio::process::Command::new(ffmpeg);
+    #[cfg(target_os = "windows")]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+
+    let result = command
         .args(ffmpeg_args(input, output, filters))
         .output()
         .await

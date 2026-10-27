@@ -10,6 +10,7 @@ import {
   parseInput,
   resolveUrlImportOutputDir,
   startUrlImports,
+  subtitleLanguageForUi,
   type RejectedUrl,
 } from '@/lib/urlImport';
 
@@ -21,11 +22,14 @@ interface UrlImportDialogProps {
 /**
  * The "add from a link" panel (url-import-design §5.2).
  *
- * Language and output directory are shown read-only on purpose: they mirror
- * Settings, and a second place to change them would be a second source of truth.
+ * Both read-only values follow a single source without a second control here:
+ * the output directory mirrors Settings, and the subtitle language follows the
+ * **interface** language. The subtitle is what the user reads, so a UI in
+ * English asks for English captions; the recognition language in Settings
+ * describes the audio and is untouched.
  */
 export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const settings = useStore((state) => state.settings);
   const updateSettings = useStore((state) => state.updateSettings);
   const autoStart = useStore((state) => state.autoStartImports);
@@ -55,11 +59,16 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
     };
   }, [isOpen, settings.urlImportOutputDir, storageMode]);
 
+  // The interface language, not the recognition setting: this is the language
+  // the imported subtitle will be *read* in, so it has to track the UI.
+  const uiLanguage = i18n.language;
+
   const languageLabel = useMemo(() => {
-    const key = `language.${settings.outputLanguage}`;
+    const language = subtitleLanguageForUi(uiLanguage);
+    const key = `language.${language}`;
     const translated = t(key, { defaultValue: '' });
-    return translated || settings.outputLanguage;
-  }, [settings.outputLanguage, t]);
+    return translated || language;
+  }, [t, uiLanguage]);
 
   if (!isOpen) return null;
 
@@ -151,7 +160,7 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
             </div>
           )}
 
-          {/* Read-only mirrors of Settings: one source of truth (§5.2). */}
+          {/* Read-only values with one source of truth each (§5.2). */}
           <div className="grid grid-cols-1 gap-2 text-xs">
             <div className="flex items-center justify-between gap-3">
               <span className="text-text-secondary dark:text-gray-400">{t('urlImport.subtitleLanguage')}</span>
@@ -159,6 +168,9 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
                 {languageLabel}
               </span>
             </div>
+            <p className="text-[11px] text-text-tertiary dark:text-gray-500 -mt-0.5">
+              {t('urlImport.followsInterfaceLanguage')}
+            </p>
             <div className="flex items-center justify-between gap-3">
               <span className="shrink-0 text-text-secondary dark:text-gray-400">{t('urlImport.outputDir')}</span>
               <button

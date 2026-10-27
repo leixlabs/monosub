@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import i18n from '@/i18n';
-import { useStore, type UrlImportState } from '@/store/useStore';
+import i18n, { toSupportedLanguage } from '@/i18n';
+import { useStore, type OutputLanguage, type UrlImportState } from '@/store/useStore';
 import { addPathsToQueue } from '@/lib/fileImport';
 import { reportFrontendError } from '@/lib/logging';
 import { processQueueBatch } from '@/lib/transcription';
@@ -17,6 +17,26 @@ import { processQueueBatch } from '@/lib/transcription';
 
 /** Mirrors `site::url::UrlError` on the Rust side. */
 export type UrlErrorTag = 'unsupported_site' | 'unsupported_kind';
+
+/**
+ * The language an imported subtitle should be in: the interface language.
+ *
+ * A platform subtitle is something the user *reads*, so it follows the UI, not
+ * `settings.outputLanguage`. That setting is labelled "Recognition Language"
+ * and describes the language of the *audio*, which is why it was pinned to the
+ * system language at first launch and kept showing Chinese after the UI had been
+ * switched to English. Recognition still uses it: when the platform has no
+ * subtitle in the UI language, the import falls back to local recognition in the
+ * configured recognition language.
+ *
+ * `auto` is never returned: "autodetect" cannot answer "which subtitle track do
+ * you want", and guessing would deliver a machine-translated track.
+ */
+export const subtitleLanguageForUi = (uiLanguage: string): OutputLanguage =>
+  toSupportedLanguage(uiLanguage || '') === 'zh-CN' ? 'zh' : 'en';
+
+/** [`subtitleLanguageForUi`] for the language the app is showing right now. */
+export const uiSubtitleLanguage = (): OutputLanguage => subtitleLanguageForUi(i18n.language);
 
 /** One row of the parse result: `Ok` carries a URL, `Err` carries a reason. */
 export type ParsedUrl =
@@ -315,7 +335,7 @@ export const startUrlImport = async (url: string): Promise<string> => {
       request: {
         task_id: taskId,
         url,
-        language: state.settings.outputLanguage,
+        language: uiSubtitleLanguage(),
         formats: state.settings.outputFormat,
         output_dir: resolveUrlImportOutputDir(),
         skip_existing: state.settings.skipExistingSubtitle,

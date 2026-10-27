@@ -5,6 +5,8 @@
 //! Pro gate was removed and this helper is all that remains of that module.
 
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 /// Open `url` with the platform's default handler.
 ///
@@ -29,7 +31,9 @@ pub async fn open_external_url(url: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        Command::new("cmd")
+        let mut command = Command::new("cmd");
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        command
             .args(["/C", "start", "", target])
             .spawn()
             .map_err(|e| format!("Failed to open URL: {}", e))?;

@@ -48,6 +48,7 @@ pub trait Deps: Send + Sync {
         params: &'a JobParams,
         media: &'a crate::site::SiteMedia,
         tag: &'a str,
+        automatic: bool,
     ) -> BoxFuture<'a, Result<String, ImportError>>;
 
     /// Download the audio, reporting progress, and return the media file.
@@ -102,9 +103,10 @@ impl Deps for RealDeps<'_> {
         params: &'a JobParams,
         media: &'a crate::site::SiteMedia,
         tag: &'a str,
+        automatic: bool,
     ) -> BoxFuture<'a, Result<String, ImportError>> {
         Box::pin(
-            async move { crate::site::fetch_subtitle_text(self.app, params, media, tag).await },
+            async move { crate::site::fetch_subtitle_text(self.app, params, media, tag, automatic).await },
         )
     }
 
@@ -224,6 +226,7 @@ impl Deps for FakeDeps {
         _params: &'a JobParams,
         _media: &'a crate::site::SiteMedia,
         tag: &'a str,
+        _automatic: bool,
     ) -> BoxFuture<'a, Result<String, ImportError>> {
         Box::pin(async move {
             self.fetched_tags.lock().await.push(tag.to_string());
@@ -334,6 +337,8 @@ mod tests {
             title: "Title".to_string(),
             duration: Some(212.4),
             subs: Default::default(),
+            auto_subs: Default::default(),
+            raw_info: None,
         }
     }
 
@@ -379,6 +384,7 @@ mod tests {
             crate::site::resolve::SubTrack {
                 ext: "srt".to_string(),
                 data: Some("inline".to_string()),
+                raw: None,
             },
         );
         let deps = deps_for(media).await;

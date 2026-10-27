@@ -21,7 +21,7 @@ use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
 
 use crate::site::error::ImportError;
 
@@ -75,6 +75,7 @@ pub enum Stage {
         /// Directory holding `info.json`; the output template points here.
         work_dir: PathBuf,
         tag: String,
+        automatic: bool,
     },
     /// Download the audio for the transcription fallback.
     ///
@@ -158,15 +159,19 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
             argv.push("--list-subs".to_string());
             argv.push("--print-json".to_string());
         }
-        Stage::FetchSubtitles { work_dir, tag } => {
+        Stage::FetchSubtitles { work_dir, tag, automatic } => {
             argv.push("--load-info-json".to_string());
             argv.push(work_dir.join("info.json").to_string_lossy().into_owned());
             argv.push("--skip-download".to_string());
-            argv.push("--write-subs".to_string());
+            argv.push(if *automatic { "--write-auto-subs" } else { "--write-subs" }.to_string());
             argv.push("--sub-langs".to_string());
             argv.push(escape_sub_lang(tag));
             argv.push("--sub-format".to_string());
             argv.push(SUB_FORMAT.to_string());
+            // YouTube tracks are commonly VTT; convert at fetch time so the
+            // existing subtitle reader can use the canonical `.srt` path.
+            argv.push("--convert-subs".to_string());
+            argv.push("srt".to_string());
             argv.push("-o".to_string());
             argv.push(output_template(work_dir));
         }
@@ -256,6 +261,33 @@ impl RunOutput {
     }
 }
 
+/// Read one line, splitting on `\n` **before** decoding.
+///
+/// `BufReader::lines()` decodes the whole buffer as UTF-8 and fails the entire
+/// stream on the first bad byte. On Windows a frozen yt-dlp can emit console
+/// codepage bytes for a non-ASCII title, which surfaced to the user as
+/// `failed to read yt-dlp stdout: stream did not contain valid UTF-8` and killed
+/// an otherwise fine import. Splitting on the ASCII newline first (safe in every
+/// codepage, since no encoding puts 0x0A inside a multi-byte character) and
+/// decoding lossily keeps the run alive: a mangled title is recoverable, a dead
+/// pipe is not.
+async fn read_line_lossy<R>(reader: &mut R, buffer: &mut Vec<u8>) -> std::io::Result<Option<String>>
+where
+    R: AsyncBufRead + Unpin,
+{
+    buffer.clear();
+    if reader.read_until(b'\n', buffer).await? == 0 {
+        return Ok(None);
+    }
+    if buffer.last() == Some(&b'\n') {
+        buffer.pop();
+        if buffer.last() == Some(&b'\r') {
+            buffer.pop();
+        }
+    }
+    Ok(Some(String::from_utf8_lossy(buffer).into_owned()))
+}
+
 /// Spawn yt-dlp and call `on_line` for each stdout line as it arrives.
 ///
 /// stderr is drained concurrently into a bounded ring buffer: the child writes to
@@ -286,6 +318,16 @@ pub async fn run(
     );
 
     let mut command = tokio::process::Command::new(&program);
+    #[cfg(target_os = "windows")]
+    {
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        // Ask for UTF-8 explicitly. Without it the frozen interpreter can fall
+        // back to the active console codepage for stdout, which is what produced
+        // non-UTF-8 bytes in the first place (see `read_line_lossy`).
+        command.env("PYTHONIOENCODING", "utf-8");
+        command.env("PYTHONUTF8", "1");
+    }
+
     command
         .args(&argv)
         .stdin(Stdio::null())
@@ -308,9 +350,10 @@ pub async fn run(
         .ok_or_else(|| ImportError::Other("failed to capture yt-dlp stderr".to_string()))?;
 
     let stderr_task = tokio::spawn(async move {
-        let mut reader = BufReader::new(stderr).lines();
+        let mut reader = BufReader::new(stderr);
+        let mut buffer = Vec::new();
         let mut tail: VecDeque<String> = VecDeque::with_capacity(STDERR_TAIL_LINES);
-        while let Ok(Some(line)) = reader.next_line().await {
+        while let Ok(Some(line)) = read_line_lossy(&mut reader, &mut buffer).await {
             if tail.len() == STDERR_TAIL_LINES {
                 tail.pop_front();
             }
@@ -320,11 +363,15 @@ pub async fn run(
     });
 
     let mut collected = String::new();
-    let mut reader = BufReader::new(stdout).lines();
-    while let Some(line) = reader.next_line().await.map_err(|error| {
-        tracing::error!(error = %error, "Failed to read yt-dlp stdout");
-        ImportError::Other(format!("failed to read yt-dlp stdout: {}", error))
-    })? {
+    let mut reader = BufReader::new(stdout);
+    let mut buffer = Vec::new();
+    while let Some(line) = read_line_lossy(&mut reader, &mut buffer)
+        .await
+        .map_err(|error| {
+            tracing::error!(error = %error, "Failed to read yt-dlp stdout");
+            ImportError::Other(format!("failed to read yt-dlp stdout: {}", error))
+        })?
+    {
         on_line(&line);
         collected.push_str(&line);
         collected.push('\n');
@@ -378,6 +425,7 @@ mod tests {
                 stage: Stage::FetchSubtitles {
                     work_dir: dir.clone(),
                     tag: "zh-Hans".to_string(),
+                    automatic: false,
                 },
                 url: "u".to_string(),
                 cookies_browser: None,
@@ -444,6 +492,7 @@ mod tests {
             stage: Stage::FetchSubtitles {
                 work_dir: PathBuf::from("/tmp"),
                 tag: "zh-CN".to_string(),
+                automatic: false,
             },
             url: "u".to_string(),
             cookies_browser: None,
@@ -479,12 +528,13 @@ mod tests {
             stage: Stage::FetchSubtitles {
                 work_dir: PathBuf::from("/tmp"),
                 tag: "zh-CN".to_string(),
+                automatic: false,
             },
             url: "u".to_string(),
             cookies_browser: None,
             ffmpeg: None,
         });
-        assert!(!argv.iter().any(|arg| arg == "--convert-subs"), "{argv:?}");
+        assert!(argv.iter().any(|arg| arg == "--convert-subs"), "{argv:?}");
         assert!(argv.iter().any(|arg| arg == "--sub-format"), "{argv:?}");
     }
 
@@ -542,6 +592,7 @@ mod tests {
             stage: Stage::FetchSubtitles {
                 work_dir: work_dir.clone(),
                 tag: "zh.1".to_string(),
+                automatic: false,
             },
             url: "u".to_string(),
             cookies_browser: None,
@@ -704,6 +755,42 @@ mod tests {
             ffmpeg: None,
         });
         assert!(!audio.iter().any(|arg| arg == "--skip-download"), "{audio:?}");
+    }
+
+    /// Regression for the reported Windows error
+    /// `failed to read yt-dlp stdout: stream did not contain valid UTF-8`: a
+    /// single non-UTF-8 line must not fail the whole read.
+    #[tokio::test]
+    async fn a_non_utf8_line_is_read_lossily_instead_of_failing() {
+        let bytes: &[u8] = b"first\r\n\xff\xfe broken \xb2\xe2\nlast\n";
+        let mut reader = BufReader::new(bytes);
+        let mut buffer = Vec::new();
+
+        let first = read_line_lossy(&mut reader, &mut buffer).await.unwrap();
+        assert_eq!(first.as_deref(), Some("first"), "CRLF is trimmed");
+        let broken = read_line_lossy(&mut reader, &mut buffer).await.unwrap();
+        assert!(
+            broken.as_deref().is_some_and(|line| line.contains('\u{fffd}')),
+            "the bad bytes are replaced, not rejected: {broken:?}"
+        );
+        let last = read_line_lossy(&mut reader, &mut buffer).await.unwrap();
+        assert_eq!(last.as_deref(), Some("last"));
+        assert!(
+            read_line_lossy(&mut reader, &mut buffer).await.unwrap().is_none(),
+            "the stream still ends cleanly"
+        );
+    }
+
+    /// The JSON the Resolve stage parses must survive a mixed-encoding stream:
+    /// the structure is ASCII, so only the title degrades.
+    #[tokio::test]
+    async fn a_json_line_with_a_mangled_title_still_parses() {
+        let bytes: &[u8] = b"{\"id\":\"BV1x\",\"title\":\"\xff\xfe\"}\n";
+        let mut reader = BufReader::new(bytes);
+        let mut buffer = Vec::new();
+        let line = read_line_lossy(&mut reader, &mut buffer).await.unwrap().unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&line).expect("structure survives");
+        assert_eq!(parsed["id"], "BV1x");
     }
 
     #[test]

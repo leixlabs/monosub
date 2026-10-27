@@ -342,8 +342,9 @@
   "urlImport": {
     "title": "从链接导入",
     "placeholder": "粘贴视频链接",
-    "hint": "一行一个，或用空格分隔。不支持的站点会被拒绝。",
+    "hint": "支持的视频链接。一行一个，或用空格分隔。",
     "subtitleLanguage": "字幕语言",
+    "followsInterfaceLanguage": "跟随界面语言",
     "followingSettings": "{{value}}（跟随设置）",
     "outputDir": "下载到",
     "outputDirDefault": "跟随设置",
