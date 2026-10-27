@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && bun run prerender",
+    "build:spa": "tsc && vite build",
+    "prerender": "node scripts/prerender.mjs",
     "preview": "vite preview",
     "deploy": "bun run build && bunx wrangler pages deploy dist --project-name=monosub"
   },

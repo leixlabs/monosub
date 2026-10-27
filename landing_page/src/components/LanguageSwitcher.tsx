@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { languageConfigs } from '../i18n';
 import { useLanguage } from '../hooks/useLanguage';
+import { BLOG_PATH } from '../lib/seo';
 
 export const LanguageSwitcher = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -10,12 +11,24 @@ export const LanguageSwitcher = () => {
   const { lang } = useParams();
   const { config } = useLanguage();
 
+  /**
+   * Keep the visitor on the same page when switching language.
+   *
+   * Three shapes to preserve: the privacy page, the blog index, and a blog post —
+   * where the slug has to survive, since dropping it would dump a reader who was
+   * mid-article back on the home page. Everything else is the landing page.
+   */
+  const targetFor = (newLang: string): string => {
+    const post = pathname.match(/\/(?:zh|en)\/blog\/([^/]+)\/?$/);
+    if (post) return `${BLOG_PATH[newLang as 'zh' | 'en']}${post[1]}/`;
+
+    if (pathname.includes('/blog')) return BLOG_PATH[newLang as 'zh' | 'en'];
+    if (/\/privacy\/?$/.test(pathname)) return `/${newLang}/privacy`;
+    return `/${newLang}`;
+  };
+
   const handleLanguageChange = (newLang: string) => {
-    // Keep the visitor on the same page (e.g. /privacy) when switching language.
-    const target = pathname.endsWith('/privacy')
-      ? `/${newLang}/privacy`
-      : `/${newLang}`;
-    navigate(target);
+    navigate(targetFor(newLang));
     setIsOpen(false);
     localStorage.setItem('monosub_language', newLang);
   };

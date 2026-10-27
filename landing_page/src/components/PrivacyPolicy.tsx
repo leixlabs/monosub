@@ -1,14 +1,16 @@
 import { useEffect } from 'react';
-import { Helmet, HelmetProvider } from 'react-helmet-async';
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { Footer } from './Footer';
 import { privacyContent } from '../i18n/privacy';
+import { alternateLinks, pageUrl } from '../lib/seo';
 
 export const PrivacyPolicy = () => {
   const { lang } = useLanguage();
   const content = privacyContent[lang] || privacyContent.en;
+  const canonical = pageUrl(lang, 'privacy');
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -16,30 +18,33 @@ export const PrivacyPolicy = () => {
   }, [lang]);
 
   return (
-    <HelmetProvider>
+    <>
       <Helmet>
+        <html lang={lang} dir="ltr" />
         <title>{content.meta_title}</title>
         <meta name="description" content={content.meta_description} />
 
         {/* Canonical */}
-        <link rel="canonical" href={`https://monosub.leix.dev/${lang}/privacy`} />
+        <link rel="canonical" href={canonical} />
 
         {/* Hreflang tags */}
-        <link rel="alternate" hrefLang="zh-CN" href="https://monosub.leix.dev/zh/privacy" />
-        <link rel="alternate" hrefLang="zh" href="https://monosub.leix.dev/zh/privacy" />
-        <link rel="alternate" hrefLang="en" href="https://monosub.leix.dev/en/privacy" />
-        <link rel="alternate" hrefLang="x-default" href="https://monosub.leix.dev/en/privacy" />
+        {alternateLinks('privacy').map((link) => (
+          <link key={link.hrefLang} rel="alternate" hrefLang={link.hrefLang} href={link.href} />
+        ))}
 
         {/* Open Graph */}
         <meta property="og:title" content={content.meta_title} />
         <meta property="og:description" content={content.meta_description} />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content={`https://monosub.leix.dev/${lang}/privacy`} />
+        <meta property="og:url" content={canonical} />
 
         {/* Twitter Card */}
         <meta name="twitter:card" content="summary" />
         <meta name="twitter:title" content={content.meta_title} />
         <meta name="twitter:description" content={content.meta_description} />
+
+        {/* A policy page should not compete with the product page for the brand. */}
+        <meta name="robots" content="noindex, follow" />
       </Helmet>
 
       <div className="min-h-screen bg-dark-bg text-white">
@@ -126,7 +131,7 @@ export const PrivacyPolicy = () => {
 
         <Footer />
       </div>
-    </HelmetProvider>
+    </>
   );
 };
 

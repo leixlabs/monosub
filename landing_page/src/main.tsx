@@ -1,63 +1,36 @@
 import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { createBrowserRouter, RouterProvider, Navigate, redirect } from 'react-router-dom';
-import App from './App';
-import PrivacyPolicy from './components/PrivacyPolicy';
-import { detectBrowserLanguage, DEFAULT_LANGUAGE, translations } from './i18n';
+import { createRoot, hydrateRoot } from 'react-dom/client';
+import { BrowserRouter, useRoutes } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
+import { createAppRoutes } from './routes';
 import './styles/index.css';
 
-const validLangs = Object.keys(translations);
+const AppRoutes = () => useRoutes(createAppRoutes());
 
-/** Old hreflang URLs (`/zh-tw/`, `/ja/`, …) are still indexed; send them home. */
-const resolveLanguage = (lang: string): string => {
-  const lower = lang.toLowerCase();
-  if (lower === 'zh' || lower.startsWith('zh-')) return 'zh';
-  return DEFAULT_LANGUAGE;
-};
-
-const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <Navigate to={`/${detectBrowserLanguage()}`} replace />
-  },
-  {
-    path: '/privacy',
-    loader: () => {
-      throw redirect(`/${detectBrowserLanguage()}/privacy`);
-    }
-  },
-  {
-    path: '/:lang/privacy',
-    element: <PrivacyPolicy />,
-    loader: ({ params }) => {
-      const lang = params.lang!;
-      if (!validLangs.includes(lang)) {
-        throw redirect(`/${resolveLanguage(lang)}/privacy`);
-      }
-      return null;
-    }
-  },
-  {
-    path: '/:lang',
-    element: <App />,
-    loader: ({ params }) => {
-      const lang = params.lang!;
-      if (!validLangs.includes(lang)) {
-        throw redirect(`/${resolveLanguage(lang)}`);
-      }
-      return null;
-    }
-  },
-  {
-    path: '*',
-    loader: () => {
-      throw redirect(`/${detectBrowserLanguage()}`);
-    }
-  }
-]);
-
-ReactDOM.createRoot(document.getElementById('root')!).render(
+const tree = (
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <HelmetProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </HelmetProvider>
   </React.StrictMode>
 );
+
+const container = document.getElementById('root')!;
+
+/**
+ * Prerendered pages arrive with markup already inside `#root`; hydrating keeps
+ * it and only attaches event handlers, so the first paint is the static HTML.
+ * In `vite dev` the container is empty, so there is nothing to hydrate.
+ *
+ * `BrowserRouter` rather than `createBrowserRouter`: the prerenderer renders
+ * through `StaticRouter`, and the declarative router is the pairing that
+ * produces matching markup. A data router keeps internal state the static pass
+ * cannot reproduce, which React would report as a hydration mismatch.
+ */
+if (container.hasChildNodes()) {
+  hydrateRoot(container, tree);
+} else {
+  createRoot(container).render(tree);
+}

@@ -1,18 +1,12 @@
 import { useState } from 'react';
 import { useLanguage } from '../hooks/useLanguage';
+import { faqPairs } from '../lib/faq';
 
 export const FAQ = () => {
   const { t } = useLanguage();
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
-  const faqs = [
-    { q: t.faq_1_q, a: t.faq_1_a },
-    { q: t.faq_2_q, a: t.faq_2_a },
-    { q: t.faq_5_q, a: t.faq_5_a },
-    { q: t.faq_3_q, a: t.faq_3_a },
-    { q: t.faq_4_q, a: t.faq_4_a },
-    { q: t.faq_6_q, a: t.faq_6_a }
-  ];
+  const faqs = faqPairs(t);
 
   return (
     <section id="faq" className="py-16 px-6 scroll-mt-24">

@@ -6,6 +6,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MonoSub - Local AI Subtitle Generator for Windows & macOS</title>
     <meta name="description" content="100% local AI subtitle generation. One-time purchase, no subscription, no cloud uploads." />
+    <script>
+      /*
+       * Language preference for the bare domain.
+       *
+       * `/` is prerendered as the English page so a crawler always finds content
+       * there — but a returning Chinese visitor who previously chose 中文 should
+       * not be shown English first. This runs before the body is parsed, so the
+       * switch happens with no flash of the wrong language.
+       *
+       * Deliberately narrow: only `/` (not `/en/`, not deep links), because a
+       * deep link is someone following a specific URL and guessing over their
+       * choice would be worse than honouring it.
+       */
+      (function () {
+        if (location.pathname !== '/') return;
+        var saved = null;
+        try {
+          saved = localStorage.getItem('monosub_language');
+        } catch (e) {
+          /* private mode — fall through to navigator */
+        }
+        var lang = saved || (navigator.language || 'en').toLowerCase().slice(0, 2);
+        if (lang === 'zh') location.replace('/zh/');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

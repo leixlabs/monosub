@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '../hooks/useLanguage';
 import { shot, shotSize, type ShotName } from '../lib/screenshots';
+import { highPriorityImage } from '../lib/imagePriority';
 
 const SLIDE_MS = 7000;
 
@@ -52,7 +53,7 @@ export const HeroCarousel = () => {
           className="w-full h-auto block"
           loading="eager"
           decoding="async"
-          fetchPriority={current === 0 ? 'high' : 'auto'}
+          {...(current === 0 ? highPriorityImage : {})}
         />
       </div>
 

@@ -9,6 +9,7 @@ const zhCN: Translation = {
   nav_screenshots: '界面',
   nav_pricing: '价格',
   nav_faq: 'FAQ',
+  nav_blog: '博客',
   nav_cta: '获取应用',
 
   // Hero

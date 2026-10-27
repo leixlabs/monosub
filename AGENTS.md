@@ -2003,16 +2003,16 @@ nothing at all. If you add a page:
 `src/lib/faq.ts` — the same list `components/FAQ.tsx` renders — because Google only
 accepts FAQ markup that matches visible content. Reorder the questions in one place.
 
-### The comparison blog (`/blog/`)
+### The blog (`/blog/`)
 
-A series of competitor comparisons at `/<lang>/blog/<slug>/`. Posts are **data, not
-JSX**: `src/content/blog/<slug>.ts` exports one typed `Post`, and two components
-(`BlogIndex.tsx`, `BlogPost.tsx`) render it. The index page is `/<lang>/blog/`.
+Editorial at `/<lang>/blog/<slug>/` — comparisons, tutorials and tips. Posts are
+**data, not JSX**: `src/content/blog/<slug>.ts` exports one typed `Post`, and two
+components (`BlogIndex.tsx`, `BlogPost.tsx`) render it. The index is `/<lang>/blog/`.
 
 Why data: every post is prerendered through the same tree as the rest of the site, so
-article text lands in the served HTML (which is the whole reason a crawler that does
-not run JS can index it), and `Post` requires both `zh` and `en` so a post cannot ship
-in one language by accident.
+article text lands in the served HTML (the whole reason a crawler that does not run JS
+can index it), and `Post` requires both `zh` and `en` so a post cannot ship in one
+language by accident.
 
 **Adding a post:**
 
@@ -2022,21 +2022,36 @@ in one language by accident.
 3. Nothing else. `entry-server.tsx` derives the prerender list, the sitemap entries and
    the `BlogPosting` JSON-LD from `POSTS`; the nav and footer link to the index.
 
+**Index layout** follows the shape a reader arrives with: eyebrow + oversized heading,
+category chips, one featured card, then a two-column grid. Specifics worth knowing:
+
+- **Categories** are `comparison | tutorial | tips | product` (`Category` in `types.ts`).
+  Only categories with at least one post render a chip — no empty tabs.
+- **The filter is component state, not a route.** A URL per chip would produce
+  near-duplicate pages for a handful of posts. All posts are linked in the initial grid,
+  so nothing is unreachable to a crawler.
+- **The featured card** is the newest post overall and only appears under "All"; it gets
+  an accent wash, larger type and a `<h2>` (the grid cards use `<h3>`), so it reads as a
+  different class of object rather than a wider box.
+- **No cover images is a valid state.** `cover` is optional per locale; the card leans on
+  typography instead. Posts under `public/blog/` at 1200×630 when they get one, and
+  `og:image` switches to it automatically.
+
 **Editorial rules the copy follows — keep them:**
 
-- **Say where the competitor wins.** Every post has a `callout` listing what MonoSub
-  cannot do, and the verdict states it plainly. A comparison that only flatters MonoSub
-  is worthless to a reader who has used both, and is indistinguishable to a search
-  engine from thin affiliate copy.
+- **Say where the competitor wins.** Every comparison post has a `callout` listing what
+  MonoSub cannot do, and the verdict states it plainly. A comparison that only flatters
+  MonoSub is worthless to a reader who has used both, and is indistinguishable to a
+  search engine from thin affiliate copy.
 - **No invented benchmarks.** No post claims a speed or accuracy ranking without
   measured numbers; say what actually drives the difference instead.
-- **Prices carry a check date.** Every price table has a `note` with the date the
-  figures were verified and a pointer to the vendor site as authoritative. Prices on
-  competitor pages change; an undated number becomes a lie.
+- **Prices carry a check date.** Every price table has a `note` with the date the figures
+  were verified and a pointer to the vendor site as authoritative. Competitor prices
+  change; an undated number becomes a lie.
 - **Descriptions stay ≤160 chars (en) / ~110 (zh)** — beyond that search results
   truncate them.
 
-**Competitor pool** (researched 2026-10-27; three shipped, the rest are candidates):
+**Competitor pool** (researched 2026-10-27):
 
 | Segments | Tools | Status |
 | --- | --- | --- |
@@ -2045,10 +2060,15 @@ in one language by accident.
 | Cloud, per-minute | 讯飞听见, 通义听悟, 飞书妙记 | shipped as one post |
 | Cloud, subscription | Otter.ai, Descript, Fathom, Rev | not written |
 | Paid Windows local | UIDCaption ($39), LocalCaptions, AI Video to SRT ($29), ArcTime Pro | not written |
-| Editors with ASR | 剪映 / CapCut (free), Subtitle Edit | 剪映 mentioned nowhere yet |
+| Editors with ASR | 剪映 / CapCut (free), Subtitle Edit | not written |
 
 The "paid Windows local" row is the most important gap: those are MonoSub's direct
 competitors on price and platform, and there is no post comparing them yet.
+
+**Images and `fetchpriority`.** React 18 does not know the `fetchPriority` prop — it warns
+and emits the camelCase name, which browsers ignore. Spread `highPriorityImage` /
+`lowPriorityImage` from `src/lib/imagePriority.ts` instead (lowercase attribute, passed
+through verbatim). Revisit if the project moves to React 19, which added the real prop.
 
 ---
 

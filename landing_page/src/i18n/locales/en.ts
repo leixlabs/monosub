@@ -9,6 +9,7 @@ const en: Translation = {
   nav_screenshots: 'Screenshots',
   nav_pricing: 'Pricing',
   nav_faq: 'FAQ',
+  nav_blog: 'Blog',
   nav_cta: 'Get the app',
 
   // Hero

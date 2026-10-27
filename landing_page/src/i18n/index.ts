@@ -14,6 +14,7 @@ export interface Translation {
   nav_screenshots: string;
   nav_pricing: string;
   nav_faq: string;
+  nav_blog: string;
   nav_cta: string;
 
   // Hero
@@ -177,7 +178,14 @@ export const translations: Record<string, Translation> = {
 
 export const DEFAULT_LANGUAGE = 'en';
 
+/**
+ * Browser-only by nature (it reads `localStorage` and `navigator`), but the same
+ * route tree is evaluated during prerendering, where neither exists — so the
+ * server path answers with the default locale instead of throwing.
+ */
 export const detectBrowserLanguage = (): string => {
+  if (typeof window === 'undefined') return DEFAULT_LANGUAGE;
+
   const saved = localStorage.getItem('monosub_language');
   if (saved && translations[saved]) {
     return saved;
