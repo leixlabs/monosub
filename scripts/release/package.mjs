@@ -155,6 +155,13 @@ function buildMacOs() {
     copyFile(builtDmg, dmgPath);
     log.success(`产物 DMG 已收集: ${dmgPath}`);
 
+    log.step('7b. 修正 DMG 安装窗口几何...');
+    // tauri.conf.json 已经配好 background / windowSize / 图标位置，DMG 本身仍是
+    // Tauri 官方流程产出的；但 create-dmg 在传 --background 时会把隐藏文件挪到
+    // 窗口右外 100pt，macOS 26 上要么把窗口撑大（背景只铺左上角），要么留下滚动条。
+    // 这一步只做等长字节替换，把 .DS_Store 里的窗口尺寸/图标位置改回配置值。
+    runNode(path.join(scriptsDir, 'release', 'polish-dmg.mjs'), dmgPath);
+
     log.step('8. macOS 分发校验...');
     // Verify the artifact that will actually be published — the DMG, not the
     // .app on disk, which might be stale or might never have made it in.

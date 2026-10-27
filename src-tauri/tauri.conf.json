@@ -52,6 +52,7 @@
       "signingIdentity": "-",
       "hardenedRuntime": false,
       "dmg": {
+        "background": "./dmg/background.png",
         "windowSize": {
           "width": 660,
           "height": 400
@@ -62,11 +63,11 @@
         },
         "appPosition": {
           "x": 180,
-          "y": 170
+          "y": 200
         },
         "applicationFolderPosition": {
           "x": 480,
-          "y": 170
+          "y": 200
         }
       }
     }

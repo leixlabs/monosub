@@ -27,7 +27,9 @@ import path from 'node:path';
 import { log, die } from '../lib/log.mjs';
 import { hostPlatform, targetTriple, cliName } from '../lib/platform.mjs';
 import { makeScratchDir, remove } from '../lib/fs.mjs';
+import { tauriConfPath } from '../lib/paths.mjs';
 import { run, tryCapture, tryCaptureMerged } from '../lib/shell.mjs';
+import { findRecords } from './polish-dmg.mjs';
 import { listZip, readZipEntry } from '../lib/archive.mjs';
 import * as xml from '../lib/xml.mjs';
 
@@ -103,6 +105,13 @@ function verifyDmg(dmgPath) {
         const appPath = findApp(mountPoint);
         if (!appPath) die('DMG 内没有找到 .app');
         log.step(`  已找到: ${path.basename(appPath)}`);
+
+        // 0. 安装窗口的几何。DMG 的第一印象完全由 .DS_Store 决定，而 create-dmg
+        //    在 macOS 26 上会把它写错（把隐藏文件停在窗口右外 100pt），表现为
+        //    滚动条、只铺左上角的背景、以及窗口里多出来的卷图标。
+        //    polish-dmg.mjs 负责修正，这里断言修正真的生效了 —— 失败时必须让构建
+        //    停下，而不是把一个"能装但难看"的包发出去。
+        verifyDmgWindow(mountPoint);
 
         // 1. The signature itself: present, intact, and ad-hoc — not a developer
         //    certificate that happens to exist on this machine.
@@ -433,6 +442,89 @@ async function verifyMsix(msixPath) {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Assert the installation window is the one tauri.conf.json describes.
+ *
+ * All of it lives in `.DS_Store`, which create-dmg writes through Finder — the
+ * one part of the build where the output depends on a GUI app. polish-dmg.mjs
+ * rewrites it deterministically; this is the check that the rewrite landed, and
+ * it fails loudly rather than shipping a package with scrollbars or a background
+ * that covers a quarter of the window.
+ */
+function verifyDmgWindow(mountPoint) {
+    const conf = JSON.parse(fs.readFileSync(tauriConfPath, 'utf8'));
+    const dmgConf = conf?.bundle?.macOS?.dmg ?? {};
+    const wantWidth = dmgConf.windowSize?.width ?? 660;
+    const wantHeight = dmgConf.windowSize?.height ?? 400;
+    const wantApp = dmgConf.appPosition ?? { x: 180, y: 170 };
+    const wantFolder = dmgConf.applicationFolderPosition ?? { x: 480, y: 170 };
+
+    // The volume icon and the background image are the only way to get either;
+    // both are dot-entries, and both must stay hidden or they turn into extra
+    // icons in the window (UF_HIDDEN = 0x8000, reported as decimal by stat).
+    for (const entry of ['.VolumeIcon.icns', '.background']) {
+        const full = path.join(mountPoint, entry);
+        if (!fs.existsSync(full)) {
+            die(`DMG 缺少 ${entry} —— 卷图标/背景图没有设置`);
+        }
+        const flags = Number(tryCapture('/usr/bin/stat', ['-f', '%f', full]) ?? '0');
+        if ((flags & 0x8000) === 0) {
+            die(`${entry} 没有隐藏标记 —— 它会作为多余图标显示在安装窗口里`);
+        }
+    }
+
+    const dsPath = path.join(mountPoint, '.DS_Store');
+    if (!fs.existsSync(dsPath)) die('DMG 内没有 .DS_Store —— 安装窗口没有任何布局');
+    const buffer = fs.readFileSync(dsPath);
+
+    const [bwsp] = findRecords(buffer, 'bwsp');
+    if (!bwsp) die('.DS_Store 缺少 bwsp —— 安装窗口没有尺寸信息');
+    const blob = buffer.subarray(bwsp.dataOffset, bwsp.dataOffset + bwsp.dataLength).toString('latin1');
+    const bounds = /\{\{-?\d+,\s*-?\d+\},\s*\{(-?\d+),\s*(-?\d+)\}\}/.exec(blob);
+    if (!bounds) die('无法解析 .DS_Store 里的 WindowBounds');
+    const width = Number(bounds[1]);
+    const height = Number(bounds[2]);
+    if (width !== wantWidth || height !== wantHeight) {
+        die(`安装窗口是 ${width}x${height}，配置要求 ${wantWidth}x${wantHeight}。`
+            + 'create-dmg 把窗口撑大了（或 polish-dmg.mjs 没生效）——背景图会只铺左上角。');
+    }
+
+    const positions = new Map();
+    for (const record of findRecords(buffer, 'Iloc')) {
+        if (record.dataLength < 8) continue;
+        positions.set(record.name, {
+            x: buffer.readUInt32BE(record.dataOffset),
+            y: buffer.readUInt32BE(record.dataOffset + 4),
+        });
+    }
+
+    const expectations = [
+        [`${conf.productName}.app`, wantApp],
+        ['Applications', wantFolder],
+    ];
+    for (const [name, want] of expectations) {
+        const actual = positions.get(name);
+        if (!actual) die(`.DS_Store 里没有 ${name} 的位置 —— 它不会出现在窗口里`);
+        if (actual.x !== want.x || actual.y !== want.y) {
+            die(`${name} 在 (${actual.x},${actual.y})，配置要求 (${want.x},${want.y})`
+                + ' —— 图标会和背景图上的箭头错位');
+        }
+    }
+
+    // Every icon sits at its centre and is 128 pt wide, so anything past half an
+    // icon of the window edge widens the icon view — which is exactly what makes
+    // Finder draw scrollbars across a design that has no room for them.
+    const iconRadius = 64;
+    for (const [name, at] of positions) {
+        if (at.x + iconRadius > width || at.y + iconRadius > height) {
+            die(`${name} 停在 (${at.x},${at.y})，超出了 ${width}x${height} 的窗口`
+                + ' —— 安装窗口会出现滚动条');
+        }
+    }
+
+    log.success(`  安装窗口 ${width}x${height}，两个图标就位，隐藏文件已隐藏，无滚动条`);
+}
 
 function findApp(mountPoint) {
     for (const entry of fs.readdirSync(mountPoint)) {
