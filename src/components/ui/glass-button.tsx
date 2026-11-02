@@ -90,7 +90,10 @@ export interface GlassButtonProps
 
 const GlassButton = React.forwardRef<HTMLButtonElement, GlassButtonProps>(
   // `glowEffect` is accepted and ignored so existing call sites keep compiling.
-  ({ className, variant, asChild = false, size, glowEffect: _glow, loading = false, disabled, children, ...props }, ref) => {
+  ({ className, variant, asChild = false, size, glowEffect, loading = false, disabled, children, ...props }, ref) => {
+    // Destroyed on purpose: it is not a valid HTML attribute, so it must not
+    // reach the DOM through `...props`.
+    void glowEffect;
     const Comp = asChild ? Slot : 'button'
 
     // Slot requires exactly one child, so the spinner is only injected for real buttons.

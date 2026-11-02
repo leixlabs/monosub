@@ -16,7 +16,10 @@ export interface GlassInputProps extends React.InputHTMLAttributes<HTMLInputElem
  * invalid and disabled states.
  */
 const GlassInput = React.forwardRef<HTMLInputElement, GlassInputProps>(
-  ({ className, type, glowOnFocus: _glow, invalid, ...props }, ref) => {
+  ({ className, type, glowOnFocus, invalid, ...props }, ref) => {
+    // Destroyed on purpose: not a valid HTML attribute, so it must not reach
+    // the DOM through `...props`.
+    void glowOnFocus;
     return (
       <input
         type={type}
