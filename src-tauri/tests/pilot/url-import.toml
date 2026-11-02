@@ -5,7 +5,9 @@
 #
 #   1. bad links only  → per-row errors, dialog stays open, no import row appears;
 #   2. a valid link    → the submit button becomes usable (asserted WITHOUT
-#                        clicking it, so nothing is fetched).
+#                        clicking it, so nothing is fetched);
+#   3. download kind   → the audio/video control exists, defaults to audio and
+#                        can be switched (also WITHOUT submitting).
 #
 # The online cases — real subtitle fetch, audio fallback, login wall, multi-P —
 # live in the manual runbook, docs/tech-spec/url-import-verification.md (U5-2).
@@ -191,6 +193,94 @@ target = "body[data-url-import-submit='usable']"
 # Still nothing started: the click above was the last one, and it only parsed.
 [[step]]
 name = "no import was started by parsing alone"
+action = "assert-count"
+selector = "[data-testid='url-import-item']"
+expected = 0
+
+# --- Session 3: the download-kind control (no submission) ---------------------
+#
+# The dialog is still open from Session 2, so these steps only touch the panel.
+# The control is a **two-segment pair** (audio | video), not a dropdown: a
+# dropdown costs two clicks (open, then choose) and the menu closes on select,
+# so the only thing left to assert afterwards would be a localised label.
+# One click per segment is both faster and directly assertable.
+#
+# The assertion is locale-agnostic on purpose (the UI language is a user
+# setting): instead of matching "Audio"/"音频" it reads which segment carries
+# `aria-pressed` and surfaces that as a data attribute.
+
+[[step]]
+name = "the panel offers a download-kind group"
+action = "assert-exists"
+target = "[data-testid='url-import-media-kind']"
+
+[[step]]
+name = "the audio segment is offered"
+action = "wait"
+selector = "[data-testid='url-import-media-kind-audio']"
+timeout_ms = 5000
+
+[[step]]
+name = "the video segment is offered"
+action = "wait"
+selector = "[data-testid='url-import-media-kind-video']"
+timeout_ms = 5000
+
+# `assert-checked` refuses anything that is not a checkbox or radio, so the
+# selected segment is surfaced as a data attribute and asserted with
+# `assert-visible` — the same trick Session 1 uses for the rejection wording.
+[[step]]
+name = "surface the selected download kind"
+action = "eval"
+script = """
+(() => {
+  const audio = document.querySelector("[data-testid='url-import-media-kind-audio']");
+  const video = document.querySelector("[data-testid='url-import-media-kind-video']");
+  const on = (el) => !!el && el.getAttribute('aria-pressed') === 'true';
+  let kind = 'none';
+  if (on(audio) && !on(video)) kind = 'audio';
+  else if (on(video) && !on(audio)) kind = 'video';
+  else if (on(audio) && on(video)) kind = 'both';
+  document.body.dataset.urlImportKind = kind;
+  return kind;
+})()
+"""
+
+[[step]]
+name = "audio is the default"
+action = "assert-visible"
+target = "body[data-url-import-kind='audio']"
+
+[[step]]
+name = "choose video"
+action = "click"
+target = "[data-testid='url-import-media-kind-video']"
+
+[[step]]
+name = "surface the selected download kind again"
+action = "eval"
+script = """
+(() => {
+  const audio = document.querySelector("[data-testid='url-import-media-kind-audio']");
+  const video = document.querySelector("[data-testid='url-import-media-kind-video']");
+  const on = (el) => !!el && el.getAttribute('aria-pressed') === 'true';
+  let kind = 'none';
+  if (on(audio) && !on(video)) kind = 'audio';
+  else if (on(video) && !on(audio)) kind = 'video';
+  else if (on(audio) && on(video)) kind = 'both';
+  document.body.dataset.urlImportKind = kind;
+  return kind;
+})()
+"""
+
+[[step]]
+name = "one click switched to video"
+action = "assert-visible"
+target = "body[data-url-import-kind='video']"
+
+# Nothing was submitted: no import row exists, so no video was fetched.
+[[step]]
+name = "choosing a kind starts no import"
 action = "assert-count"
 selector = "[data-testid='url-import-item']"
 expected = 0

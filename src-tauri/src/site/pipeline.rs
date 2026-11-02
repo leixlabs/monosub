@@ -14,7 +14,7 @@ use crate::site::deps::{Deps, WebTranslation};
 use crate::site::error::ImportError;
 use crate::site::lang::{self, OutputLanguage, Pick};
 use crate::site::naming;
-use crate::site::{srt, JobParams, Outcome, SiteMedia, Stage};
+use crate::site::{srt, JobParams, MediaKind, Outcome, SiteMedia, Stage};
 use crate::subtitle;
 
 /// Run one URL end to end.
@@ -162,33 +162,49 @@ async fn materialize<D: Deps + ?Sized>(
     })
 }
 
-/// Download the audio, then hand it to the frontend as a queued file.
+/// Download the media, then hand it to the frontend as a queued file.
+///
+/// Which media it is follows the request's `media_kind` (audio by default):
+/// only the fallback reaches this point, so the choice has no effect on a video
+/// whose platform subtitle is usable.
 async fn fallback<D: Deps + ?Sized>(
     deps: &D,
     params: &JobParams,
     media: &SiteMedia,
     login_hint: bool,
 ) -> Result<Outcome, ImportError> {
-    let audio = match deps.cached_audio(params, media) {
+    let kind = params.request.media_kind();
+    let downloaded = match deps.cached_media(params, media) {
         Some(path) => {
-            tracing::info!(path = %path.display(), "reusing cached audio");
+            tracing::info!(path = %path.display(), "reusing cached media");
             path
         }
         None => {
-            deps.progress(Stage::DownloadingAudio, None);
-            deps.download_audio(params, media).await?
+            // The row's text comes from the stage, so downloading a video must
+            // not say "downloading audio".
+            deps.progress(
+                match kind {
+                    MediaKind::Audio => Stage::DownloadingAudio,
+                    MediaKind::Video => Stage::DownloadingVideo,
+                },
+                None,
+            );
+            deps.download_media(params, media).await?
         }
     };
 
     let name = naming::file_stem(&media.title, &media.id)
         + "."
-        + audio
+        + downloaded
             .extension()
             .and_then(|extension| extension.to_str())
-            .unwrap_or("m4a");
+            .unwrap_or(match kind {
+                MediaKind::Audio => "m4a",
+                MediaKind::Video => "mp4",
+            });
 
     Ok(Outcome::Queued {
-        path: audio.to_string_lossy().into_owned(),
+        path: downloaded.to_string_lossy().into_owned(),
         title: media.title.clone(),
         name,
         duration: media.duration,
@@ -251,6 +267,7 @@ mod tests {
                 target_language: None,
                 translation_model: None,
                 prefer_local_recognition: None,
+                media_kind: None,
             },
             formats: crate::subtitle::parse_formats(formats).unwrap(),
             work_dir: output_dir.to_path_buf(),
@@ -342,7 +359,7 @@ mod tests {
 
     /// A cached audio file skips the download stage entirely (design §5.3).
     #[tokio::test]
-    async fn cached_audio_skips_the_download() {
+    async fn cached_media_skips_the_download() {
         let dir = scratch_dir("cached");
         let audio = dir.join("cached.m4a");
         std::fs::write(&audio, b"audio").unwrap();
@@ -358,6 +375,35 @@ mod tests {
             "a cached file must not emit a downloading_audio stage"
         );
         assert!(deps.downloaded.lock().await.is_none(), "the download seam must not run");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Choosing video downloads a video (not the audio) — and the row's stage
+    /// says so, because its text is derived from the stage name.
+    #[tokio::test]
+    async fn a_video_fallback_downloads_video_and_reports_the_video_stage() {
+        let dir = scratch_dir("video-fallback");
+        // Deliberately NOT `<stem>.mp4` in the output directory: that would be
+        // the reuse hit, and this test is about the download.
+        let video = dir.join("BV1GJ411x7h7.mp4");
+        std::fs::write(&video, b"video").unwrap();
+
+        let deps = fake(media(&[("en-US", "srt", Some("inline"))]), &[]).await;
+        *deps.downloaded.lock().await = Some(Ok(video.clone()));
+        let mut params = params(&dir, "srt");
+        params.request.media_kind = Some("video".to_string());
+
+        let outcome = run(&deps, &params, None).await.expect("fallback is not an error");
+        match outcome {
+            Outcome::Queued { path, name, .. } => {
+                assert_eq!(path, video.to_string_lossy());
+                assert_eq!(name, "Title [BV1GJ411x7h7].mp4");
+            }
+            other => panic!("expected Queued, got {other:?}"),
+        }
+        let stages: Vec<Stage> = deps.events().await.into_iter().map(|(stage, _)| stage).collect();
+        assert_eq!(stages, vec![Stage::DownloadingVideo]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -64,6 +64,18 @@ pub const SUB_FORMAT: &str = "srt/best";
 /// Audio format preference for the fallback path (design §5.3).
 pub const AUDIO_FORMAT: &str = "ba[ext=m4a]/ba/b";
 
+/// Video format preference for the fallback path, when the user asks for the
+/// video rather than only its audio.
+///
+/// `bv[ext=mp4]+ba[ext=m4a]` is a separate video and audio stream, so the
+/// finished file needs a merge — which is why `--ffmpeg-location` is always
+/// passed (and why the bundled ffmpeg, never a system one, does it). `/b` is
+/// the last resort: one already-muxed file of whatever the site offers.
+/// No resolution cap: capping at 1080p would quietly fetch a different file
+/// than the one the user asked for, and the fallback exists to be recognised
+/// locally, not to be watched.
+pub const VIDEO_FORMAT: &str = "bv[ext=mp4]+ba[ext=m4a]/b";
+
 /// Which yt-dlp stage an invocation is for. The argv differs per stage, so the
 /// difference is a type rather than a comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +103,32 @@ pub enum Stage {
         /// yt-dlp cannot reproduce the sanitised title from `%(title)s`.
         file_stem: String,
     },
+    /// Download the video (not just its audio) for the transcription fallback.
+    ///
+    /// Same layout and same stem as [`Self::DownloadAudio`]: only `-f` differs,
+    /// because the video needs a merge and therefore ffmpeg.
+    DownloadVideo {
+        home_dir: PathBuf,
+        temp_dir: PathBuf,
+        file_stem: String,
+    },
+}
+
+impl Stage {
+    /// Whether this stage is downloading media, and therefore wants progress
+    /// lines (see [`ALWAYS_ARGS`]).
+    fn is_media_download(&self) -> bool {
+        matches!(self, Stage::DownloadAudio { .. } | Stage::DownloadVideo { .. })
+    }
+
+    /// The `-f` value for a media-download stage; `None` for every other stage.
+    fn media_format(&self) -> Option<&'static str> {
+        match self {
+            Stage::DownloadAudio { .. } => Some(AUDIO_FORMAT),
+            Stage::DownloadVideo { .. } => Some(VIDEO_FORMAT),
+            _ => None,
+        }
+    }
 }
 
 /// Everything an invocation needs beyond the stage.
@@ -140,9 +178,9 @@ pub fn escape_sub_lang(tag: &str) -> String {
 ///
 /// Pure so every stage's command line can be pinned by a test.
 pub fn build_argv(invocation: &Invocation) -> Vec<String> {
-    // The audio stage asks for progress, so it must NOT carry `--no-progress`:
+    // A media stage asks for progress, so it must NOT carry `--no-progress`:
     // the two flags together suppress the template as well (see ALWAYS_ARGS).
-    let wants_progress = matches!(invocation.stage, Stage::DownloadAudio { .. });
+    let wants_progress = invocation.stage.is_media_download();
     let mut argv: Vec<String> = ALWAYS_ARGS.iter().map(|arg| (*arg).to_string()).collect();
     if !wants_progress {
         argv.push(NO_PROGRESS_ARG.to_string());
@@ -198,14 +236,23 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
             argv.push("-o".to_string());
             argv.push(output_template(work_dir));
         }
+        // One branch for both media stages: the video run differs from the audio
+        // run only in `-f` (and the merge that format implies), so the paths,
+        // the template and the relative `-o` stay a single, pinned shape.
         Stage::DownloadAudio {
+            home_dir,
+            temp_dir,
+            file_stem,
+        }
+        | Stage::DownloadVideo {
             home_dir,
             temp_dir,
             file_stem,
         } => {
             // No `--no-progress` here: it would silence the template below.
+            let format = invocation.stage.media_format().unwrap_or(AUDIO_FORMAT);
             argv.push("-f".to_string());
-            argv.push(AUDIO_FORMAT.to_string());
+            argv.push(format.to_string());
             argv.push("--progress-template".to_string());
             argv.push(PROGRESS_TEMPLATE.to_string());
             // `--paths` splits the two locations. Both are explicit so the argv
@@ -226,7 +273,7 @@ pub fn build_argv(invocation: &Invocation) -> Vec<String> {
     argv
 }
 
-/// The `-o` template for the audio stage: the exact stem the subtitle carries,
+/// The `-o` template for the media stages: the exact stem the subtitle carries,
 /// plus yt-dlp's extension placeholder.
 ///
 /// `%` is yt-dlp's template escape, so it is doubled. Without that a title
@@ -538,6 +585,17 @@ mod tests {
                 cookies_file: None,
                 ffmpeg: None,
             },
+            Invocation {
+                stage: Stage::DownloadVideo {
+                    home_dir: dir.clone(),
+                    temp_dir: PathBuf::from("/tmp/cache"),
+                    file_stem: "Title [BV1]".to_string(),
+                },
+                url: "u".to_string(),
+                cookies_browser: None,
+                cookies_file: None,
+                ffmpeg: None,
+            },
         ];
 
         for invocation in invocations {
@@ -546,7 +604,7 @@ mod tests {
                 assert!(argv.contains(&flag.to_string()), "{:?} is missing {flag}", invocation.stage);
             }
             // `--no-progress` is per-stage, so only the quiet stages carry it.
-            let quiet = !matches!(invocation.stage, Stage::DownloadAudio { .. });
+            let quiet = !invocation.stage.is_media_download();
             assert_eq!(
                 argv.contains(&NO_PROGRESS_ARG.to_string()),
                 quiet,
@@ -914,6 +972,63 @@ mod tests {
         );
     }
 
+    /// The video fallback differs from the audio one only in `-f`: a separate
+    /// video and audio stream that has to be merged. Everything else — the
+    /// progress template, `--paths`, the relative `-o` — must be identical, or
+    /// the video bar goes indeterminate and the file lands in the wrong place.
+    #[test]
+    fn video_stage_requests_a_merged_format_with_a_progress_template() {
+        let argv = build_argv(&Invocation {
+            stage: Stage::DownloadVideo {
+                home_dir: PathBuf::from("/tmp/out"),
+                temp_dir: PathBuf::from("/tmp/cache"),
+                file_stem: "Title [BV1]".to_string(),
+            },
+            url: "u".to_string(),
+            cookies_browser: None,
+            cookies_file: None,
+            ffmpeg: Some(PathBuf::from("/bin/ffmpeg")),
+        });
+
+        assert_eq!(VIDEO_FORMAT, "bv[ext=mp4]+ba[ext=m4a]/b");
+        assert_eq!(
+            argv.iter().position(|arg| arg == "-f").map(|index| argv[index + 1].as_str()),
+            Some(VIDEO_FORMAT)
+        );
+        assert!(
+            argv.iter().any(|arg| arg == "--progress-template"),
+            "a video download must be able to report progress: {argv:?}"
+        );
+        assert!(
+            !argv.iter().any(|arg| arg == NO_PROGRESS_ARG),
+            "the video stage must not suppress the template: {argv:?}"
+        );
+        // ...and the merge is done by the bundled ffmpeg, not a stray one.
+        assert_eq!(
+            argv.iter()
+                .position(|arg| arg == "--ffmpeg-location")
+                .map(|index| argv[index + 1].as_str()),
+            Some("/bin/ffmpeg")
+        );
+        assert!(!argv.iter().any(|arg| arg == "--no-warnings"), "{argv:?}");
+
+        // Same landing rule as the audio stage: finished file in the output
+        // directory, `.part` in the cache, relative `-o`.
+        let paths: Vec<&str> = argv
+            .iter()
+            .enumerate()
+            .filter(|(_, arg)| *arg == "--paths")
+            .map(|(index, _)| argv[index + 1].as_str())
+            .collect();
+        assert_eq!(paths, vec!["home:/tmp/out", "temp:/tmp/cache"]);
+        let template = argv
+            .iter()
+            .position(|arg| arg == "-o")
+            .map(|index| argv[index + 1].clone())
+            .expect("-o template");
+        assert_eq!(template, "Title [BV1].%(ext)s");
+    }
+
     /// The audio stage writes the finished media into the output directory under
     /// the same stem as the subtitle, and only the `.part` into the cache.
     ///
@@ -975,10 +1090,10 @@ mod tests {
         );
     }
 
-    /// `--skip-download` and the audio stage are mutually exclusive: asking for
+    /// `--skip-download` and the media stages are mutually exclusive: asking for
     /// no download while asking for a download would download nothing.
     #[test]
-    fn only_the_audio_stage_omits_skip_download() {
+    fn only_the_media_stages_omit_skip_download() {
         let audio = build_argv(&Invocation {
             stage: Stage::DownloadAudio {
                 home_dir: PathBuf::from("/tmp/out"),
@@ -991,6 +1106,19 @@ mod tests {
             ffmpeg: None,
         });
         assert!(!audio.iter().any(|arg| arg == "--skip-download"), "{audio:?}");
+
+        let video = build_argv(&Invocation {
+            stage: Stage::DownloadVideo {
+                home_dir: PathBuf::from("/tmp/out"),
+                temp_dir: PathBuf::from("/tmp/cache"),
+                file_stem: "Title [BV1]".to_string(),
+            },
+            url: "u".to_string(),
+            cookies_browser: None,
+            cookies_file: None,
+            ffmpeg: None,
+        });
+        assert!(!video.iter().any(|arg| arg == "--skip-download"), "{video:?}");
     }
 
     /// Regression for the reported Windows error

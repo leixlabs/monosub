@@ -75,8 +75,43 @@ pub enum Stage {
     Resolving,
     FetchingSubtitles,
     DownloadingAudio,
+    /// The fallback is downloading the **video** rather than just its audio
+    /// ([`MediaKind::Video`]). Separate from [`Self::DownloadingAudio`] because
+    /// the row's text is derived from this name: showing "downloading audio…"
+    /// while a video is on the wire is a plain falsehood.
+    DownloadingVideo,
     Writing,
     Translating,
+}
+
+/// What the fallback path downloads when a video has no usable platform
+/// subtitle (design §5.3): only the audio, or the whole video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaKind {
+    Audio,
+    Video,
+}
+
+impl MediaKind {
+    /// Parse the request's `media_kind`, defaulting to [`Self::Audio`].
+    ///
+    /// An older frontend sends no `media_kind` at all, and there is no stored
+    /// state to migrate, so a missing or unrecognised value is audio — exactly
+    /// what this app did before the choice existed.
+    pub fn parse(value: Option<&str>) -> Self {
+        match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+            Some("video") => MediaKind::Video,
+            _ => MediaKind::Audio,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MediaKind::Audio => "audio",
+            MediaKind::Video => "video",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -163,6 +198,18 @@ pub struct UrlImportRequest {
     pub translation_model: Option<String>,
     /// Skip the subtitle lookup and recognise locally instead (design §7-2).
     pub prefer_local_recognition: Option<bool>,
+    /// What the fallback downloads: `"audio"` (default) or `"video"` (§5.3).
+    ///
+    /// Absent means audio, so a request from an older frontend keeps behaving
+    /// exactly as it did before this option existed.
+    pub media_kind: Option<String>,
+}
+
+impl UrlImportRequest {
+    /// The requested [`MediaKind`], defaulting to audio (see the field).
+    pub fn media_kind(&self) -> MediaKind {
+        MediaKind::parse(self.media_kind.as_deref())
+    }
 }
 
 // --- Task registry --------------------------------------------------------
@@ -602,21 +649,24 @@ fn read_subtitle_file(params: &JobParams, media: &SiteMedia, tag: &str) -> Optio
     Some(text)
 }
 
-// --- Fallback: audio download ---------------------------------------------
+// --- Fallback: media download ---------------------------------------------
 
-/// Download the audio for a video, reporting progress, and return the media file.
+/// Download the media for a video, reporting progress, and return the file.
 ///
-/// The file lands in the import **output directory**, under the same
-/// `<title> [<id>]` stem the subtitle carries, so media and subtitle sit side by
-/// side (design §5.3). Only the in-flight `.part` goes to the cache: yt-dlp
-/// downloads into `temp` and moves the finished file into `home` itself, which is
-/// what keeps the cache from holding a second copy of the finished media.
-pub(crate) async fn download_audio(
+/// Which media it is follows [`MediaKind`]: audio is the `-f ba[ext=m4a]/ba/b`
+/// fallback of design §5.3, video asks for a merged mp4 instead. Both land in
+/// the import **output directory**, under the same `<title> [<id>]` stem the
+/// subtitle carries, so media and subtitle sit side by side. Only the in-flight
+/// `.part` goes to the cache: yt-dlp downloads into `temp` and moves the
+/// finished file into `home` itself, which is what keeps the cache from holding
+/// a second copy of the finished media.
+pub(crate) async fn download_media(
     app: &AppHandle,
     params: &JobParams,
     media: &SiteMedia,
 ) -> Result<PathBuf, ImportError> {
     let request = &params.request;
+    let kind = request.media_kind();
     if request.output_dir.trim().is_empty() {
         return Err(ImportError::Other(
             "urlImport.outputDirFailed:no output directory".to_string(),
@@ -632,12 +682,27 @@ pub(crate) async fn download_audio(
     let temp_dir = temp_media_dir(app, &media.id)?;
     let file_stem = naming::file_stem(&media.title, &media.id);
 
-    let invocation = ytdlp::Invocation {
-        stage: ytdlp::Stage::DownloadAudio {
+    // The row's text is derived from the progress stage, so a video download
+    // must not report "downloading audio".
+    let progress_stage = match kind {
+        MediaKind::Audio => Stage::DownloadingAudio,
+        MediaKind::Video => Stage::DownloadingVideo,
+    };
+    let download_stage = |home_dir: PathBuf, temp_dir: PathBuf, file_stem: String| match kind {
+        MediaKind::Audio => ytdlp::Stage::DownloadAudio {
             home_dir,
             temp_dir,
-            file_stem: file_stem.clone(),
+            file_stem,
         },
+        MediaKind::Video => ytdlp::Stage::DownloadVideo {
+            home_dir,
+            temp_dir,
+            file_stem,
+        },
+    };
+
+    let invocation = ytdlp::Invocation {
+        stage: download_stage(home_dir, temp_dir, file_stem.clone()),
         url: request.url.clone(),
         cookies_browser: cookies(request),
         cookies_file: cookies_file_of(request),
@@ -661,7 +726,7 @@ pub(crate) async fn download_audio(
                     } else {
                         progress.fraction().map(|fraction| fraction * 100.0)
                     };
-                    emit_progress(&app, &task_id, Stage::DownloadingAudio, percent);
+                    emit_progress(&app, &task_id, progress_stage, percent);
                 }
             })
             .await
@@ -674,8 +739,8 @@ pub(crate) async fn download_audio(
     }
 
     let home_dir = PathBuf::from(&request.output_dir);
-    media_file_for_stem(&home_dir, &file_stem)
-        .ok_or_else(|| ImportError::Other("urlImport.downloadFailed:no audio file".to_string()))
+    media_file_for_stem(&home_dir, &file_stem, kind)
+        .ok_or_else(|| ImportError::Other("urlImport.downloadFailed:no media file".to_string()))
 }
 
 // --- Download cache -------------------------------------------------------
@@ -721,24 +786,50 @@ fn is_sidecar_extension(extension: &str) -> bool {
     )
 }
 
+/// Containers the audio fallback can produce (`-f ba[ext=m4a]/ba/b`).
+pub const AUDIO_MEDIA_EXTENSIONS: [&str; 9] = [
+    "m4a", "mp3", "aac", "mka", "opus", "ogg", "oga", "flac", "wav",
+];
+
+/// Containers the video fallback can produce (`-f bv[ext=mp4]+ba[ext=m4a]/b`).
+pub const VIDEO_MEDIA_EXTENSIONS: [&str; 8] = [
+    "mp4", "m4v", "mov", "webm", "mkv", "flv", "avi", "3gp",
+];
+
+impl MediaKind {
+    /// Whether a finished file with this extension is media of this kind.
+    ///
+    /// The reuse lookup is kind-aware on purpose: without it a video run reused
+    /// the `.m4a` an earlier audio run had left behind and never fetched the
+    /// video at all — the choice in the dialog silently did nothing.
+    fn matches_extension(self, extension: &str) -> bool {
+        let extension = extension.to_ascii_lowercase();
+        match self {
+            MediaKind::Audio => AUDIO_MEDIA_EXTENSIONS.contains(&extension.as_str()),
+            MediaKind::Video => VIDEO_MEDIA_EXTENSIONS.contains(&extension.as_str()),
+        }
+    }
+}
+
 /// The already-downloaded media for this video, if any (design §5.3 reuse rule).
 ///
 /// The lookup is in the **output directory** and is scoped to this video's stem:
 /// scanning that directory for "any media file" would happily return an unrelated
-/// video the user downloaded earlier.
+/// video the user downloaded earlier. It is also scoped to the requested
+/// [`MediaKind`], so a video run never reuses an audio file and vice versa.
 pub(crate) fn cached_media_file(params: &JobParams, media: &SiteMedia) -> Option<PathBuf> {
     let dir = PathBuf::from(&params.request.output_dir);
     let stem = naming::file_stem(&media.title, &media.id);
-    media_file_for_stem(&dir, &stem)
+    media_file_for_stem(&dir, &stem, params.request.media_kind())
 }
 
-/// The finished media file `<stem>.<ext>` in `dir`.
+/// The finished media file `<stem>.<ext>` in `dir` for this [`MediaKind`].
 ///
 /// Matching is by the `<stem>.` prefix rather than by `Path::file_stem`: a title
 /// may itself contain dots (`v1.2 final [BV1]`), which `file_stem` would shorten.
 /// Sidecars (`.part`, `.ytdl`, subtitles, `.json`) and empty files are ignored, so
 /// an interrupted attempt is never mistaken for a finished download.
-fn media_file_for_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
+fn media_file_for_stem(dir: &Path, stem: &str, kind: MediaKind) -> Option<PathBuf> {
     let prefix = format!("{stem}.");
     let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()?
@@ -755,7 +846,7 @@ fn media_file_for_stem(dir: &Path, stem: &str) -> Option<PathBuf> {
                 .extension()
                 .and_then(|extension| extension.to_str())
                 .unwrap_or_default();
-            !is_sidecar_extension(extension)
+            !is_sidecar_extension(extension) && kind.matches_extension(extension)
         })
         .filter(|path| std::fs::metadata(path).map(|meta| meta.len() > 0).unwrap_or(false))
         .collect();
@@ -945,6 +1036,7 @@ mod tests {
             target_language: None,
             translation_model: None,
             prefer_local_recognition: None,
+            media_kind: None,
         }
     }
 
@@ -955,6 +1047,7 @@ mod tests {
             Stage::Resolving,
             Stage::FetchingSubtitles,
             Stage::DownloadingAudio,
+            Stage::DownloadingVideo,
             Stage::Writing,
             Stage::Translating,
         ]
@@ -967,6 +1060,7 @@ mod tests {
                 "\"resolving\"",
                 "\"fetching_subtitles\"",
                 "\"downloading_audio\"",
+                "\"downloading_video\"",
                 "\"writing\"",
                 "\"translating\"",
             ]
@@ -1027,6 +1121,7 @@ mod tests {
                 target_language: None,
                 translation_model: None,
                 prefer_local_recognition: None,
+                media_kind: None,
             },
             formats: subtitle::parse_formats("srt").unwrap(),
             work_dir: dir.to_path_buf(),
@@ -1062,14 +1157,14 @@ mod tests {
         // A different video in the same folder must not be returned.
         touch(&dir.join("Other [BV2].m4a"), "audio");
         assert_eq!(
-            media_file_for_stem(&dir, &stem),
+            media_file_for_stem(&dir, &stem, MediaKind::Audio),
             None,
             "only a non-empty media file with this stem counts"
         );
 
         touch(&dir.join("Title [BV1].m4a"), "audio bytes");
         assert_eq!(
-            media_file_for_stem(&dir, &stem),
+            media_file_for_stem(&dir, &stem, MediaKind::Audio),
             Some(dir.join("Title [BV1].m4a"))
         );
 
@@ -1086,7 +1181,7 @@ mod tests {
         assert_eq!(stem, "v1.2 final [BV1]");
         touch(&dir.join("v1.2 final [BV1].m4a"), "audio");
         assert_eq!(
-            media_file_for_stem(&dir, &stem),
+            media_file_for_stem(&dir, &stem, MediaKind::Audio),
             Some(dir.join("v1.2 final [BV1].m4a"))
         );
 
@@ -1106,6 +1201,56 @@ mod tests {
         let expected = dir.join("Title [BV1GJ411x7h7].m4a");
         touch(&expected, "audio");
         assert_eq!(cached_media_file(&params, &media), Some(expected));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A request without `media_kind` is audio — what every request looked like
+    /// before this option existed, and what the clipboard path still sends.
+    #[test]
+    fn media_kind_defaults_to_audio() {
+        assert_eq!(MediaKind::parse(None), MediaKind::Audio);
+        assert_eq!(MediaKind::parse(Some("")), MediaKind::Audio);
+        assert_eq!(MediaKind::parse(Some("nonsense")), MediaKind::Audio);
+        assert_eq!(MediaKind::parse(Some("audio")), MediaKind::Audio);
+        assert_eq!(MediaKind::parse(Some(" Video ")), MediaKind::Video);
+        assert_eq!(MediaKind::Audio.as_str(), "audio");
+        assert_eq!(MediaKind::Video.as_str(), "video");
+
+        let mut req = request("srt");
+        assert_eq!(req.media_kind(), MediaKind::Audio);
+        req.media_kind = Some("video".to_string());
+        assert_eq!(req.media_kind(), MediaKind::Video);
+    }
+
+    /// Regression: the reuse lookup used to accept ANY non-sidecar file with this
+    /// stem, so choosing video after an audio run handed back the `.m4a` and the
+    /// video was never downloaded. Each kind only recognises its own extensions.
+    #[test]
+    fn the_reuse_lookup_is_kind_aware() {
+        let dir = scratch_dir("reuse-kind");
+        let mut params = job_params(&dir);
+        let media = site_media("Title", "BV1GJ411x7h7");
+        let audio = dir.join("Title [BV1GJ411x7h7].m4a");
+        let video = dir.join("Title [BV1GJ411x7h7].mp4");
+
+        touch(&audio, "audio");
+        assert_eq!(cached_media_file(&params, &media), Some(audio.clone()));
+        params.request.media_kind = Some("video".to_string());
+        assert_eq!(
+            cached_media_file(&params, &media),
+            None,
+            "a video run must not reuse the audio file"
+        );
+
+        touch(&video, "video");
+        assert_eq!(cached_media_file(&params, &media), Some(video));
+        params.request.media_kind = Some("audio".to_string());
+        assert_eq!(
+            cached_media_file(&params, &media),
+            Some(audio),
+            "an audio run must not reuse the video file"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

@@ -31,6 +31,7 @@ const ACTIVE_STAGES: UrlImportState['status'][] = [
   'resolving',
   'fetching_subtitles',
   'downloading_audio',
+  'downloading_video',
   'writing',
   'translating',
 ];

@@ -254,6 +254,8 @@ Toolbar 在「添加文件」旁新增「从链接添加」（`Link` 图标，`d
 │ │                                          │ │
 │ └─────────────────────────────────────────┘ │
 │ 一行一个，或用空格分隔                        │
+│ 下载类型：音频 ▾                              │
+│ 视频没有平台字幕时使用                         │
 │ 字幕语言：English（跟随界面语言）              │
 │ 下载到：~/Downloads/MonoSub（跟随设置）        │
 │ [☑ 转录完成后自动开始]                        │
@@ -261,6 +263,10 @@ Toolbar 在「添加文件」旁新增「从链接添加」（`Link` 图标，`d
 └─────────────────────────────────────────────┘
 ```
 
+- **下载类型（音频 / 视频，`data-testid="url-import-media-kind"`）**：决定降级路径下什么
+  （§5.3），默认「音频」，即这个选项存在之前的行为。它是**面板局部 state**，不进 `settings`、
+  不持久化：它描述的是「这一次粘贴」，而剪贴板一键导入（`ClipboardPrompt`）没有面板，请求里
+  不带 `media_kind`，后端按缺失处理 —— 也就是音频。重试同理走默认值。
 - 字幕语言和输出目录只显示、不在面板里改，避免出现第二个真值来源。字幕语言取**界面语言**
   （面板上标注「跟随界面语言」），因为字幕是给人读的；设置里的 `outputLanguage` 是「识别语言」，
   描述的是音频，不受影响。输出目录跟随设置。
@@ -270,7 +276,7 @@ Toolbar 在「添加文件」旁新增「从链接添加」（`Link` 图标，`d
   （非持久化），在 `FileList` 顶部用新组件 `UrlImportItem` 渲染（视觉上沿用 `FileItem` 的骨架）。
   它们**不进** `files`，因此不参与「全部开始」和批处理计数。
   - 解析中：`Loader2` + 「获取信息…」
-  - 下载音频：进度条（总量未知时显示不确定进度）
+  - 下载音频 / 下载视频：进度条（总量未知时显示不确定进度）
   - 字幕命中：「已获取字幕（中文 · 人工 / AI）」+「在 Finder 中显示」
   - 降级入队：从 `urlImports` 移除，走既有 `fileImport` 入队（§5.3），变成普通 pending 行
   - 失败：错误文案 +「重试」；需要登录时显示浏览器选择器
@@ -279,7 +285,7 @@ Toolbar 在「添加文件」旁新增「从链接添加」（`Link` 图标，`d
 ### 5.3 降级路径（无字幕 → 转录）
 
 ```
-yt-dlp <常量参数> -f "ba[ext=m4a]/ba/b"
+yt-dlp <常量参数> -f <下载类型>
        --progress-template "download:PROG %(progress.downloaded_bytes)s %(progress.total_bytes)s %(progress.total_bytes_estimate)s %(progress.status)s"
        --ffmpeg-location <bundled ffmpeg>
        [--cookies-from-browser <browser>]
@@ -289,9 +295,16 @@ yt-dlp <常量参数> -f "ba[ext=m4a]/ba/b"
        <url>
 ```
 
-- `ba[ext=m4a]/ba/b`：B 站实测直接给出 m4a（§9.8）。`m4a` 已在 `AUDIO_EXTENSIONS` 里，
-  缩略图走既有的音频图标分支。`--ffmpeg-location` 只是保险：`b` 回退到音视频分离的
-  格式时需要合并。
+- `-f` 随下载类型变化（`site::ytdlp::AUDIO_FORMAT` / `VIDEO_FORMAT`）：
+  - 音频 `ba[ext=m4a]/ba/b`：B 站实测直接给出 m4a（§9.8）。`m4a` 已在 `AUDIO_EXTENSIONS` 里，
+    缩略图走既有的音频图标分支。
+  - 视频 `bv[ext=mp4]+ba[ext=m4a]/b`：音视频分离，**必须**合并，所以 `--ffmpeg-location`
+    恒定下发（合并只用自带的 ffmpeg）。不加分辨率上限：降级下载是为了本地识别，不是为了观看，
+    悄悄换成更低分辨率的文件比体积大更糟。
+  - 两种类型共用同一套 `--progress-template` / `--paths` / 相对 `-o`，只有 `-f` 不同，
+    因此视频阶段同样能拿到 `PROG` 行、进度条不会永久停在不确定态。
+- 进度阶段随类型区分：`downloading_audio` / `downloading_video`（`Stage` 是冻结集合，新增
+  要同步 `urlImport.stage.*` 文案）。行内文案由阶段名派生，下视频时写「下载音频…」是假话。
 - **媒体写在用户目录，和字幕同一个目录**：`--paths home:` 指向 §5.4 的输出目录，
   `-o` 用的是与字幕完全相同的 stem（`<sanitized title> [<id>]`，见 §5.5），所以成品是
   `~/Downloads/MonoSub/<title> [<id>].m4a`，旁边就是同名 `.srt`。
@@ -307,6 +320,9 @@ yt-dlp <常量参数> -f "ba[ext=m4a]/ba/b"
 - **复用**：先查输出目录里本视频的成品 `<stem>.<ext>`（非空、排除 `.part` / `.ytdl` /
   `.info.json` / `.json` / `.srt`），命中就直接入队、不再调用 yt-dlp。匹配按 `<stem>.` 前缀
   而不是 `Path::file_stem`：标题本身可能带点（`v1.2 final [BV1]`）。
+  复用是 **kind-aware** 的：音频只认音频扩展、视频只认视频扩展
+  （`AUDIO_MEDIA_EXTENSIONS` / `VIDEO_MEDIA_EXTENSIONS`）。否则「先下过音频再改选视频」
+  会直接复用那个 `.m4a`，视频永远下不下来。
 - 下载完成后发 `url_import_complete { outcome: Queued { path, title, duration, login_hint } }`。
   前端调用**既有**的 `fileImport` 入队流程（`get_video_metadata` + `generate_thumbnail`，
   这样 `size` 等字段的来源与本地文件一致），只额外设置两个字段：
@@ -412,7 +428,7 @@ struct UrlImportRequest {
 
 | 事件 | 载荷 | 用途 |
 |------|------|------|
-| `url_import_progress` | `{task_id, stage, progress?}`，`stage ∈ {resolving, fetching_subtitles, downloading_audio, writing, translating}` | 行内进度；`progress` 缺省表示不确定进度 |
+| `url_import_progress` | `{task_id, stage, progress?}`，`stage ∈ {resolving, fetching_subtitles, downloading_audio, downloading_video, writing, translating}` | 行内进度；`progress` 缺省表示不确定进度 |
 | `url_import_complete` | `{task_id, outcome}`，`outcome = Subtitle { paths, translated_paths, tag, kind, skipped } \| Queued { path, title, duration, login_hint }` | 该 URL 收敛 |
 | `url_import_error` | `{task_id, status}` | 该 URL 失败。`status` 是 sentinel（`URL_IMPORT_NEEDS_COOKIES`、`MODEL_NOT_INSTALLED:<id>`）、i18n key 或原样消息 |
 

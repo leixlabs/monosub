@@ -32,7 +32,7 @@ pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T
 /// Deliberately **not** an `async fn` trait: without a proc-macro dependency
 /// those are not dyn-compatible, and the point of this seam is that the
 /// production implementation and the test fake are interchangeable. Two methods
-/// (`resolve`, `fetch_subtitle`, `download_audio`, `translate`) are the network
+/// (`resolve`, `fetch_subtitle`, `download_media`, `translate`) are the network
 /// calls; everything else is bookkeeping.
 pub trait Deps: Send + Sync {
     /// Emit a progress event for this stage. Implementations override this: the
@@ -51,8 +51,9 @@ pub trait Deps: Send + Sync {
         automatic: bool,
     ) -> BoxFuture<'a, Result<String, ImportError>>;
 
-    /// Download the audio, reporting progress, and return the media file.
-    fn download_audio<'a>(
+    /// Download the media (audio or video, per the request's `media_kind`),
+    /// reporting progress, and return the file.
+    fn download_media<'a>(
         &'a self,
         params: &'a JobParams,
         media: &'a crate::site::SiteMedia,
@@ -60,8 +61,8 @@ pub trait Deps: Send + Sync {
 
     /// A previously downloaded media file for this video, if still on disk. The
     /// lookup happens in the import output directory, because that is where a
-    /// finished download now lives.
-    fn cached_audio(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf>;
+    /// finished download now lives, and only answers for the requested kind.
+    fn cached_media(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf>;
 
     /// Translate the written cues, returning the translated paths.
     fn translate<'a>(
@@ -110,15 +111,15 @@ impl Deps for RealDeps<'_> {
         )
     }
 
-    fn download_audio<'a>(
+    fn download_media<'a>(
         &'a self,
         params: &'a JobParams,
         media: &'a crate::site::SiteMedia,
     ) -> BoxFuture<'a, Result<PathBuf, ImportError>> {
-        Box::pin(async move { crate::site::download_audio(self.app, params, media).await })
+        Box::pin(async move { crate::site::download_media(self.app, params, media).await })
     }
 
-    fn cached_audio(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf> {
+    fn cached_media(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf> {
         crate::site::cached_media_file(params, media)
     }
 
@@ -168,13 +169,13 @@ pub struct FakeDeps {
     pub resolve_error: Mutex<Option<ImportError>>,
     /// Inline text per tag, as `fetch_subtitle` would return it.
     pub fetch: Mutex<std::collections::HashMap<String, Result<String, ImportError>>>,
-    /// What `download_audio` hands back; `None` means "nothing was produced".
+    /// What `download_media` hands back; `None` means "nothing was produced".
     pub downloaded: Mutex<Option<Result<PathBuf, ImportError>>>,
-    /// An explicit `cached_audio` answer; when unset the fake falls back to the
+    /// An explicit `cached_media` answer; when unset the fake falls back to the
     /// production rule (look in the output directory), so a reuse test exercises
     /// the same lookup the app runs.
     pub cached: Mutex<Option<PathBuf>>,
-    /// The `output_dir` of every `download_audio` call, so a test can assert the
+    /// The `output_dir` of every `download_media` call, so a test can assert the
     /// media was asked for in the user's directory rather than in the cache.
     pub download_dirs: Mutex<Vec<PathBuf>>,
     /// Records the `(tag)` of every fetch so a test can assert it was never made.
@@ -239,13 +240,13 @@ impl Deps for FakeDeps {
         })
     }
 
-    /// Download the audio, reporting progress, and return the media file.
+    /// Download the media, reporting progress, and return the file.
     ///
     /// With no explicit answer set, the fake mirrors the production contract
     /// instead of failing: the media file is created in the request's
     /// `output_dir` under the subtitle's stem. A test can therefore assert where
     /// the media lands without restating the rule.
-    fn download_audio<'a>(
+    fn download_media<'a>(
         &'a self,
         params: &'a JobParams,
         media: &'a crate::site::SiteMedia,
@@ -256,8 +257,14 @@ impl Deps for FakeDeps {
             if let Some(explicit) = self.downloaded.lock().await.clone() {
                 return explicit;
             }
+            // The extension follows the request, so a video run produces a
+            // video file the way the real download does.
+            let extension = match params.request.media_kind() {
+                crate::site::MediaKind::Audio => "m4a",
+                crate::site::MediaKind::Video => "mp4",
+            };
             let path = output_dir.join(format!(
-                "{}.m4a",
+                "{}.{extension}",
                 crate::site::naming::file_stem(&media.title, &media.id)
             ));
             std::fs::create_dir_all(&output_dir).map_err(|error| {
@@ -269,7 +276,7 @@ impl Deps for FakeDeps {
         })
     }
 
-    fn cached_audio(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf> {
+    fn cached_media(&self, params: &JobParams, media: &crate::site::SiteMedia) -> Option<PathBuf> {
         if let Some(explicit) = self.cached.try_lock().ok().and_then(|cached| cached.clone()) {
             return Some(explicit);
         }
@@ -325,6 +332,7 @@ mod tests {
                 target_language: None,
                 translation_model: None,
                 prefer_local_recognition: None,
+                media_kind: None,
             },
             formats: crate::subtitle::parse_formats("srt").unwrap(),
             work_dir: output_dir.to_path_buf(),

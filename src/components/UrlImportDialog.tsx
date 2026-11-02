@@ -12,6 +12,7 @@ import {
   startUrlImports,
   subtitleLanguageForUi,
   type RejectedUrl,
+  type UrlImportMediaKind,
 } from '@/lib/urlImport';
 
 interface UrlImportDialogProps {
@@ -41,6 +42,11 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [outputDir, setOutputDir] = useState('');
   const [error, setError] = useState('');
+  // What the *fallback* downloads when a video has no platform subtitle. Dialog
+  // state rather than a setting: it belongs to this paste, and the Rust side
+  // treats a missing `media_kind` as audio, so the clipboard pill (which sends
+  // none) keeps behaving exactly as before.
+  const [mediaKind, setMediaKind] = useState<UrlImportMediaKind>('audio');
 
   // The default directory comes from Rust (it knows the home dir); the custom
   // mode value comes straight from the store.
@@ -62,6 +68,14 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
   // The interface language, not the recognition setting: this is the language
   // the imported subtitle will be *read* in, so it has to track the UI.
   const uiLanguage = i18n.language;
+
+  const mediaKinds = useMemo<{ value: UrlImportMediaKind; label: string }[]>(
+    () => [
+      { value: 'audio', label: t('urlImport.downloadKind.audio') },
+      { value: 'video', label: t('urlImport.downloadKind.video') },
+    ],
+    [t],
+  );
 
   const languageLabel = useMemo(() => {
     const language = subtitleLanguageForUi(uiLanguage);
@@ -86,7 +100,7 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
         return;
       }
 
-      await startUrlImports(parsed.accepted);
+      await startUrlImports(parsed.accepted, mediaKind);
       setText('');
       onClose();
     } catch (submitError) {
@@ -159,6 +173,41 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
               ))}
             </div>
           )}
+
+          {/* What the fallback downloads (§5.3). Two options and one click
+              each, so a segmented pair rather than a dropdown — the old
+              dropdown cost two clicks (open, then choose). */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-text-secondary dark:text-gray-400 text-xs">
+                {t('urlImport.downloadKind')}
+              </span>
+              <div
+                role="group"
+                aria-label={t('urlImport.downloadKind')}
+                data-testid="url-import-media-kind"
+                className="flex shrink-0 p-0.5 rounded-lg bg-black/[0.05] dark:bg-white/[0.06]"
+              >
+                {mediaKinds.map((kind) => (
+                  <GlassButton
+                    key={kind.value}
+                    type="button"
+                    variant={mediaKind === kind.value ? 'primary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={mediaKind === kind.value}
+                    onClick={() => setMediaKind(kind.value)}
+                    data-testid={`url-import-media-kind-${kind.value}`}
+                    className="h-7 px-2.5 text-xs"
+                  >
+                    {kind.label}
+                  </GlassButton>
+                ))}
+              </div>
+            </div>
+            <p className="text-[11px] text-text-tertiary dark:text-gray-500">
+              {t('urlImport.downloadKindHint')}
+            </p>
+          </div>
 
           {/* Read-only values with one source of truth each (§5.2). */}
           <div className="grid grid-cols-1 gap-2 text-xs">

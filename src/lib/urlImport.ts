@@ -49,6 +49,14 @@ export interface AcceptedUrl {
   url: string;
 }
 
+/**
+ * What the fallback downloads when a video has no usable platform subtitle.
+ *
+ * Only the fallback uses it: a platform-subtitle hit writes the subtitle and
+ * downloads nothing, so the choice never changes the hit path.
+ */
+export type UrlImportMediaKind = 'audio' | 'video'
+
 /** One URL the dialog rejected, with the tag used to pick the message. */
 export interface RejectedUrl {
   input: string;
@@ -310,9 +318,17 @@ export const resolveUrlImportOutputDir = (): string => {
 /**
  * Start one import for an accepted URL.
  *
+ * `mediaKind` decides what the fallback downloads when the video has no
+ * platform subtitle (`audio` by default, which is what this app always did).
+ * It is a per-request argument rather than a setting on purpose: the choice
+ * belongs to the paste, and the backend treats a missing `media_kind` as audio.
+ *
  * Returns the task id so the caller can keep the row in sync (and offer retry).
  */
-export const startUrlImport = async (url: string): Promise<string> => {
+export const startUrlImport = async (
+  url: string,
+  mediaKind: UrlImportMediaKind = 'audio',
+): Promise<string> => {
   const state = useStore.getState();
   const taskId = crypto.randomUUID();
 
@@ -350,6 +366,8 @@ export const startUrlImport = async (url: string): Promise<string> => {
         target_language: state.settings.translateTargetLanguage,
         translation_model: state.settings.translationModelId,
         prefer_local_recognition: state.settings.preferLocalRecognition,
+        // `audio` | `video`; absent means audio on the Rust side.
+        media_kind: mediaKind,
       },
     });
   } catch (error) {
@@ -366,10 +384,13 @@ export const startUrlImport = async (url: string): Promise<string> => {
 };
 
 /** Start one import per accepted URL. */
-export const startUrlImports = async (urls: AcceptedUrl[]): Promise<string[]> => {
+export const startUrlImports = async (
+  urls: AcceptedUrl[],
+  mediaKind: UrlImportMediaKind = 'audio',
+): Promise<string[]> => {
   const ids: string[] = [];
   for (const { url } of urls) {
-    ids.push(await startUrlImport(url));
+    ids.push(await startUrlImport(url, mediaKind));
   }
   return ids;
 };
@@ -385,7 +406,12 @@ export const cancelUrlImport = async (taskId: string): Promise<void> => {
   }
 };
 
-/** Retry a failed import with its own URL. */
+/**
+ * Retry a failed import with its own URL.
+ *
+ * The kind is not carried on the row (it is dialog-local state, not a setting),
+ * so a retry downloads audio — the app's default. See `UrlImportDialog`.
+ */
 export const retryUrlImport = async (taskId: string): Promise<string | null> => {
   const existing = useStore.getState().urlImports[taskId];
   if (!existing) return null;

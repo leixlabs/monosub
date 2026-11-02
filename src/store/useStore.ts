@@ -54,7 +54,17 @@ export interface UrlImportState {
   taskId: string
   /** The URL exactly as it was pasted, for the row label. */
   input: string
-  status: 'pending' | 'resolving' | 'fetching_subtitles' | 'downloading_audio' | 'writing' | 'translating' | 'done' | 'error'
+  status:
+    | 'pending'
+    | 'resolving'
+    | 'fetching_subtitles'
+    | 'downloading_audio'
+    /** The fallback is downloading the video, not just its audio. */
+    | 'downloading_video'
+    | 'writing'
+    | 'translating'
+    | 'done'
+    | 'error'
   /** 0–100, or `undefined` when the size is unknown (indeterminate). */
   progress?: number
   /** Set on `done` when a platform subtitle was written. */

@@ -40,6 +40,10 @@ export function ClipboardPrompt({ hit, onDismiss, onStarted }: ClipboardPromptPr
       // The same entry point the paste dialog uses, so the clipboard path gets
       // identical behaviour: same output dir, same formats, same translation
       // settings, same `url_import_*` events.
+      //
+      // No media kind: that choice is dialog state, and there is no dialog
+      // here, so it takes the default (audio). The backend treats a missing
+      // `media_kind` the same way.
       await startUrlImport(hit.url);
       onStarted();
     } catch (startError) {
