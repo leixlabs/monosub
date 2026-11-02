@@ -168,7 +168,7 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
                 {languageLabel}
               </span>
             </div>
-            <p className="text-[11px] text-text-tertiary dark:text-gray-500 -mt-0.5">
+            <p className="text-[11px] text-text-tertiary dark:text-gray-500 -mt-0.5 text-right">
               {t('urlImport.followsInterfaceLanguage')}
             </p>
             <div className="flex items-center justify-between gap-3">
