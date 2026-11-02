@@ -912,6 +912,20 @@ mod tests {
         std::fs::write(nested.join(&name), b"cuda build").unwrap();
         std::fs::write(bin.join(&name), b"cpu-only leftover").unwrap();
 
+        // `find_executable` only accepts files with an execute bit, and
+        // `fs::write` creates 0644 — without this the fixture is invisible on
+        // unix and the test fails for the wrong reason (it only ever passed on
+        // Windows, where the check is plain `is_file`).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for path in [nested.join(&name), bin.join(&name)] {
+                let mut perms = std::fs::metadata(&path).unwrap().permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&path, perms).unwrap();
+            }
+        }
+
         let found = find_executable(&bin, &binary_candidates(CLI_BINARY), CLI_BINARY)
             .expect("one of the two must resolve");
 

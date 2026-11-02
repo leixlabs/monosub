@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 上架 Mac App Store 的硬性前提：必须开启 App Sandbox。少了这一项，
+       App Store Connect 会直接以 ITMS-90296 退回。 -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+
+  <!-- reqwest：抓模型清单、下载 GGUF、yt-dlp 拉字幕/音频 -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- llama-server 子进程要在 127.0.0.1 上监听。子进程只继承父进程的沙盒，
+       所以监听权限必须声明在 app 这一层，而不是 helper 的 entitlements 里。 -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+
+  <!-- 导入视频/音频、选 cookies.txt、指定输出目录；用户通过面板选中的
+       文件/目录由此获得读写权限（powerbox 授权）。 -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+
+  <!-- 沙盒下"用户选中路径"只在当次运行有效。要跨启动记住自定义模型目录 /
+       输出目录，必须存 security-scoped bookmark，因此需要这一项。 -->
+  <key>com.apple.security.files.bookmarks.app-scope</key>
+  <true/>
+  <!-- App Store 校验（ITMS-90886）要求：签名里必须带 application-identifier，
+       且与 embedded.provisionprofile 里那一份逐字一致。Xcode 会自动注入，
+       手工调用 codesign 时不会，所以这里显式写死。
+       改 team 或 bundle id 时，这两项必须同步改，脚本会在签完后核对。 -->
+  <key>com.apple.application-identifier</key>
+  <string>RF4CPKUXQ7.leixlabs.monosub</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>RF4CPKUXQ7</string>
+</dict>
+</plist>

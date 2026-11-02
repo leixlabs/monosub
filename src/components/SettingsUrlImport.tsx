@@ -3,6 +3,7 @@ import { ClipboardPaste, FolderOpen, Link2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useStore } from '@/store/useStore';
+import { authorizeDir } from '@/lib/grants';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import { loadDefaultUrlImportDir } from '@/lib/urlImport';
@@ -39,6 +40,7 @@ export function SettingsUrlImport() {
     try {
       const selected = await open({ directory: true, multiple: false });
       if (typeof selected === 'string') {
+        await authorizeDir(selected);
         updateSettings({ urlImportOutputDir: selected });
       }
     } catch (error) {

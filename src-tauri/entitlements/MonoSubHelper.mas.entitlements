@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 随包命令行工具（audiocpp_cli / llama-server / ffmpeg / ffprobe /
+       yt-dlp / monosub-cli）的 entitlement：只声明"继承父进程沙盒"。
+
+       这两项必须同时存在，且 helper 不再声明任何其他权限 —— Apple 的
+       "Embedding a command-line tool in a sandboxed app" 就是这条规则。
+       工具需要的网络/文件访问能力全部来自父进程，由 inherit 带入。 -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <key>com.apple.security.inherit</key>
+  <true/>
+</dict>
+</plist>

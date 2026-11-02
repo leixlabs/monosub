@@ -19,6 +19,7 @@
 //! the CLI drive the same pipeline the GUI does
 //! (`docs/tech-spec/cli-design.md` §3).
 
+pub mod bookmark;
 pub mod commands;
 pub mod engine;
 pub mod logging;

@@ -90,6 +90,41 @@ pub struct BackendSettings {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub model_modes: BTreeMap<String, String>,
+
+    /// Folders the user granted, each with the security-scoped bookmark that
+    /// keeps the grant across launches.
+    ///
+    /// Only macOS (App Sandbox) writes anything here; the DMG build leaves it
+    /// empty and keeps using plain paths. The bookmark is what makes "choose a
+    /// save folder once" hold: without it every restart would need the panel
+    /// again, which is the behaviour this field exists to remove.
+    #[serde(default, rename = "dirGrants", skip_serializing_if = "Vec::is_empty")]
+    pub dir_grants: Vec<crate::bookmark::DirGrant>,
+}
+
+impl BackendSettings {
+    /// Remember (or refresh) the grant for `dir`.
+    ///
+    /// One entry per path: re-picking the same folder replaces its bookmark
+    /// instead of accumulating duplicates, because a stale blob would otherwise
+    /// win the later lookup.
+    pub fn remember_grant(&mut self, dir: &Path, bookmark: String) {
+        let path = dir.to_string_lossy().into_owned();
+        let grant = crate::bookmark::DirGrant { path: path.clone(), bookmark };
+        match self.dir_grants.iter_mut().find(|existing| existing.path == path) {
+            Some(existing) => *existing = grant,
+            None => self.dir_grants.push(grant),
+        }
+    }
+
+    /// The grant covering `dir` — either exactly, or the nearest granted ancestor
+    /// (the user grants `~/Movies`, the file lands in `~/Movies/我的声音`).
+    pub fn grant_for(&self, dir: &Path) -> Option<&crate::bookmark::DirGrant> {
+        self.dir_grants
+            .iter()
+            .filter(|grant| dir.starts_with(&grant.path))
+            .max_by_key(|grant| grant.path.len())
+    }
 }
 
 /// The four plan answers **and the plan they produced**, frozen at Settings time.

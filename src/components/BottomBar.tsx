@@ -1,6 +1,7 @@
 import { Folder, FolderOpen, HardDrive, Languages } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
+import { authorizeDir } from '@/lib/grants';
 import { open } from '@tauri-apps/plugin-dialog';
 import { GlassButton } from '@/components/ui/glass-button';
 
@@ -25,6 +26,9 @@ export function BottomBar() {
       });
 
       if (selected && typeof selected === 'string') {
+        // 先把授权记下来（macOS 存 security-scoped bookmark），否则重启后这个
+        // 目录又变成"没权限"。
+        await authorizeDir(selected);
         setCustomStoragePath(selected);
         setStorageMode('custom');
       }

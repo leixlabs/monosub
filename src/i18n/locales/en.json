@@ -236,7 +236,9 @@
     "modes": {
       "streaming": "Streaming",
       "streamingHint": "Audio is fed in chunks with state carried across them: lower peak memory, and speaker labels stay consistent because the session is never restarted."
-    }
+    },
+    "dirNotAccessible": "This models folder has not been granted to the app (sandbox). Grant it once and you will not be asked again.",
+    "grantAccess": "Grant access"
   },
   "errors": {
     "modelNotInstalled": "The speech model is not installed. Click this file's error badge to see details and download it.",
@@ -275,7 +277,9 @@
     "copyFailed": "Could not copy to the clipboard. Select the text and copy it manually.",
     "openLogs": "Open log folder",
     "logsFailed": "Could not open the log folder.",
-    "close": "Close"
+    "close": "Close",
+    "outputFolderRequired": "Choose a folder to save subtitles into — the app cannot write to the current one.",
+    "modelsDirNotAccessible": "The models folder cannot be read: the sandbox has no grant for it. Re-select that folder in Settings → Models."
   },
   "notification": {
     "completed": "Subtitle generation completed"

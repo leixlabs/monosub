@@ -40,6 +40,7 @@
 //! appended verbatim. See that function for the bug this fixes.
 
 use std::path::Path;
+#[cfg(not(target_os = "macos"))]
 use tokio::process::Command;
 
 /// What the caller wants opened: the directory itself, or the entry located
@@ -66,6 +67,7 @@ enum OpenerAction {
 /// finding as the log panel's original implementation.) A false "could not
 /// open" on a working button would be worse than a silent failure we cannot
 /// detect anyway.
+#[cfg(any(not(target_os = "macos"), test))]
 fn status_decides_success() -> bool {
     cfg!(not(target_os = "windows"))
 }
@@ -84,7 +86,10 @@ fn classify(path: &Path) -> OpenerTarget {
     }
 }
 
+/// macOS 已经改走 `NSWorkspace`，这里保留的是"如果还 spawn `open` 会怎么传参"的
+/// 规格，只被测试用来钉住行为（`open <dir>` / `open -R <file>`）。
 #[cfg(target_os = "macos")]
+#[cfg_attr(not(test), allow(dead_code))]
 fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (String, Vec<String>) {
     let program = "open".to_string();
     match (action, target) {
@@ -191,6 +196,7 @@ fn platform_argv(action: OpenerAction, target: OpenerTarget, path: &str) -> (Str
 }
 
 /// The program and arguments for one open, without running anything.
+#[cfg(any(not(target_os = "macos"), test))]
 fn opener_argv(action: OpenerAction, target: OpenerTarget, path: &Path) -> (String, Vec<String>) {
     // Paths reach this module from IPC (already UTF-8) or from Tauri's path
     // resolvers, so the lossy conversion has nothing to lose.
@@ -198,6 +204,11 @@ fn opener_argv(action: OpenerAction, target: OpenerTarget, path: &Path) -> (Stri
 }
 
 /// `exit 1`, or the signal description when a code is unavailable.
+///
+/// macOS no longer spawns a child process, so in a release build this only serves
+/// the tests that pin the old exit-status wording.
+#[cfg(any(not(target_os = "macos"), test))]
+#[cfg_attr(not(test), allow(dead_code))]
 fn describe_status(status: &std::process::ExitStatus) -> String {
     match status.code() {
         Some(code) => format!("exit {code}"),
@@ -216,8 +227,49 @@ fn args_are_raw(program: &str) -> bool {
     program == "explorer"
 }
 
+/// macOS: hand the path to the Finder through `NSWorkspace`.
+///
+/// Under the App Sandbox `/usr/bin/open` cannot reach LaunchServices for a path
+/// it did not itself open, and reports `The file couldn't be opened.` — measured
+/// on a MAS build, "打开模型目录" was dead. `NSWorkspace.openURL` goes through the
+/// app's own connection to the Finder, so the container's folders open normally.
+#[cfg(target_os = "macos")]
+fn open_with_workspace(action: OpenerAction, target: OpenerTarget, path: &Path) -> Result<(), String> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSArray, NSString, NSURL};
+
+    let text = path
+        .to_str()
+        .ok_or_else(|| format!("{} is not valid UTF-8", path.display()))?;
+    let url = NSURL::fileURLWithPath(&NSString::from_str(text));
+    let workspace = NSWorkspace::sharedWorkspace();
+
+    let opened = match (action, target) {
+        // "show me this thing": select it inside its parent window.
+        (OpenerAction::Reveal, OpenerTarget::File) => {
+            let urls = NSArray::from_retained_slice(&[url]);
+            // No return value to check: Finder either selects it or does not.
+            workspace.activateFileViewerSelectingURLs(&urls);
+            true
+        }
+        // "show me what is in here" / "open this file": openURL covers both.
+        _ => workspace.openURL(&url),
+    };
+
+    if opened {
+        Ok(())
+    } else {
+        Err(format!("the system refused to open {}", path.display()))
+    }
+}
+
 /// Run one open and turn a failure into something a user can read.
 async fn run(action: OpenerAction, target: OpenerTarget, path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return open_with_workspace(action, target, path);
+
+    #[cfg(not(target_os = "macos"))]
+    {
     let (program, args) = opener_argv(action, target, path);
 
     let mut command = Command::new(&program);
@@ -258,6 +310,7 @@ async fn run(action: OpenerAction, target: OpenerTarget, path: &Path) -> Result<
     } else {
         format!("{invocation} failed ({status}): {detail}")
     })
+    }
 }
 
 /// Open `dir` itself in the system file manager.
@@ -509,7 +562,26 @@ mod tests {
         println!("result = {:?}", reveal_in_file_manager(path).await);
     }
 
-    #[cfg(not(target_os = "windows"))]
+    /// macOS 版不再启动 `open`，而是问 NSWorkspace，所以这里只要求"失败要说出路径"。
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn opening_a_missing_directory_reports_the_failure_instead_of_swallowing_it() {
+        let missing = std::env::temp_dir().join(format!(
+            "monosub-opener-{}-open-missing",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&missing);
+
+        let error = open_directory(&missing)
+            .await
+            .expect_err("a missing directory must not report success");
+        assert!(
+            error.contains(&missing.to_string_lossy().to_string()),
+            "the error must name the path that failed: {error}"
+        );
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     #[tokio::test]
     async fn opening_a_missing_directory_reports_the_failure_instead_of_swallowing_it() {
         let missing = std::env::temp_dir().join(format!(

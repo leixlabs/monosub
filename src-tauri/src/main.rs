@@ -68,6 +68,10 @@ fn main() {
                 let _ = window.set_title_bar_style(tauri::TitleBarStyle::Overlay);
             }
 
+            // 恢复用户此前授权的目录。沙盒的目录授权只活一个进程，没有这一步
+            // 用户每次重启都要重新选一次保存位置。
+            monosub::commands::grants::activate_grants(app.handle());
+
             // 创建系统托盘
             tray::create_tray(app.handle())?;
             Ok(())
@@ -112,6 +116,7 @@ fn main() {
             open_models_dir,
             get_models_dir,
             set_models_dir,
+            authorize_dir,
             update_tray_menu,
             update_tray_progress,
         ])

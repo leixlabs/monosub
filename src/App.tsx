@@ -14,10 +14,11 @@ import { FileList } from './components/FileList';
 import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
-import { processQueueBatch, isModelNotInstalledError } from './lib/transcription';
+import { processQueueBatch, startTranscriptionTask, isModelNotInstalledError } from './lib/transcription';
 import { modelNotInstalledId } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
 import { reportFrontendError } from './lib/logging';
+import { outputDeniedDir, requestOutputFolder } from './lib/grants';
 import { UrlImportDialog } from './components/UrlImportDialog';
 import { ClipboardPrompt } from './components/ClipboardPrompt';
 import { ensureUrlImportListeners } from './lib/urlImport';
@@ -280,6 +281,46 @@ function App() {
       }
     });
 
+    /**
+     * 输出目录写不进去时的授权流程。
+     *
+     * 后端只会告诉我们"哪个目录被拒了"，不会替用户换地方存。这里弹一次目录
+     * 面板（默认落在被拒的那个目录上），授权后把它设为保存位置——队列里剩下
+     * 的文件因此不必每个都问一遍——然后重跑这一个文件。
+     * 用户取消就如实报错：绝不假装成功，也绝不悄悄写到别处。
+     */
+    const handleDeniedOutput = async (taskId: string, deniedDir: string) => {
+      // 面板本身可能失败（对话框插件被拒、窗口不在前台…）。那时不能再往下走，
+      // 否则这一行会永远停在"处理中"——什么都没发生，用户也得不到解释。
+      let granted: string | null = null;
+      try {
+        granted = await requestOutputFolder(deniedDir);
+      } catch (error) {
+        reportFrontendError(error, { context: `authorize output folder ${deniedDir}` });
+      }
+      if (!granted) {
+        updateFile(taskId, {
+          status: 'error',
+          progress: 0,
+          error: t('errors.outputFolderRequired'),
+          missingModelId: undefined,
+          missingModel: undefined,
+          downloadProgress: undefined,
+        });
+        setIsProcessing(false);
+        setCurrentTaskId(null);
+        return;
+      }
+
+      const state = useStore.getState();
+      state.setCustomStoragePath(granted);
+      state.setStorageMode('custom');
+      updateFile(taskId, { status: 'pending', progress: 0, error: undefined });
+      // 直接重跑这一个文件，而不是 processQueueBatch()：后者要求
+      // isBatchProcessing 为真，单文件失败时它可能已经结束，重试就静默丢了。
+      void startTranscriptionTask(taskId);
+    };
+
     // Listen to transcription error events
     const errorUnlisten = listen<TranscribeProgressPayload>('transcribe_error', (event) => {
       const { task_id, status } = event.payload;
@@ -287,6 +328,14 @@ function App() {
       // The row shows the failure, the log file keeps it: a release build has no
       // console to read it from later.
       reportFrontendError(status, { context: `transcribe_error ${task_id}` });
+
+      // 输出目录没权限：交给授权流程，不把这一行标成失败。
+      const deniedDir = outputDeniedDir(status);
+      if (deniedDir) {
+        void handleDeniedOutput(task_id, deniedDir);
+        return;
+      }
+
       const modelMissing = isModelNotInstalledError(status);
       // `status` is either the MODEL_NOT_INSTALLED sentinel, one of the
       // `errors.*` keys the Rust layer emits for its known failure modes, or a

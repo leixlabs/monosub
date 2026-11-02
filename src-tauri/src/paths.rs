@@ -250,6 +250,112 @@ pub fn resolve_resources_root() -> PathBuf {
         })
 }
 
+/// Marker macOS sets in the environment of every sandboxed process
+/// (App Sandbox, including Mac App Store builds). Absent from an unsandboxed
+/// DMG build, which is how the two distributions differ at runtime.
+const SANDBOX_ENV: &str = "APP_SANDBOX_CONTAINER_ID";
+
+/// True when this process runs inside the App Sandbox.
+///
+/// The distinction is not cosmetic: under the sandbox the *containing folder* of
+/// a file the user dragged in is not writable — only the file itself is. Writing
+/// a sibling next to the input (`<stem>.srt`, `<stem>_audio.wav`) therefore fails
+/// with `EPERM`, which is why every derived path asks this first.
+pub fn is_sandboxed() -> bool {
+    std::env::var_os(SANDBOX_ENV).is_some_and(|value| !value.is_empty())
+}
+
+/// A per-user scratch area for artifacts that are *not* the user's files —
+/// extracted WAVs, thumbnails. Inside the sandbox `temp_dir()` already points at
+/// the container, so this never lands in the real `/tmp` for a MAS build, and a
+/// DMG build keeps using the ordinary temp dir.
+pub fn scratch_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join("monosub");
+    // 必须自己建：ffmpeg 不会替父目录兜底，缺了就是 "No such file or directory"。
+    // 失败也不在这里报——真正的写入会带着具体路径失败，那才是能给用户看的消息。
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        tracing::warn!(dir = %dir.display(), error = %error, "could not create the scratch directory");
+    }
+    dir
+}
+
+/// Stable cache path for a derived artifact of `source`.
+///
+/// The path is keyed by a hash of the *absolute* source path so two files with
+/// the same name in different folders cannot collide, and so the cache survives
+/// across runs (a re-run of the same file reuses the WAV instead of re-decoding
+/// it). `suffix` is appended to the stem, e.g. `_audio.wav`.
+pub fn scratch_cache_path(source: &Path, suffix: &str) -> Option<PathBuf> {
+    let stem = source.file_stem()?.to_str()?;
+    let key = short_hash(&source.to_string_lossy());
+    Some(scratch_dir().join(format!("{key}_{stem}{suffix}")))
+}
+
+/// Marker prefix for "the output folder cannot be written to".
+///
+/// The status string the backend emits is `OUTPUT_NOT_WRITABLE:<folder>`; the
+/// frontend keys on the marker, shows `errors.outputNotWritable`, and opens the
+/// folder panel so the user can grant access. Never silently relocate a result —
+/// the user was promised `<folder>/<stem>.srt`, and a subtitle that appears
+/// somewhere else is worse than an error that says why.
+pub const OUTPUT_NOT_WRITABLE: &str = "OUTPUT_NOT_WRITABLE";
+
+/// Marker prefix for "the models folder cannot be read".
+///
+/// A sandboxed app sees a folder it has no grant for exactly like an empty one:
+/// every `is_file()` is `false`, so the UI would list 129 models as "not
+/// installed" and offer downloads that then fail. Naming the folder is the only
+/// honest answer.
+pub const MODELS_DIR_NOT_ACCESSIBLE: &str = "MODELS_DIR_NOT_ACCESSIBLE";
+
+/// [`path`] if its folder accepts writes right now, otherwise an error naming the
+/// folder.
+///
+/// Writability is probed by creating a file, not by inspecting mode bits: under
+/// the sandbox a directory can look writable (`0o755`, owned by the user) and
+/// still deny `open()` because the grant belongs to a *different* folder.
+///
+/// The caller is responsible for having restored any security-scoped grant first
+/// (`bookmark::activate` at startup, `authorize_dir` when the user picks a
+/// folder); this function only reports the current truth.
+pub fn ensure_writable_output(path: &Path) -> Result<PathBuf, String> {
+    let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) else {
+        return Ok(path.to_path_buf());
+    };
+
+    if dir_accepts_writes(parent) {
+        return Ok(path.to_path_buf());
+    }
+
+    Err(format!("{OUTPUT_NOT_WRITABLE}:{}", parent.display()))
+}
+
+/// Can a file be created in `dir` right now? Creates and removes a probe file.
+fn dir_accepts_writes(dir: &Path) -> bool {
+    if std::fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(format!(".monosub-write-probe-{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// FNV-1a, hex. Only used to keep cache file names unique and stable; not a
+/// security boundary.
+fn short_hash(value: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,5 +519,79 @@ mod tests {
             data_dir: PathBuf::from("/data"),
         };
         assert_eq!(paths.settings_path(), PathBuf::from("/cfg/settings.json"));
+    }
+
+    /// A writable folder must be returned untouched — the DMG build would
+    /// otherwise start rewriting paths it has no business touching.
+    #[test]
+    fn a_writable_folder_keeps_the_requested_output_path() {
+        let dir = std::env::temp_dir().join(format!("monosub-paths-writable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let requested = dir.join("episode.srt");
+
+        assert_eq!(ensure_writable_output(&requested).unwrap(), requested);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder that refuses the probe must produce a *named* failure the
+    /// frontend can turn into an authorization panel — not a quiet relocation.
+    #[test]
+    fn an_unwritable_folder_fails_with_its_path() {
+        let dir = std::env::temp_dir().join(format!("monosub-paths-readonly-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let requested = dir.join("episode.srt");
+
+        // Make the directory read-only for the probe.
+        let mut perms = std::fs::metadata(&dir).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o500);
+        }
+        let restore = perms.clone();
+        std::fs::set_permissions(&dir, perms).unwrap();
+
+        let error = ensure_writable_output(&requested).unwrap_err();
+        assert!(
+            error.starts_with(&format!("{}:{}", OUTPUT_NOT_WRITABLE, dir.display())),
+            "got {error}"
+        );
+
+        // Back to writable so the temp dir can be removed.
+        let mut perms = restore;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            perms.set_mode(0o700);
+        }
+        std::fs::set_permissions(&dir, perms).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The scratch folder has to exist before ffmpeg is pointed at it: a missing
+    /// parent is the exact failure that shipped once ("No such file or directory"
+    /// on `<tmp>/monosub/<hash>_x_audio.wav`).
+    #[test]
+    fn the_scratch_dir_exists_so_ffmpeg_can_write_into_it() {
+        let dir = scratch_dir();
+        assert!(dir.is_dir(), "{} must be a directory", dir.display());
+
+        let cache = scratch_cache_path(Path::new("/movies/episode.mov"), "_audio.wav").unwrap();
+        assert_eq!(cache.parent(), Some(dir.as_path()));
+    }
+
+    /// Two files with the same name in different folders must not share a cache
+    /// file, and the same file must map to the same path every run (that is what
+    /// makes the extracted WAV reusable).
+    #[test]
+    fn the_scratch_cache_is_stable_and_collision_free() {
+        let a = scratch_cache_path(Path::new("/movies/a/episode.mov"), "_audio.wav").unwrap();
+        let again = scratch_cache_path(Path::new("/movies/a/episode.mov"), "_audio.wav").unwrap();
+        let other = scratch_cache_path(Path::new("/movies/b/episode.mov"), "_audio.wav").unwrap();
+
+        assert_eq!(a, again);
+        assert_ne!(a, other);
+        assert!(a.to_string_lossy().ends_with("_episode_audio.wav"));
     }
 }

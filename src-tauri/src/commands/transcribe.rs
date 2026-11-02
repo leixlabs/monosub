@@ -353,6 +353,13 @@ pub async fn start_transcription(
     // The CLI never calls this command, so the default has to be installed here
     // (GUI path) and in `main` (CLI path); both are idempotent.
     ensure_transcription_limit();
+
+    // 模型目录读不了要在这里说清楚：再往里走，缺模型会被报成"未安装"，
+    // 那是句假话（模型可能就在那个没授权的目录里）。
+    {
+        let paths = crate::paths::AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+        crate::commands::models::ensure_models_root_usable(&app, &paths.models_root)?;
+    }
     let TranscribeRequest {
         id: task_id,
         path,
@@ -779,8 +786,26 @@ pub async fn transcribe_file(
     let mut translation_written = true;
     sink.queued(&params.task_id);
 
-    // Step 1: 16 kHz mono s16le WAV, cached next to the media file. Audio
-    // inputs are converted too — audio.cpp only accepts WAV (spec §3).
+    // 输出目录不可写就**报错并带上目录名**，绝不静默改道。沙盒里这个目录要么已经
+    // 通过 security-scoped bookmark 恢复了访问（启动时 activate、选择时 authorize），
+    // 要么就需要用户重新授权：前端看到 `OUTPUT_NOT_WRITABLE:<dir>` 会弹目录面板，
+    // 授权后重试同一个文件。
+    let output = crate::paths::ensure_writable_output(&params.output).map_err(|detail| {
+        tracing::warn!(
+            task_id = %params.task_id,
+            detail = %detail,
+            "output folder is not writable"
+        );
+        TaskFailure::new(
+            "the output folder cannot be written to",
+            detail,
+            format!("requested output: {}", params.output.display()),
+        )
+    })?;
+
+    // Step 1: 16 kHz mono s16le WAV, cached next to the media file (unsandboxed)
+    // or in the scratch area (sandboxed). Audio inputs are converted too —
+    // audio.cpp only accepts WAV (spec §3).
     steps.begin(sink, &params.task_id, 1);
     let audio = {
         let _permit = AUDIO_SEMAPHORE.acquire().await;
@@ -947,7 +972,7 @@ pub async fn transcribe_file(
 
     // Step 4: post-process and write every requested format.
     steps.begin(sink, &params.task_id, 4);
-    if let Some(parent) = params.output.parent() {
+    if let Some(parent) = output.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 TaskFailure::new(
@@ -972,7 +997,7 @@ pub async fn transcribe_file(
         &PostProcessConfig::default(),
     );
     for (index, format) in params.formats.iter().enumerate() {
-        let path = subtitle::output_path_for(&params.output, index, *format);
+        let path = subtitle::output_path_for(&output, index, *format);
         subtitle::write(&segments, &path, *format).map_err(write_failure)?;
         tracing::info!(
             task_id = %params.task_id,
@@ -990,7 +1015,7 @@ pub async fn transcribe_file(
     // The path is kept for the caller: "the file exists somewhere" is not the
     // answer the CLI has to give — it has to name it, and derive it from the same
     // function that wrote it rather than a second copy of the naming rule.
-    let word_sidecar = match write_word_sidecar(&params.output, &words) {
+    let word_sidecar = match write_word_sidecar(&output, &words) {
         Ok(path) => path,
         Err(error) => {
             // Never fatal: the subtitles are already on disk and the sidecar is
@@ -1027,7 +1052,7 @@ pub async fn transcribe_file(
         let detected = detected_language(&chunks, &params.language);
         let translated = translate_and_write(
             paths,
-            params,
+            WriteTarget { params, output_path: &output },
             translation,
             &segments,
             detected.as_deref(),
@@ -1080,6 +1105,16 @@ pub async fn transcribe_file(
     })
 }
 
+/// 一次翻译写盘需要的两样输入。
+///
+/// 分开传而不是把路径塞进 `params`：`params.output` 是**请求**的路径，
+/// `output_path` 是**解析后确认可写**的路径（沙盒下两者可能不同），而
+/// `params` 是只读的借用，不该为了这条路被复制一份。
+struct WriteTarget<'a> {
+    params: &'a TaskParams,
+    output_path: &'a std::path::Path,
+}
+
 /// Translate the finished cues and write one file per requested format.
 ///
 /// A failure here is logged and swallowed: the originals are already written and
@@ -1096,13 +1131,14 @@ pub async fn transcribe_file(
 /// `private_interfaces` (a `pub` fn taking a private `Steps`).
 async fn translate_and_write(
     paths: &crate::paths::AppPaths,
-    params: &TaskParams,
+    target: WriteTarget<'_>,
     translation: &TranslationPlan,
     segments: &[subtitle::Segment],
     detected: Option<&str>,
     steps: &Steps,
     sink: &mut dyn ProgressSink,
 ) -> crate::translate::stage::StageOutcome {
+    let WriteTarget { params, output_path } = target;
     // `Mutex` because the callback handed to the engine must be `Sync`; there is
     // only ever one writer (the translation stage reports sequentially).
     let sink = std::sync::Mutex::new(sink);
@@ -1118,7 +1154,7 @@ async fn translate_and_write(
     };
 
     let outcome = crate::translate::stage::translate_and_write(
-        &params.output,
+        output_path,
         &params.formats,
         translation,
         segments,
@@ -1640,6 +1676,12 @@ impl Drop for ExtractedAudio {
 }
 
 fn get_audio_cache_path(media_path: &Path) -> Option<PathBuf> {
+    // 沙盒（Mac App Store 版）下源目录不可写：用户拖进来的文件只授权了文件本身，
+    // 连 ffmpeg 建 `<stem>_audio.wav` 都会被拒（实测 "Error opening output file ...
+    // Operation not permitted"）。缓存改放进程 scratch 区，DMG 版保持原行为。
+    if crate::paths::is_sandboxed() {
+        return crate::paths::scratch_cache_path(media_path, "_audio.wav");
+    }
     let parent = media_path.parent()?;
     let stem = media_path.file_stem()?.to_str()?;
     Some(parent.join(format!("{}_audio.wav", stem)))

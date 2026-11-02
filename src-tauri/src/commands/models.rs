@@ -283,6 +283,7 @@ impl std::fmt::Display for DownloadError {
 #[tauri::command]
 pub async fn list_models(app: AppHandle) -> Result<Vec<ModelStatus>, String> {
     let paths = AppPaths::from_app(&app).map_err(|e| e.to_string())?;
+    ensure_models_root_usable(&app, &paths.models_root)?;
     let statuses = catalog::list(&paths).map_err(|e| e.to_string())?;
     // Read once, not per model: `chosen_mode` is called for every entry and a
     // catalogue is 129 rows.
@@ -436,6 +437,11 @@ pub async fn set_models_dir(app: AppHandle, path: Option<String>) -> Result<Mode
         Some(candidate) => {
             let dir = PathBuf::from(candidate);
             crate::model_dir::validate_dir(&dir)?;
+            // 沙盒下这个目录的授权只活一个进程：选中的这一刻必须把它变成
+            // bookmark，否则重启后自定义模型目录会"凭空失效"。
+            if let Some(bookmark) = crate::bookmark::create(&dir)? {
+                settings.remember_grant(&dir, bookmark);
+            }
             tracing::info!(path = %dir.display(), "using a custom models directory");
             settings.models_dir = Some(dir.to_string_lossy().into_owned());
         }
@@ -499,6 +505,41 @@ fn find_spec(paths: &AppPaths, id: &str) -> Result<ModelSpec, String> {
         ));
     }
     Ok(spec)
+}
+
+/// 模型目录用不了就说出来，而不是让每一行显示"未安装"。
+///
+/// 沙盒里"没有授权的目录"和"空目录"对 `is_file()` 完全一样，都是 false；
+/// 更糟的是 `Path::exists()` 也会把 EPERM 吞成 false。所以这里不靠探测：
+/// 沙盒下凡是**容器之外**的模型目录，必须有一条覆盖它的目录授权，否则直接报错。
+/// 不拦的话用户会看到上百个模型"未安装"，点下载再失败一次——两句假话。
+pub fn ensure_models_root_usable(app: &tauri::AppHandle, root: &std::path::Path) -> Result<(), String> {
+    if !crate::paths::is_sandboxed() {
+        return Ok(());
+    }
+
+    // 容器内的目录本来就能读（HOME 在沙盒里指向容器）。
+    let in_container = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .is_some_and(|home| root.starts_with(&home));
+    if in_container {
+        return Ok(());
+    }
+
+    let settings = crate::model_dir::load_settings(app);
+    let granted = settings
+        .dir_grants
+        .iter()
+        .any(|grant| root.starts_with(&grant.path));
+    if granted {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{}:{}",
+        crate::paths::MODELS_DIR_NOT_ACCESSIBLE,
+        root.display()
+    ))
 }
 
 fn models_root(paths: &AppPaths) -> Result<PathBuf, String> {

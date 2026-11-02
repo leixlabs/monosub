@@ -17,6 +17,8 @@
     "release:exe": "node scripts/release/installer.mjs",
     "release:resources": "node scripts/release/prepare-resources.mjs",
     "release:verify": "node scripts/release/verify.mjs",
+    "release:mas": "node scripts/release/mas.mjs",
+    "mas:test": "pkill -f 'target/mas/MonoSub.app/Contents/MacOS/monosub' || true; node scripts/release/mas.mjs --no-pkg && open src-tauri/target/mas/MonoSub.app",
     "publish": "node scripts/publish/publish.mjs",
     "publish:macos": "node scripts/publish/publish.mjs --platform macos",
     "publish:msix": "node scripts/publish/publish.mjs --platform windows",

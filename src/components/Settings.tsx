@@ -20,6 +20,7 @@ import {
   Check,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { open } from '@tauri-apps/plugin-dialog';
 import { motion } from 'framer-motion';
 import { useStore, SubtitleFormat, OutputLanguage, MIN_CONCURRENCY, MAX_CONCURRENCY } from '@/store/useStore';
 import { supportedLanguages, toSupportedLanguage, UI_LANGUAGE_STORAGE_KEY } from '@/i18n';
@@ -58,6 +59,7 @@ import {
   modelManifestSize,
   recognitionModels,
   removeModel,
+  setModelsDir,
   sortByAvailability,
   translationModels,
   type ModelDownloadCompletePayload,
@@ -65,6 +67,7 @@ import {
   type ModelDownloadProgressPayload,
   type ModelStatus,
 } from '@/lib/models';
+import { authorizeDir, modelsDirDeniedPath } from '@/lib/grants';
 
 /**
  * Four top-level groups (translation added translation-design §7):
@@ -518,6 +521,25 @@ export function Settings() {
       if (isMountedRef.current) {
         setIsLoadingModels(false);
       }
+    }
+  };
+
+  /**
+   * 模型目录被沙盒挡住时，让用户当场授权。
+   *
+   * 沙盒下"没授权"和"空目录"对文件 API 完全一样，只有目录面板能真正给出权限，
+   * 所以这里必须弹面板、并且把授权存下来（authorize_dir），否则下次启动又是同样的错。
+   */
+  const grantModelsDir = async (dir: string) => {
+    try {
+      const selected = await open({ directory: true, defaultPath: dir, multiple: false });
+      if (typeof selected !== 'string' || selected.length === 0) return;
+      await authorizeDir(selected);
+      await setModelsDir(selected);
+      await loadModels();
+    } catch (error) {
+      console.error('[models] could not authorize the models directory', error);
+      setModelsError(String(error));
     }
   };
 
@@ -982,13 +1004,38 @@ export function Settings() {
 
                     {!isLoadingModels && modelsError && (
                       <div className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary dark:bg-zinc-800/50">
-                        <p className="text-xs text-danger">
-                          {t('models.loadFailed')}: {modelsError}
-                        </p>
-                        <GlassButton variant="outline" size="sm" onClick={() => void loadModels()}>
-                          <RefreshCw className="w-4 h-4" />
-                          {t('models.retry')}
-                        </GlassButton>
+                        {modelsDirDeniedPath(modelsError) ? (
+                          <>
+                            {/* 没有授权时，重试永远不会成功——只有目录面板能给出权限，
+                                所以这里给的是"授予访问权限"，而不是"重试"。 */}
+                            <div className="min-w-0">
+                              <p className="text-xs text-danger">{t('models.dirNotAccessible')}</p>
+                              <p className="text-xxs text-text-tertiary dark:text-gray-500 mt-1 break-all">
+                                {modelsDirDeniedPath(modelsError)}
+                              </p>
+                            </div>
+                            <GlassButton
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                void grantModelsDir(modelsDirDeniedPath(modelsError) as string)
+                              }
+                            >
+                              <FolderOpen className="w-4 h-4" />
+                              {t('models.grantAccess')}
+                            </GlassButton>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs text-danger">
+                              {t('models.loadFailed')}: {modelsError}
+                            </p>
+                            <GlassButton variant="outline" size="sm" onClick={() => void loadModels()}>
+                              <RefreshCw className="w-4 h-4" />
+                              {t('models.retry')}
+                            </GlassButton>
+                          </>
+                        )}
                       </div>
                     )}
 

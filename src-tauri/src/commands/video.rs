@@ -138,13 +138,20 @@ pub struct ThumbnailResult {
 }
 
 fn get_thumbnail_cache_path(video_path: &Path) -> Option<std::path::PathBuf> {
-    let parent = video_path.parent()?;
     let stem = video_path.file_stem()?.to_str()?;
     let ext = video_path
         .extension()
         .and_then(|e| e.to_str())
         .filter(|e| !e.is_empty())
         .unwrap_or("media");
+
+    // 沙盒下写不了源目录（只授权了文件本身），缩略图改落进程 scratch 区；
+    // 未沙盒（DMG 版）仍然是"和源文件放一起"的缓存。
+    if crate::paths::is_sandboxed() {
+        return crate::paths::scratch_cache_path(video_path, &format!("_{}_thumb.jpg", ext));
+    }
+
+    let parent = video_path.parent()?;
     Some(parent.join(format!("{}_{}_thumb.jpg", stem, ext)))
 }
 

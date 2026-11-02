@@ -261,10 +261,16 @@ export const startTranscriptionTask = async (taskId: string) => {
     } else {
       // The file row shows the message; the log keeps it after the row is gone.
       reportFrontendError(error, { context: `start_transcription ${file.id}` });
+      // 模型目录被沙盒挡住时，原始消息是 `MODELS_DIR_NOT_ACCESSIBLE:<path>`：
+      // 直接显示会让用户看不懂，翻译成一句能照着做的话（路径留在日志里）。
+      const raw = String(error);
+      const errorText = raw.includes('MODELS_DIR_NOT_ACCESSIBLE:')
+        ? i18n.t('errors.modelsDirNotAccessible')
+        : raw;
       state.updateFile(file.id, {
         status: 'error',
         progress: 0,
-        error: String(error),
+        error: errorText,
         // Any other failure must not inherit the previous attempt's model prompt.
         missingModelId: undefined,
         missingModel: undefined,

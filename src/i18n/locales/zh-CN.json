@@ -224,7 +224,9 @@
     "copyFailed": "复制失败，请手动选中文本后复制。",
     "openLogs": "打开日志目录",
     "logsFailed": "无法打开日志目录。",
-    "close": "关闭"
+    "close": "关闭",
+    "outputFolderRequired": "需要授权一个保存位置才能写入字幕。请选择文件夹后重试。",
+    "modelsDirNotAccessible": "模型目录无法读取：沙盒没有这个目录的授权。请在 设置 → 模型 里重新选择一次该目录。"
   },
   "models": {
     "cancel": "取消",
@@ -292,7 +294,9 @@
     "modes": {
       "streaming": "流式",
       "streamingHint": "音频分块输入、状态在块之间延续：峰值内存更低；会话从不重启，所以说话人标记始终一致。"
-    }
+    },
+    "dirNotAccessible": "这个模型目录还没有获得访问授权（沙盒限制）。授权一次之后就不再询问。",
+    "grantAccess": "授予访问权限"
   },
   "modelPlan": {
     "title": "识别方案",

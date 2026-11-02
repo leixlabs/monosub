@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 只放"App Store 审核/展示需要、但与 DMG 版无关"的键。
+       Tauri 会把这些键合并进它自动生成的 Info.plist。 -->
+
+  <!-- App Store Connect 要求分类，缺失会在上传后报 ITMS-90095 一类错误 -->
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.productivity</string>
+
+  <!-- 只用了标准 HTTPS/TLS（reqwest + rustls、URLSession），属于豁免范围。
+       声明 false，否则每次上传都会被问一遍出口合规。 -->
+  <key>ITSAppUsesNonExemptEncryption</key>
+  <false/>
+
+  <key>NSHumanReadableCopyright</key>
+  <string>Copyright © 2026 Lei Labs. All rights reserved.</string>
+</dict>
+</plist>
