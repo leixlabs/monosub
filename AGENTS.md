@@ -1226,22 +1226,48 @@ they run under `cargo test`.
 monosub-cli video.mp4
 monosub-cli video.mp4 --output-dir ~/subs --format srt,vtt
 monosub-cli video.mp4 --translate --target en
+monosub-cli video.mp4 --word-timestamps     # + video.words.json
+monosub-cli video.mp4 --model qwen3_asr_0_6b_q8_0 --word-timestamps
+monosub-cli --list-models
 monosub-cli *.mp4 --json
 ```
 
 Rules the CLI is built around:
 
-- **No model flag.** The four questions are answered in the GUI: `resolve_model_plan` writes
-  the solved `recognitionPlan` into `<app_config_dir>/settings.json`, and the CLI reads that
-  instead of asking again. `--model` is deliberately not offered — pinning a model is the
-  GUI's "advanced" action, and a second place to choose one is a second source of truth. The
-  CLI still re-runs `plan::solve` over those cached answers and **trusts the solver**, warning
-  on stderr when the two disagree (the user may have deleted a model since).
+- **It does not solve a plan.** The four questions are answered in the GUI: `resolve_model_plan`
+  writes the solved `recognitionPlan` into `<app_config_dir>/settings.json`, and the CLI reads
+  that instead of asking again. Re-solving would let the CLI run a model the user never saw, and
+  would pick a different one the day a model was deleted. The CLI still re-runs `plan::solve`
+  over those cached answers and **trusts the solver**, warning on stderr when the two disagree
+  (the user may have deleted a model since). What it checks is that the frozen models are on
+  disk — a stale plan must name the missing model rather than fail inside the engine.
+- **`--model <[slot=]id>` overrides one step of that plan, for one run.** It goes through
+  `plan::apply_model_overrides` — the same helper the GUI's advanced settings use — so a pin
+  means the same thing on both frontends, including the `TurnAttribution` step a diar pin needs.
+  It **never writes `settings.json`**: the saved answers still decide the plan's shape, and only
+  the named model is substituted. Slots are `asr` (the default, and the only one most runs
+  need) and `diar`; `vad=` and `align=` are **refused** rather than accepted-and-ignored (the
+  CLI always uses the bundled Silero VAD, and never runs an `align` step). The CLI validates the
+  id *before* applying it, because `apply_model_overrides` swallows an unknown id with a
+  `tracing::warn!` that never reaches stderr — "asked for A, ran B, said nothing" is the one
+  outcome this flag must not produce. Unknown/retired id → exit 1; not installed → exit 2.
+- **`--list-models`** prints the catalogue (`ID / SLOTS / TIMING / INSTALLED / STATUS`,
+  installed first), filtered exactly like the solver, so every row is a model `--model` accepts.
+  Read-only: downloading and removing stay in Settings ▸ 模型.
 - **What it controls** is `-o/--output-dir` / `-f/--format` / `-l/--language` /
-  `--translate` / `--target` / `--json` / `-q/--quiet` / `-h/--help`. Those are the
-  per-invocation choices; the model comes from the settings the GUI wrote. Multiple inputs are
-  processed **in order**: one failing file does not stop the rest, and the process exits with
-  the **first** failure's code once all are done.
+  `--word-timestamps` / `--model` / `--list-models` / `--translate` / `--target` / `--json` /
+  `-q/--quiet` / `-h/--help`. Those are the per-invocation choices; the plan itself comes from
+  the settings the GUI wrote. Multiple inputs are processed **in order**: one failing file does
+  not stop the rest, and the process exits with the **first** failure's code once all are done.
+- **`--word-timestamps`** asks for the `<stem>.words.json` sidecar — every word with its own
+  `start`/`end` plus the silences between them, which is what a karaoke/ASS highlight or any
+  animation timeline is built from. It is **additive**: it ORs with the saved plan's
+  `requireWordTimestamps` and can never turn it off (a flag that could also subtract would
+  make the CLI a second place where the plan is decided). It also **cannot pick the model**:
+  word timing needs `qwen3_asr` + the forced aligner, so with a plan whose ASR cannot align
+  the CLI warns **before** the run and exits **6** after it — the subtitle is still valid, the
+  timing is just estimated. The check asks `engine::aligned::can_align`, the engine's own gate,
+  so the CLI cannot promise a sidecar the run would not write.
 - **Translation is off by default**, even when `settings.json` carries
   `translation.enabled: true` — the GUI's switch is deliberately not consulted, because it is
   an extra 1.8B model load a batch script should opt into per run. The gate is
@@ -1252,10 +1278,13 @@ Rules the CLI is built around:
   `SkipReason::NoTarget` and only prints "continuing without translation". **Pass
   `--translate --target <lang>`** to get a translated file.
 - **Two streams, two audiences.** Human progress goes to **stderr**; `--json` (JSON Lines,
-  `queued` / `progress` / `done`) goes to **stdout**, so `… --json | jq` works and a script
-  never has to grep the wording a screenshot shows. The JSON field set is **experimental**
-  (may change in a minor version); the stable contract is the **exit code** plus the **output
-  file paths** the run reports.
+  `queued` / `progress` / `words` / `done`) goes to **stdout**, so `… --json | jq` works and a
+  script never has to grep the wording a screenshot shows. `words` is always emitted (with
+  `timing: off|aligned|estimated|none`, `count` and `path`) and always **precedes** `done`:
+  `done` says nothing else follows, so the CLI's sink records the elapsed time in `finished`
+  and the caller prints both lines in order. The JSON field set is **experimental** (may
+  change in a minor version); the stable contract is the **exit code** plus the **output file
+  paths** the run reports.
 - **No inter-process lock.** Running the CLI and the app at once makes both share one GPU,
   which on Metal slows both down. That is documented, not locked (the app's semaphore is
   process-local).
@@ -1272,6 +1301,7 @@ GUI renders.
 | 3 | transcription failed — engine or ffmpeg non-zero exit |
 | 4 | the output could not be written: the CLI's own `create_dir_all`, or a `TaskFailure` whose context is `writing the subtitle failed` |
 | 5 | the subtitles are valid but the translation was **attempted and produced nothing**; stderr adds "the subtitles are valid; only the translated copy failed." |
+| 6 | word timing was requested and the run could only estimate it; the subtitles are valid. **Not** raised for an all-silent input (no cues, no words — that stays 0, the same rule as a translation `SkipReason::NoSegments`) |
 
 Exit 5 is strictly "attempted and produced nothing". A **skip** is not a failure and stays exit
 0: `SkipReason::NoSegments` (an all-silent input) and `SkipReason::SameLanguage` (a detected

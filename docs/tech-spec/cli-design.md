@@ -31,12 +31,18 @@ App 发布后只有 GUI 一种使用方式。批量脚本、CI、给 Agent 调�
 ### 1.2 用户定的三条边界
 
 1. **不指定模型**。CLI 复用 GUI 里已经选好的方案（四问求解器的结果）。
+   > 2026-10-31 修订：这句话的准确含义是「**不自己求解方案**」，而不是「永远不能换模
+   > 型」。`--model <[slot=]id>` 允许覆盖**一个槽位**，只影响本次运行、不回写
+   > `settings.json`——见 §11.10。方案的形状（分离几个人、占多少显存）仍然由保存的四问
+   > 答案决定，CLI 只替换被点名的那一个模型。
 2. **只控制** `--format` / `--language` / `--output-dir`（+ 翻译开关）。
 3. **发布 + 本机 build 都要**（A+B）。
 
 ### 1.3 明确不做
 
-- 不做 `--model` 逐个指定。手动 pin 是 GUI 的「高级」能力，CLI 只消费结果。
+- ~~不做 `--model` 逐个指定。手动 pin 是 GUI 的「高级」能力，CLI 只消费结果。~~
+  已按用户要求放开，范围限定为「单次运行的槽位覆盖」，见 §11.10。仍然不做的是：
+  **CLI 自己求解方案**、以及**把覆盖结果写回设置**。
 - 不做 URL 导入（B 站抓取）。那是网络 + 登录态，与「本地文件转字幕」是两件事。
 - 不做队列/并发调度。一次调用处理一个文件；批量交给 shell。
 - 不改 `core-engine/`（按用户决定原样保留）。
@@ -396,6 +402,9 @@ monosub-cli video.mp4 --json
 | `--output-dir <dir>` | 源文件所在目录 | 目录不存在则创建 |
 | `--format <list>` | 设置里的 `outputFormat`，缺失则 `srt` | 逗号分隔，与 GUI 同一套 `Format` 解析 |
 | `--language <tag>` | 设置里的 `outputLanguage`，缺失则 `auto` | `auto`/`zh`/`zh-tw`/`en`/`yue`/`ja`/`ko`/… 与 `catalog::map_language` 同一映射 |
+| `--word-timestamps` | **关**（但 OR 上设置里的 `requireWordTimestamps`） | 额外写 `<stem>.words.json`（每个词的起止 + 词间静音）；见 §11.9 |
+| `--model <[slot=]id>` | 无（执行保存的方案） | 覆盖本次运行的某个槽位（`asr` 默认 / `diar`），**不写回** settings.json；见 §11.10 |
+| `--list-models` | — | 打印目录里可跑的模型（已安装优先），供 `--model` 取 id；不需要输入文件 |
 | `--translate` | **关** | 启用翻译（对应 GUI 的 `translateEnabled`） |
 | `--target <tag>` | `en` | 翻译目标语言，仅在 `--translate` 时有意义 |
 | `--json` | 关 | 进度与结果以 JSON Lines 打到 stdout |
@@ -414,6 +423,7 @@ monosub-cli video.mp4 --json
 | 3 | 转写失败（引擎非零退出、ffmpeg 失败） |
 | 4 | 写文件失败 |
 | 5 | 翻译失败**但字幕已写出**（按现有约定翻译是增强，不阻塞；CLI 用独立码提示但输出文件有效） |
+| 6 | 要了词级时间戳但只拿到估算时间（字幕仍有效）。**全静音输入不报 6**——没有 cue 也没有词，那是成功 |
 
 > 退出码 0/非零的**语义**必须与 `audiocpp_cli` 的"全静音也是成功"一致（AGENTS.md
 > 已有硬约束），不能因为 CLI 而改变。
@@ -429,6 +439,7 @@ video.mp4
   2/4      Loading model
   3/4      Transcribing        37%
   4/4      Writing subtitle
+  words    /path/video.words.json (1929 spans)
   done     132 cues → /path/video.srt   (1m 42s)
 ```
 
@@ -437,8 +448,13 @@ video.mp4
 ```json
 {"event":"plan","input":"video.mp4","plan":"passthrough:moss","models":["moss_transcribe_diarize_q8_0"]}
 {"event":"progress","input":"video.mp4","step":3,"total":4,"name":"Transcribing","percent":37}
+{"event":"words","input":"video.mp4","timing":"aligned","count":1929,"path":"/path/video.words.json"}
 {"event":"done","input":"video.mp4","cues":132,"paths":["/path/video.srt"],"elapsed":102.4}
 ```
+
+`words` 在 `done` **之前**：`done` 的语义是"这个输入没有后续事件了"，所以它必须最后一行，
+否则流式消费者永远读不到 sidecar 事件。`timing` 四值：`off`（没要）/ `aligned`（对齐成功）/
+`estimated`（要了、有语音、但只估算）/ `none`（要了，但全静音，没有可对齐的内容）。
 
 多文件时事件交错出现，靠 `input` 区分。`error` 事件形如
 `{"event":"error","input":"b.mp4","code":2,"status":"MODEL_NOT_INSTALLED:..."}`。
@@ -1049,3 +1065,137 @@ translation_written = translated.skipped.is_some() || !translated.written.is_emp
 
 502 条测试全绿，却没有任何一条测「`--help` 里宣传的选项是否真的生效」。这类缺口只有
 两种方式能发现：真跑一遍，或者有个愿意说「文档和代码对不上」的人。这次是后者。
+
+### 11.9 `--word-timestamps`（2026-10-31）
+
+**结果：`monosub-cli video.mp4 --word-timestamps` 会写出 `video.words.json`，并在拿不到
+词级时间时明确说出来。** `cargo test` 604 passed（`--lib`；`engine::cli::tests::
+the_engine_directory_beats_a_flat_leftover` 为**既有**失败，与本次改动无关，已在干净的
+HEAD 上复现）+ 12 passed（`--bin monosub-cli`）。
+
+#### 为什么是三个小改动，而不是一条新管线
+
+词级时间戳这条管道早就通了（`poc/word-timestamps-recipe.md` §9）：`engine::transcribe_words`
+→ `aligned::transcribe_aligned` → `words::parse_words` → `writer::render_word_sidecar` →
+`<stem>.words.json`。缺的只有 CLI 这一层的三个口子，而它们对应三种**不同的**失败：
+
+| 缺口 | 症状 | 本次改动 |
+|---|---|---|
+| 开不了 | 只能改 `settings.json` 的 `requireWordTimestamps` | `--word-timestamps`（OR 上设置，不覆盖） |
+| 开不了也看不出来 | 模型不可对齐时 `tracing::warn!` 不进 stderr，`--json` 也没有任何字段 | 预检警告（跑之前）+ `--json` 的 `words` 事件 + 退出码 6 |
+| 选不了模型 | 默认方案是 `sensevoice_small_q8`，不可对齐 | **不加 `--model`**（§1.3），改为把"该去开哪个开关"说清楚 |
+
+#### 三个决定的理由
+
+1. **不做 `--model`。** §1.3 的边界是有原因的：`--model` 会让"CLI 用哪个模型"出现第二个
+   真相。`--word-timestamps` 只说"我想要词级时间"，能不能给是模型的事，而模型由 GUI 的
+   四问答案决定。所以 CLI 的职责是**把因果说出来**，不是自己挑模型。
+2. **预检，而不是事后解释。** 分块识别一段 9 分钟音频要 56 秒（recipe §1），一整部片子
+   是分钟级。跑完才说"其实拿不到"，对批量脚本是最贵的失败方式。检查直接调
+   `aligned::can_align`——引擎自己的门，不写第二份判据：CLI 的检查若能跑出和引擎不同的
+   结论，它就会承诺一个永远不会出现的 `.words.json`。
+3. **退出码 6，不是 3。** 与 5 同一个形状（字幕有效、请求的增强没拿到），因为在这里失败
+   的是增强而不是转写。**全静音输入不算**：没有 cue 也没有词，0 才是它的答案——这条和
+   翻译的 `SkipReason::NoSegments` 是同一条规则，靠 `TaskOutcome.cues` 区分
+   （`cues == 0 && words == 0` 是静音；`cues > 0 && words == 0` 才是降级）。
+
+#### 顺带修掉的两处结构问题
+
+- **`done` 不再是 sink 打的。** `words` 事件必须在 `done` 之前（`done` 意味着"没有后续
+  了"，事件排在它后面等于没发）。但 sidecar 要等 `transcribe_file` 返回才知道，所以
+  `Sink::Json.finished` 改成只记录 `(task_id, elapsed)`，由 `close_json` 按序打
+  `words` → `done`。
+- **`transcribe_file` 现在返回 `TaskOutcome`**（`cues` / `words` / `word_sidecar`）。
+  原来返回 `()`，调用方只能靠"文件在不在"猜，而那分不清"本轮写的"和"上一轮留下的"。
+  `write_word_sidecar` 同时改为返回它写的路径——命名规则只有 `word_sidecar_path` 一处，
+  调用方不再按同样的规则再拼一遍。
+
+#### 实测（本机，M4 / Metal，5.7 s 中文 TTS 样本）
+
+```
+$ monosub-cli speech.wav -o out --word-timestamps        # 方案 = qwen3_asr
+  words    out/speech.words.json (24 spans)
+  done     out/speech.srt                                      → exit 0
+$ … --json | tail -2
+{"event":"words","input":"…","timing":"aligned","count":24,"path":"…/speech.words.json"}
+{"event":"done","input":"…","task":"cli-8098","elapsed":7.0}
+$ monosub-cli speech.wav -o out --word-timestamps        # 方案 = sensevoice（不可对齐）
+monosub-cli: warning: `sensevoice_small_q8` cannot produce word-level timing, …
+  done     out/speech.srt                                      → exit 6
+$ monosub-cli silence.wav --word-timestamps              # 3 s 纯静音
+  done     outsil/silence.srt                                  → exit 0，timing:"none"
+```
+
+产物：`speech.srt` 两个 cue（0.00–3.20 / 3.52–5.67），`speech.words.json` 24 个词级
+span，逐字平铺、与 cue 边界一致。
+
+### 11.10 `--model` / `--list-models`（2026-10-31）
+
+**结果：`monosub-cli x.wav --model qwen3_asr_0_6b_q8_0 --word-timestamps` 在
+`settings.json` 仍写着 `sensevoice_small_q8` 的情况下跑出了词级时间戳**，且该文件一个字节
+都没变。`cargo test --bin monosub-cli` 16 passed。
+
+#### 范围：覆盖一个槽位，不是重新求解
+
+用户确认过两件事，它们共同决定了实现方式：
+
+1. 要的是**每次运行选模型**，不是替 CLI 加模型下载/删除（那留在 Settings ▸ 模型）；
+2. 覆盖**不落盘**，`settings.json` 仍是 GUI 的唯一真相。
+
+于是 `--model` 的语义是：**把保存方案里的某一个步骤换掉**，其余四问答案（语种场景、显存、
+说话人分离开关）原样保留。因此走的是 GUI 高级设置同一条路——
+`plan::apply_model_overrides`，而不是 `plan::solve`。这条函数已经处理了三件容易写错的事：
+
+- 换模型要同时换 `task` / `family`，否则 `thaw` 出来的步骤自相矛盾；
+- 钉一个 diar 模型**等于要求说话人标签**，所以要补 `TurnAttribution` 步骤；
+- 换完之后 `id` / `title` / `capabilities` / `cost` 全部要重算，否则预览和执行说的不是
+  同一个方案。
+
+CLI 只多写了一件：**先自己校验**。`apply_model_overrides` 对未知 id 的行为是
+`tracing::warn!` 然后跳过——在 CLI 里那条日志不进 stderr，结果就是「用户要 A，跑了 B，
+全程无声」。所以未知 id / 已退役 id 在 CLI 里是 **用法错误（exit 1）**，未安装是
+**exit 2**（带下载提示）。
+
+#### 槽位：只接受 `asr` 和 `diar`，其余显式拒绝
+
+| 写法 | 行为 |
+|---|---|
+| `--model qwen3_asr_0_6b_q8_0` | `asr` 槽位（转写模型），最常见的用法 |
+| `--model diar=nemotron_3_diar_q8_0` | 换说话人分离模型，并在方案里补上该步骤 |
+| `--model vad=…` | **拒绝**：CLI 永远用 bundle 内的 Silero VAD（`TaskParams.vad_model_id` 恒为 `None`），钉了也不会生效 |
+| `--model align=…` | **拒绝**：这个 app 从不执行 `align` 步骤，词级时间来自 ASR 会话 |
+
+后两条是刻意做响的：一个看起来生效、实际没生效的 flag，比一个报错的 flag 坏得多。
+同一槽位重复给出时**后者胜出**（脚本先写默认值、再追加特定值时才符合预期）。
+
+#### `--list-models`
+
+`--model` 没有 id 表就是废的，而让用户回 App 的下拉框里抄 id 又违背了「命令行能独立干活」
+这个前提。所以加了只读的 `--list-models`：与求解器同一套过滤（audio.cpp、非翻译模型），
+已安装的排前面，列 `ID / SLOTS / TIMING / INSTALLED / STATUS`。**不下载、不删除**——那仍然
+是 Settings ▸ 模型 的事。
+
+#### 顺带修掉的一个隐患
+
+`TaskParams.model_id` 原来取 `plan.model_ids.first()`。`model_ids` 是**步骤顺序**，所以
+它等于 ASR 只是因为现有模板没有以 VAD 打头的——而 `--model` 正好是能改变步骤集合的开关。
+改成 `plan.stage_models().asr`（按角色取），把这个巧合变成约定。
+
+#### 实测（本机 M4 / Metal，5.7 s 中文 TTS，`settings.json` 全程为 sensevoice）
+
+```
+$ monosub-cli speech.wav -o out --model qwen3_asr_0_6b_q8_0 --word-timestamps
+  plan     vad=silero_vad  asr=qwen3_asr_0_6b_q8_0  diar=none
+  words    out/speech.words.json (24 spans)                      → exit 0
+$ monosub-cli speech.wav -o out --model diar=nemotron_3_diar_q8_0
+  plan     vad=silero_vad  asr=sensevoice_small_q8  diar=nemotron_3_diar_q8_0
+                                                                 → exit 0
+$ monosub-cli speech.wav --model nope_id
+monosub-cli: `--model asr=nope_id`: no model in the catalogue has that id
+             (see `monosub-cli --list-models`)                   → exit 1
+$ monosub-cli speech.wav --model canary_180m_flash_q8_0
+monosub-cli: model `canary_180m_flash_q8_0` is not installed
+             download `canary_180m_flash_q8_0` in MonoSub …      → exit 2
+```
+
+`diff settings.json` 在全部运行之后为空。

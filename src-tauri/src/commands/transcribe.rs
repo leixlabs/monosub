@@ -320,6 +320,27 @@ impl TaskFailure {
     }
 }
 
+/// What a run actually produced, for callers that must report it.
+///
+/// The GUI renders events and ignores this; `monosub-cli` needs it, because a
+/// caller that asked for word-level timing has to be able to tell "the sidecar
+/// is beside the subtitle" from "the engine silently estimated instead". That
+/// difference is invisible in the exit code alone and, on a long file, invisible
+/// in the output until the karaoke render drifts — see
+/// `docs/tech-spec/cli-design.md` §5.3.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TaskOutcome {
+    /// Cues written. `0` is a legitimate answer — a silent input writes an empty
+    /// subtitle and is still a successful run.
+    pub cues: usize,
+    /// Word spans the aligner returned. `0` means timing was estimated, which is
+    /// also what a silent input yields — hence [`Self::cues`], which is what
+    /// tells those two apart.
+    pub words: usize,
+    /// The `<stem>.words.json` this run wrote, if it wrote one.
+    pub word_sidecar: Option<PathBuf>,
+}
+
 /// Start a transcription task.
 ///
 /// Request-level preconditions are checked *before* anything is spawned, so a
@@ -747,7 +768,7 @@ pub async fn transcribe_file(
     paths: &crate::paths::AppPaths,
     params: &TaskParams,
     sink: &mut dyn ProgressSink,
-) -> Result<(), TaskFailure> {
+) -> Result<TaskOutcome, TaskFailure> {
     let mut steps = Steps::new(
         params.translation.is_some(),
         params.plan.steps.iter().any(|step| step.kind == StepKind::Diarize),
@@ -965,15 +986,23 @@ pub async fn transcribe_file(
     // from, so an agent cutting the video sees exactly the timing the subtitles
     // claim. It is additive like the translated files: a run that produced no
     // words writes none (see `write_word_sidecar`).
-    if let Err(error) = write_word_sidecar(&params.output, &words) {
-        // Never fatal: the subtitles are already on disk and the sidecar is an
-        // optional artefact for machine consumers.
-        tracing::warn!(
-            task_id = %params.task_id,
-            error = %error,
-            "could not write the word-level sidecar"
-        );
-    }
+    //
+    // The path is kept for the caller: "the file exists somewhere" is not the
+    // answer the CLI has to give — it has to name it, and derive it from the same
+    // function that wrote it rather than a second copy of the naming rule.
+    let word_sidecar = match write_word_sidecar(&params.output, &words) {
+        Ok(path) => path,
+        Err(error) => {
+            // Never fatal: the subtitles are already on disk and the sidecar is
+            // an optional artefact for machine consumers.
+            tracing::warn!(
+                task_id = %params.task_id,
+                error = %error,
+                "could not write the word-level sidecar"
+            );
+            None
+        }
+    };
 
     // Step 5 is the enhancement, never a precondition: the originals are on disk
     // before it starts, so any failure here still delivers them (design §2).
@@ -1041,7 +1070,14 @@ pub async fn transcribe_file(
             "the subtitles were written, but nothing was translated",
         ));
     }
-    Ok(())
+    Ok(TaskOutcome {
+        // Read from the same values the files were rendered from, not from the
+        // files: a write failure above already has its own warning, and measuring
+        // what is on disk would report 0 words for a `words` list that was fine.
+        cues: segments.len(),
+        words: words.len(),
+        word_sidecar,
+    })
 }
 
 /// Translate the finished cues and write one file per requested format.
@@ -1771,7 +1807,7 @@ fn word_sidecar_path(output_path: &Path) -> Option<PathBuf> {
 }
 
 /// Write the machine-readable word/silence sidecar, when there is anything to
-/// write.
+/// write. `Ok(None)` is "there was nothing to write", not a failure.
 ///
 /// A run with no words writes no file: an empty `{"words": []}` would be
 /// indistinguishable from "the aligner ran and found nothing", and an agent
@@ -1779,9 +1815,9 @@ fn word_sidecar_path(output_path: &Path) -> Option<PathBuf> {
 fn write_word_sidecar(
     output_path: &Path,
     words: &[engine::words::Word],
-) -> Result<(), String> {
+) -> Result<Option<PathBuf>, String> {
     if words.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
     let Some(path) = word_sidecar_path(output_path) else {
         return Err(format!(
@@ -1796,7 +1832,7 @@ fn write_word_sidecar(
         words = words.len(),
         "word-level sidecar written"
     );
-    Ok(())
+    Ok(Some(path))
 }
 
 /// Task: U1-12. The rule now lives in `subtitle::output_path_for` so the
@@ -2811,7 +2847,11 @@ mod tests {
             end: 0.16,
             text: "大".to_string(),
         }];
-        write_word_sidecar(&output, &words).expect("sidecar writes");
+        assert_eq!(
+            write_word_sidecar(&output, &words).expect("sidecar writes"),
+            Some(dir.join("clip.words.json")),
+            "the writer names the file it wrote, so the caller never re-derives it"
+        );
         assert!(dir.join("clip.words.json").is_file());
 
         let started = SystemTime::now();
@@ -2831,7 +2871,11 @@ mod tests {
         let dir = scratch_dir("word-sidecar-empty");
         let output = dir.join("clip.srt");
 
-        write_word_sidecar(&output, &[]).expect("absence is not an error");
+        assert_eq!(
+            write_word_sidecar(&output, &[]).expect("absence is not an error"),
+            None,
+            "no words writes no file"
+        );
         assert!(
             !dir.join("clip.words.json").exists(),
             "an empty sidecar must not be written"
