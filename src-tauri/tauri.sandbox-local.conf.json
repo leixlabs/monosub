@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["app"],
+    "macOS": {
+      "entitlements": "entitlements/MonoSub.sandbox.local.entitlements",
+      "infoPlist": "Info.mas.plist",
+      "hardenedRuntime": false,
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}

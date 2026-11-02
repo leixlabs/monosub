@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 本地 / 内测版（scripts/release/local-pkg.mjs）专用的 entitlements。
+
+       刻意不声明 com.apple.security.app-sandbox：MAS 版之所以装了也打不开，
+       除了 App Store 分发证书外，还因为它带着 embedded.provisionprofile，
+       系统会按"App Store 安装态"校验收据，本地没有收据就拒绝启动。
+       这个版本走沙盒外，因此：
+         - 字幕写回源文件目录、自定义模型目录存明文路径都能正常工作；
+         - 随包的命令行工具（audiocpp_cli / llama-server / ffmpeg / ffprobe /
+           yt-dlp / monosub-cli）不需要 inherit，各自独立进程；
+         - llama-server 监听 127.0.0.1 也不需要 network.server 声明。
+
+       下面这一项只在开启 Hardened Runtime（Developer ID 签名）时才起作用，
+       作用是允许加载 Team ID 不同的动态库：随包的 ggml/llama dylib 会再签一次，
+       但用户自己替换 ffmpeg 或手工塞进来的库不应该让 App 直接崩在启动阶段。 -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

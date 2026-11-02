@@ -310,6 +310,20 @@ bun run publish:macos # ... restricted to dist/*.dmg
 bun run publish:msix  # ... restricted to dist/*.msix
 ```
 
+macOS 本机安装包（不走 App Store，双击可启动）：
+
+```bash
+bun run release:pkg            # 非沙盒 → build/pkg/MonoSub-<v>-local.pkg
+bun run release:pkg:sandbox    # 沙盒（行为等同 MAS 包）→ build/pkg/MonoSub-<v>-local-sandbox.pkg
+```
+
+`release:mas` 的 pkg 装完打不开是**设计使然**：Mac App Distribution 证书 +
+`embedded.provisionprofile` 只在 App Store 安装态被放行。本地版换用 Apple Development
+证书、不塞 profile；沙盒版保留 MAS 的 entitlements（只去掉受 profile 授权的
+`application-identifier` / `team-identifier`）。细节与排查见
+`docs/release/local-pkg.md`。产物落 `build/` 而不是 `dist/`：`dist/` 会被每次
+`bun run build` 清空，两个模式的 pkg 会互相抹掉。
+
 There is a single build flow — the old `lite`/`full` split is gone, because there is
 no Python runtime to bundle.
 

@@ -260,6 +260,11 @@ bun run release:mas
 
 产物：`src-tauri/target/mas/MonoSub.pkg`（当前 113 MB）
 
+> ⚠️ 这个 pkg **只能上传给 App Store，装到本机双击是打不开的**：Mac App Distribution
+> 证书 + 内置 distribution profile 让它只在"由商店安装"时被放行。
+> 想在本机跑、而且要带沙盒（验证同一套权限）：`bun run release:pkg:sandbox`，
+> 见 [local-pkg.md](./local-pkg.md)。
+
 脚本内部顺序（**不能改**，改了就过不了校验）：
 动态库 → 命令行工具（带 inherit）→ 拷 `embedded.provisionprofile` 与 `PrivacyInfo.xcprivacy`
 → 签 `.app` 本体（封签）→ `codesign --verify --deep --strict` → `productbuild` 出 pkg。

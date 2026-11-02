@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- 本机可运行的**沙盒**版（bun run release:pkg:sandbox）专用。
+
+       与 MonoSub.mas.entitlements 的差别只有两条：去掉了
+         com.apple.application-identifier
+         com.apple.developer.team-identifier
+       这两项属于"受 profile 授权"的 restricted entitlement：只有在内置
+       provisioning profile 明确授予时才生效。MAS 版靠 distribution profile 提供它们；
+       本地版不塞任何 profile（正是分发 profile 让 App 只能在 App Store 安装态启动），
+       所以也不能声明它们 —— 否则进程会在 exec 阶段被判无效授权而直接失败。
+
+       其余项与 MAS 版逐条一致，这样本地跑出来的沙盒行为（容器、授权范围、
+       子进程 inherit）与上架包相同，自测才有意义。 -->
+
+  <!-- App Store 要求开启沙盒；本地沙盒版保留它，行为才一致 -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+
+  <!-- reqwest：模型清单、GGUF 下载、yt-dlp 拉字幕/音频 -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- llama-server 子进程在 127.0.0.1 监听；子进程继承父沙盒，
+       所以这一项必须声明在 app 层而不是 helper 里 -->
+  <key>com.apple.security.network.server</key>
+  <true/>
+
+  <!-- 导入媒体、选 cookies.txt、指定输出目录：用户面板选中即授权 -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+
+  <!-- 跨启动记住自定义模型目录/输出目录（security-scoped bookmark） -->
+  <key>com.apple.security.files.bookmarks.app-scope</key>
+  <true/>
+</dict>
+</plist>
