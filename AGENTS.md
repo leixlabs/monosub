@@ -1200,6 +1200,19 @@ chunks made the percentage describe the bookkeeping — a 1 % step for "嗯", th
 of stillness on a long utterance — and the VAD segmentation already carries the lengths,
 so weighting them costs nothing.
 
+**The translation stage reports per cue, not per batch.** A batch is 20 cues and takes
+~12.5 s to generate (measured on the bundled HY-MT1.5-1.8B, M4), so a batch-granular bar
+moved twice a minute at best — and a file under 20 cues got exactly one tick, at the end.
+`/v1/chat/completions` is requested with `"stream": true`; each SSE delta is appended and
+`parse::numbered_line_count` counts the lines that are *finished* (newline seen, `N.`
+prefix), so the figure moves every 0.5–2 s. Two rules make that safe: the deltas are only
+ever a progress hint — the assembled text is what gets parsed and validated, identically
+to the whole-response path — and `translate_with` clamps every report to `[0, total]` and
+drops anything that would go backwards, because a batch that fails validation retries at
+half size and restarts its own count. Cost of the switch: ~8 % wall time (27.3 s vs 25.1 s
+for 40 cues). `Completer::complete_streaming` defaults to "run `complete`, deliver one
+delta", so the mock listener and every existing test stay on the non-streaming shape.
+
 `TranscribeRequest` carries three translation fields, all `Option` so an older frontend
 that sends none of them translates nothing: `translate_enabled`, `target_language`, and
 `translation_model` (the UI sends `''`/absent for "catalogue default").

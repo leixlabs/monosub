@@ -207,6 +207,19 @@ pub async fn translate_with(
     let mut outcome = TranslationOutcome::default();
     let mut done = 0usize;
 
+    // One gate for both granularities below: the exact count at the end of a
+    // batch, and the streamed count while it is still being generated. Monotonic
+    // because a batch that fails and retries at half size restarts its own
+    // count, and because a hint must never drag a bar backwards.
+    let emitted = std::sync::atomic::AtomicUsize::new(0);
+    let report = |value: usize| {
+        let value = value.min(total);
+        if value > emitted.load(std::sync::atomic::Ordering::Relaxed) {
+            emitted.store(value, std::sync::atomic::Ordering::Relaxed);
+            on_progress(value, total);
+        }
+    };
+
     let batches: Vec<(usize, usize)> = (0..total)
         .step_by(BATCH_SIZE)
         .map(|start| (start, (start + BATCH_SIZE).min(total)))
@@ -215,6 +228,7 @@ pub async fn translate_with(
     for (start, end) in batches {
         // 1-based numbering, continuous across the file: the parser matches the
         // response back by number, not by position.
+        let done_before = done;
         run_batch(
             completer,
             template,
@@ -225,6 +239,7 @@ pub async fn translate_with(
             end,
             &mut texts,
             &mut outcome,
+            &|lines_in_batch| report(done_before + lines_in_batch),
         )
         .await;
 
@@ -233,7 +248,8 @@ pub async fn translate_with(
                 done += 1;
             }
         }
-        on_progress(done, total);
+        // The truth: a streamed count can be ahead of what actually validated.
+        report(done);
     }
 
     let translated = texts.iter().filter(|text| text.is_some()).count();
@@ -262,6 +278,12 @@ pub async fn translate_with(
 /// Writes the accepted translations into `texts` and records the outcome. A
 /// single cue that still fails keeps its original text and is counted, so one
 /// stubborn line never invalidates the rest of the file.
+///
+/// `on_lines` is called with the number of *numbered lines completed so far in
+/// this call*, which is what turns a batch into progress: a 20-cue batch is
+/// ~12 s of generation, and without it the bar sits still for that whole time.
+/// The figure is a hint — the caller re-derives the truth from `texts` once the
+/// batch returns — so it only has to be close, never exact.
 #[allow(clippy::too_many_arguments)]
 async fn run_batch(
     completer: &dyn Completer,
@@ -273,6 +295,7 @@ async fn run_batch(
     end: usize,
     texts: &mut [Option<String>],
     outcome: &mut TranslationOutcome,
+    on_lines: &(dyn Fn(usize) + Send + Sync),
 ) {
     if start >= end {
         return;
@@ -294,7 +317,23 @@ async fn run_batch(
     } else {
         prompt::batch_prompt(template, source, target, &cues)
     };
-    let answer = completer.complete(&prompt, batch_max_tokens(&cues)).await;
+
+    let mut partial = String::new();
+    let mut seen = 0usize;
+    let answer = completer
+        .complete_streaming(
+            &prompt,
+            batch_max_tokens(&cues),
+            Box::new(|delta: &str| {
+                partial.push_str(delta);
+                let lines = parse::numbered_line_count(&partial);
+                if lines > seen {
+                    seen = lines;
+                    on_lines(lines);
+                }
+            }),
+        )
+        .await;
 
     let answer = match answer {
         Ok(answer) => answer,
@@ -307,7 +346,8 @@ async fn run_batch(
                 return;
             }
             return retry_at_half_size(
-                completer, template, segments, source, target, start, end, texts, outcome, error,
+                completer, template, segments, source, target, start, end, texts, outcome,
+                on_lines, error,
             )
             .await;
         }
@@ -367,6 +407,7 @@ async fn run_batch(
             end,
             texts,
             outcome,
+            on_lines,
             TranslateError::Parse(format!(
                 "expected {} numbered cue(s) in this batch, got {}",
                 cues.len(),
@@ -409,6 +450,7 @@ async fn retry_at_half_size(
     end: usize,
     texts: &mut [Option<String>],
     outcome: &mut TranslationOutcome,
+    on_lines: &(dyn Fn(usize) + Send + Sync),
     error: TranslateError,
 ) {
     if end - start <= 1 {
@@ -427,11 +469,11 @@ async fn retry_at_half_size(
 
     let mid = start + (end - start) / 2;
     Box::pin(run_batch(
-        completer, template, segments, source, target, start, mid, texts, outcome,
+        completer, template, segments, source, target, start, mid, texts, outcome, on_lines,
     ))
     .await;
     Box::pin(run_batch(
-        completer, template, segments, source, target, mid, end, texts, outcome,
+        completer, template, segments, source, target, mid, end, texts, outcome, on_lines,
     ))
     .await;
 }
@@ -951,6 +993,76 @@ mod tests {
         assert_eq!(samples.last(), Some(&(45, 45)));
         assert!(samples.iter().all(|(done, total)| done <= total));
         assert!(samples.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+    }
+
+    /// A completer that streams, so the intra-batch signal can be observed
+    /// without the bundled server: the mock listener answers in one piece, which
+    /// is exactly the case this test is not about.
+    struct StreamingFake {
+        lines: Vec<String>,
+    }
+
+    impl Completer for StreamingFake {
+        fn complete<'a>(
+            &'a self,
+            _prompt: &'a str,
+            _max_tokens: u32,
+        ) -> server::BoxFuture<'a, Result<String, TranslateError>> {
+            Box::pin(async move { Ok(self.joined()) })
+        }
+
+        fn complete_streaming<'a>(
+            &'a self,
+            _prompt: &'a str,
+            _max_tokens: u32,
+            mut on_delta: Box<dyn FnMut(&str) + Send + 'a>,
+        ) -> server::BoxFuture<'a, Result<String, TranslateError>> {
+            Box::pin(async move {
+                let mut text = String::new();
+                for line in &self.lines {
+                    let piece = format!("{line}\n");
+                    text.push_str(&piece);
+                    on_delta(&piece);
+                    // A real stream hands over control between pieces; without
+                    // this the whole answer would look like one delta.
+                    tokio::task::yield_now().await;
+                }
+                Ok(text)
+            })
+        }
+    }
+
+    impl StreamingFake {
+        fn joined(&self) -> String {
+            self.lines.iter().map(|line| format!("{line}\n")).collect()
+        }
+    }
+
+    /// The figure a user actually watches: it must move *inside* a batch, not
+    /// only when the batch as a whole lands.
+    #[tokio::test]
+    async fn streamed_lines_advance_progress_inside_a_batch() {
+        let fake = StreamingFake {
+            lines: vec!["1. a".to_string(), "2. b".to_string(), "3. c".to_string()],
+        };
+        let input = cues(3, "原文");
+        let samples: Mutex<Vec<(usize, usize)>> = Mutex::new(Vec::new());
+
+        let (out, outcome) = translate_with(
+            &fake,
+            None,
+            &input,
+            Some("zh"),
+            "en",
+            &|done, total| samples.lock().unwrap().push((done, total)),
+        )
+        .await;
+
+        assert_eq!(outcome.translated, 3);
+        assert_eq!(out[0].text, "a");
+        // 1, 2, 3 as the lines stream in. The batch-end report is the same 3 and
+        // is therefore not repeated.
+        assert_eq!(*samples.lock().unwrap(), vec![(1, 3), (2, 3), (3, 3)]);
     }
 
     /// The skip decision lives in `language`, and `translate_with` deliberately

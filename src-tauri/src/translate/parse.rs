@@ -147,6 +147,25 @@ fn parse_numbered_lines(raw: &str) -> BTreeMap<usize, String> {
     out
 }
 
+/// How many numbered lines a *partial* answer has already completed.
+///
+/// This is the progress signal while a batch is still being generated: the model
+/// streams, so the count rises from 0 to the batch size as the lines land, and a
+/// 20-cue batch stops looking frozen for the ~12 s it takes to write. Only lines
+/// that end in a newline and start with `N.` count — the half-arrived last line
+/// is not finished yet, and prose the model wraps around the list is not a cue.
+///
+/// The figure is a hint, not a result: the caller re-derives the truth by
+/// parsing the finished answer, and it must never exceed the cue count, so the
+/// only property this needs is "close, and never wildly ahead".
+pub fn numbered_line_count(partial: &str) -> usize {
+    partial
+        .split_inclusive('\n')
+        .filter(|line| line.ends_with('\n'))
+        .filter(|line| split_numbered_line(line.trim()).is_some())
+        .count()
+}
+
 /// A lone cue is answered without numbering (see `prompt::single_cue_prompt`), so
 /// the whole answer is the translation. Only the obvious non-answers are
 /// rejected: an empty body, or an echo of the instruction.
@@ -247,6 +266,22 @@ mod tests {
         assert_eq!(parsed[&1], "Hello there.");
         assert_eq!(parsed[&2], "How are you?");
         assert_eq!(parsed[&3], "Goodbye.");
+    }
+
+    /// The streaming hint counts finished cues only: a line still being written
+    /// is not done, and a wrapped continuation is not a new cue.
+    #[test]
+    fn counts_only_completed_numbered_lines() {
+        assert_eq!(numbered_line_count(""), 0);
+        // Nothing is finished until its newline arrives.
+        assert_eq!(numbered_line_count("1. Hello there"), 0);
+        assert_eq!(numbered_line_count("1. Hello there\n"), 1);
+        assert_eq!(numbered_line_count("1. Hello there\n2. How are"), 1);
+        assert_eq!(numbered_line_count("1. Hello there\n2. How are you?\n"), 2);
+        // A continuation line extends cue 1 rather than starting cue 2.
+        assert_eq!(numbered_line_count("1. Hello\n  there\n"), 1);
+        // Prose around the list is not a cue.
+        assert_eq!(numbered_line_count("Here is the translation:\n1. a\n"), 1);
     }
 
     /// The separators the model was observed to use are interchangeable.

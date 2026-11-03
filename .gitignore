@@ -87,3 +87,6 @@ poc/
 src-tauri/mas/
 *.provisionprofile
 *.pkg
+
+# MAS 构建号计数（本机状态：记录上一个已上传的 CFBundleVersion）
+.mas-build-number

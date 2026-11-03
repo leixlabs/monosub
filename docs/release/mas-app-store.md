@@ -261,6 +261,10 @@ bun run release:mas
 
 产物：`src-tauri/target/mas/MonoSub.pkg`（当前 113 MB）
 
+**构建号自动递增**：脚本读仓库根的 `.mas-build-number`（初值 `4`，本地状态、已 gitignore），
+取 N+1 并先写回文件再封签。`--dev` 不消耗计数；要强制指定仍可用 `MAS_BUILD_NUMBER=9`。
+只在本机生效——别在两台机器上同时出包，Transporter 那一端不知道另一个号。
+
 > ⚠️ 这个 pkg **只能上传给 App Store，装到本机双击是打不开的**：Mac App Distribution
 > 证书 + 内置 distribution profile 让它只在"由商店安装"时被放行。
 > 想在本机跑、而且要带沙盒（验证同一套权限）：`bun run release:pkg:sandbox`，

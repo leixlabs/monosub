@@ -219,6 +219,48 @@ impl Endpoint {
             }
         }
     }
+
+    /// One streaming POST: `on_body` sees response-body bytes as they arrive.
+    ///
+    /// Same transports, same framing, one difference — it hands over the body
+    /// while it is still growing instead of returning it whole.
+    async fn post_stream(
+        &self,
+        path: &str,
+        body: &str,
+        timeout: Duration,
+        on_body: &mut (dyn FnMut(&[u8]) + Send),
+    ) -> Result<u16, TranslateError> {
+        let payload = build_request("POST", path, Some(body));
+        match self {
+            #[cfg(unix)]
+            Endpoint::Socket(socket) => {
+                let stream = tokio::time::timeout(CONNECT_TIMEOUT, connect_socket(socket))
+                    .await
+                    .map_err(|_| {
+                        TranslateError::Request(format!(
+                            "connecting to {} timed out",
+                            socket.display()
+                        ))
+                    })??;
+                read_stream(stream, payload.as_bytes(), timeout, on_body).await
+            }
+            Endpoint::Tcp { port } => {
+                let stream = tokio::time::timeout(
+                    CONNECT_TIMEOUT,
+                    tokio::net::TcpStream::connect(("127.0.0.1", *port)),
+                )
+                .await
+                .map_err(|_| {
+                    TranslateError::Request(format!("connecting to 127.0.0.1:{} timed out", port))
+                })?
+                .map_err(|error| {
+                    TranslateError::Request(format!("connecting to 127.0.0.1:{}: {}", port, error))
+                })?;
+                read_stream(stream, payload.as_bytes(), timeout, on_body).await
+            }
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -394,6 +436,128 @@ fn head_end(raw: &[u8]) -> Option<usize> {
     raw.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
 }
 
+/// The streaming twin of [`read_response`]: same request, but every body byte is
+/// handed to `on_body` as it arrives and the call returns once the body ends.
+///
+/// A non-2xx answer is not worth streaming — it is read (bounded) and turned
+/// into the same `HTTP <status>: <body>` error the whole-response path produces,
+/// so a caller cannot tell the two apart by its error text.
+async fn read_stream<S>(
+    mut stream: S,
+    payload: &[u8],
+    timeout: Duration,
+    on_body: &mut (dyn FnMut(&[u8]) + Send),
+) -> Result<u16, TranslateError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let exchange = async {
+        stream
+            .write_all(payload)
+            .await
+            .map_err(|error| TranslateError::Request(format!("socket i/o: {}", error)))?;
+        stream
+            .flush()
+            .await
+            .map_err(|error| TranslateError::Request(format!("socket i/o: {}", error)))?;
+
+        let mut raw = Vec::with_capacity(2048);
+        let mut chunk = [0u8; 4096];
+        let split = loop {
+            if let Some(split) = head_end(&raw) {
+                break split;
+            }
+            let read = stream
+                .read(&mut chunk)
+                .await
+                .map_err(|error| TranslateError::Request(format!("socket i/o: {}", error)))?;
+            if read == 0 {
+                return Err(TranslateError::Request(
+                    "connection closed before the response headers".to_string(),
+                ));
+            }
+            raw.extend_from_slice(&chunk[..read]);
+        };
+
+        let head = String::from_utf8_lossy(&raw[..split]).into_owned();
+        let status = head
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse::<u16>().ok())
+            .ok_or_else(|| {
+                TranslateError::Request(format!(
+                    "response has no status code: {:?}",
+                    head.lines().next().unwrap_or_default()
+                ))
+            })?;
+
+        if !(200..300).contains(&status) {
+            let mut text = raw[split..].to_vec();
+            while text.len() < 512 {
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => text.extend_from_slice(&chunk[..read]),
+                }
+            }
+            return Err(TranslateError::Request(format!(
+                "HTTP {}: {}",
+                status,
+                String::from_utf8_lossy(&text)
+                    .chars()
+                    .take(200)
+                    .collect::<String>()
+            )));
+        }
+
+        if is_chunked(&head) {
+            let mut body = ChunkedStream::default();
+            body.push(&raw[split..]);
+            loop {
+                let data = body
+                    .drain()
+                    .map_err(|error| TranslateError::Request(format!("chunked response: {}", error)))?;
+                if !data.is_empty() {
+                    on_body(&data);
+                }
+                if body.finished {
+                    break;
+                }
+                let read = stream
+                    .read(&mut chunk)
+                    .await
+                    .map_err(|error| TranslateError::Request(format!("socket i/o: {}", error)))?;
+                if read == 0 {
+                    break;
+                }
+                body.push(&chunk[..read]);
+            }
+        } else {
+            // No framing to undo: the body runs to EOF (or Content-Length, which
+            // a streamed answer never sends).
+            if raw.len() > split {
+                on_body(&raw[split..]);
+            }
+            loop {
+                let read = stream
+                    .read(&mut chunk)
+                    .await
+                    .map_err(|error| TranslateError::Request(format!("socket i/o: {}", error)))?;
+                if read == 0 {
+                    break;
+                }
+                on_body(&chunk[..read]);
+            }
+        }
+
+        Ok(status)
+    };
+
+    tokio::time::timeout(timeout, exchange)
+        .await
+        .map_err(|_| TranslateError::Request(format!("no complete response within {:?}", timeout)))?
+}
+
 fn header_value<'a>(head: &'a str, name: &str) -> Option<&'a str> {
     head.lines().skip(1).find_map(|line| {
         let (key, value) = line.split_once(':')?;
@@ -486,6 +650,114 @@ fn decode_chunked(mut body: &[u8]) -> Result<Vec<u8>, String> {
     }
 }
 
+// --- Streaming a completion -----------------------------------------------
+
+/// A `Transfer-Encoding: chunked` body decoded as it arrives.
+///
+/// [`decode_chunked`] can assume a complete body; a streamed one cannot, so this
+/// keeps the partial tail and only emits a chunk once its own trailing CRLF has
+/// also been buffered — a half-arrived chunk is not data yet.
+#[derive(Default)]
+struct ChunkedStream {
+    pending: Vec<u8>,
+    finished: bool,
+}
+
+impl ChunkedStream {
+    fn push(&mut self, bytes: &[u8]) {
+        self.pending.extend_from_slice(bytes);
+    }
+
+    /// Everything that is complete now; `finished` flips on the zero-size chunk.
+    fn drain(&mut self) -> Result<Vec<u8>, String> {
+        let mut out = Vec::new();
+        loop {
+            let Some(line_end) = self.pending.windows(2).position(|window| window == b"\r\n") else {
+                return Ok(out);
+            };
+            let size_text = String::from_utf8_lossy(&self.pending[..line_end]);
+            let size_text = size_text.split(';').next().unwrap_or("").trim().to_string();
+            let size = usize::from_str_radix(&size_text, 16)
+                .map_err(|_| format!("bad chunk size {:?}", size_text))?;
+            let start = line_end + 2;
+            if self.pending.len() < start + size + 2 {
+                return Ok(out);
+            }
+            if size == 0 {
+                self.finished = true;
+                self.pending.clear();
+                return Ok(out);
+            }
+            out.extend_from_slice(&self.pending[start..start + size]);
+            self.pending.drain(..start + size + 2);
+        }
+    }
+}
+
+/// Splits a live `text/event-stream` body into `data:` payloads.
+///
+/// The stream is cut wherever the socket feels like it, so a `data:` line can
+/// arrive in two pieces; the partial tail stays buffered here. `event:` / `id:`
+/// / comment lines are not payloads and are dropped.
+#[derive(Default)]
+struct SseBody {
+    pending: Vec<u8>,
+}
+
+impl SseBody {
+    fn feed(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.pending.extend_from_slice(bytes);
+        let mut payloads = Vec::new();
+        while let Some(position) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = self.pending.drain(..=position).collect();
+            let line = String::from_utf8_lossy(&line);
+            let line = line.trim_end_matches(['\r', '\n']);
+            if let Some(payload) = line.strip_prefix("data:") {
+                payloads.push(payload.trim().to_string());
+            }
+        }
+        payloads
+    }
+}
+
+/// `{"choices":[{"delta":{"content":"…"}}]}` → `Some("…")`.
+///
+/// `[DONE]`, a status-only chunk and the final `finish_reason` chunk carry no
+/// content, and all of them are normal mid-stream.
+fn delta_content(payload: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(payload).ok()?;
+    parsed
+        .get("choices")?
+        .get(0)?
+        .get("delta")?
+        .get("content")?
+        .as_str()
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+/// The request body of one completion, streamed or not.
+///
+/// Structured output (`response_format` / GBNF) is deliberately NOT used:
+/// measured against this model it made the JSON-schema variant echo the source
+/// untranslated and the grammar variant return `[]`. The numbered-line contract
+/// plus `parse` is the measured-reliable path.
+fn completion_request(prompt: &str, max_tokens: u32, stream: bool) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "messages": [{ "role": "user", "content": prompt }],
+        "temperature": TEMPERATURE,
+        "top_k": TOP_K,
+        "top_p": TOP_P,
+        "repeat_penalty": REPEAT_PENALTY,
+        "n_predict": max_tokens,
+        "cache_prompt": true,
+    });
+    if stream {
+        body["stream"] = serde_json::Value::Bool(true);
+    }
+    body
+}
+
 // --- The child process ----------------------------------------------------
 
 /// A boxed future, so [`Completer`] can be used as a trait object without an
@@ -500,6 +772,27 @@ pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T
 /// binary or the 1.1 GB model.
 pub trait Completer: Send + Sync {
     fn complete<'a>(&'a self, prompt: &'a str, max_tokens: u32) -> BoxFuture<'a, Result<String, TranslateError>>;
+
+    /// [`Completer::complete`], with the answer handed over in pieces.
+    ///
+    /// The full text is still what gets parsed — deltas are a progress signal,
+    /// never an input to validation — so the batch contract is identical on both
+    /// paths. The default runs [`Completer::complete`] and delivers the whole
+    /// answer in one piece, which is exactly right for a mock and for any
+    /// transport that cannot stream; [`LlamaServer`] overrides it.
+    fn complete_streaming<'a>(
+        &'a self,
+        prompt: &'a str,
+        max_tokens: u32,
+        on_delta: Box<dyn FnMut(&str) + Send + 'a>,
+    ) -> BoxFuture<'a, Result<String, TranslateError>> {
+        Box::pin(async move {
+            let answer = self.complete(prompt, max_tokens).await?;
+            let mut on_delta = on_delta;
+            on_delta(&answer);
+            Ok(answer)
+        })
+    }
 }
 
 /// A running `llama-server`, killed when this value drops.
@@ -709,6 +1002,24 @@ impl LlamaServer {
         }
         post_completion(&self.endpoint, prompt, max_tokens).await
     }
+
+    /// The same request with `"stream": true`, calling `on_delta` per piece.
+    ///
+    /// Measured on the bundled model: a 20-cue batch takes ~12 s to generate, so
+    /// waiting for the whole answer leaves a progress bar frozen for that long.
+    /// The deltas arrive per token, so the caller can count finished lines while
+    /// the batch is still being written.
+    pub async fn complete_streaming(
+        &self,
+        prompt: &str,
+        max_tokens: u32,
+        on_delta: &mut (dyn FnMut(&str) + Send),
+    ) -> Result<String, TranslateError> {
+        if self.exited_status().is_some() {
+            return Err(TranslateError::Cancelled);
+        }
+        post_completion_streaming(&self.endpoint, prompt, max_tokens, on_delta).await
+    }
 }
 
 impl Completer for LlamaServer {
@@ -718,6 +1029,19 @@ impl Completer for LlamaServer {
         max_tokens: u32,
     ) -> BoxFuture<'a, Result<String, TranslateError>> {
         Box::pin(LlamaServer::complete(self, prompt, max_tokens))
+    }
+
+    fn complete_streaming<'a>(
+        &'a self,
+        prompt: &'a str,
+        max_tokens: u32,
+        on_delta: Box<dyn FnMut(&str) + Send + 'a>,
+    ) -> BoxFuture<'a, Result<String, TranslateError>> {
+        Box::pin(async move {
+            let mut on_delta = on_delta;
+            let mut forward = |delta: &str| on_delta(delta);
+            LlamaServer::complete_streaming(self, prompt, max_tokens, &mut forward).await
+        })
     }
 }
 
@@ -775,20 +1099,7 @@ pub async fn post_completion(
     prompt: &str,
     max_tokens: u32,
 ) -> Result<String, TranslateError> {
-    // Structured output (`response_format` / GBNF) is deliberately NOT used:
-    // measured against this model it made the JSON-schema variant echo the
-    // source untranslated and the grammar variant return `[]`. The numbered-line
-    // contract plus `parse` is the measured-reliable path.
-    let body = serde_json::json!({
-        "messages": [{ "role": "user", "content": prompt }],
-        "temperature": TEMPERATURE,
-        "top_k": TOP_K,
-        "top_p": TOP_P,
-        "repeat_penalty": REPEAT_PENALTY,
-        "n_predict": max_tokens,
-        "cache_prompt": true,
-    })
-    .to_string();
+    let body = completion_request(prompt, max_tokens, false).to_string();
 
     let (status, text) = endpoint
         .request(
@@ -823,6 +1134,47 @@ pub async fn post_completion(
                 text.chars().take(200).collect::<String>()
             ))
         })
+}
+
+/// POST one completion with `"stream": true` and return the joined answer.
+///
+/// The assembled text is what the caller parses — exactly as if it had waited
+/// for [`post_completion`] — while `on_delta` sees the pieces in order. An
+/// empty stream is a parse error, not an empty answer: a silent success would
+/// look to the caller like a model that translated nothing.
+pub async fn post_completion_streaming(
+    endpoint: &Endpoint,
+    prompt: &str,
+    max_tokens: u32,
+    on_delta: &mut (dyn FnMut(&str) + Send),
+) -> Result<String, TranslateError> {
+    let body = completion_request(prompt, max_tokens, true).to_string();
+    let mut sse = SseBody::default();
+    let mut answer = String::new();
+
+    {
+        let mut on_body = |bytes: &[u8]| {
+            for payload in sse.feed(bytes) {
+                if payload == "[DONE]" {
+                    continue;
+                }
+                if let Some(delta) = delta_content(&payload) {
+                    answer.push_str(&delta);
+                    on_delta(&delta);
+                }
+            }
+        };
+        endpoint
+            .post_stream("/v1/chat/completions", &body, COMPLETION_TIMEOUT, &mut on_body)
+            .await?;
+    }
+
+    if answer.is_empty() {
+        return Err(TranslateError::Parse(
+            "streamed response carried no content".to_string(),
+        ));
+    }
+    Ok(answer)
 }
 
 #[cfg(test)]
@@ -1122,5 +1474,117 @@ mod tests {
             .status()
             .map(|status| status.success())
             .unwrap_or(false)
+    }
+
+    // --- streaming --------------------------------------------------------
+
+    /// A chunk cut in half by the network must not be emitted: the caller parses
+    /// these bytes, so half a JSON frame would look like a broken answer.
+    #[test]
+    fn chunked_stream_emits_only_whole_chunks() {
+        let mut body = ChunkedStream::default();
+        body.push(b"5\r\nhel");
+        assert!(
+            body.drain().unwrap().is_empty(),
+            "a half-arrived chunk is not data yet"
+        );
+        assert!(!body.finished);
+
+        body.push(b"lo\r\n6\r\n world\r\n");
+        assert_eq!(body.drain().unwrap(), b"hello world".to_vec());
+        assert!(!body.finished);
+
+        body.push(b"0\r\n\r\n");
+        assert!(body.drain().unwrap().is_empty());
+        assert!(body.finished);
+    }
+
+    /// Chunk extensions are legal and must not be read as part of the size.
+    #[test]
+    fn chunked_stream_ignores_chunk_extensions() {
+        let mut body = ChunkedStream::default();
+        body.push(b"4;name=value\r\nabcd\r\n0\r\n\r\n");
+        assert_eq!(body.drain().unwrap(), b"abcd".to_vec());
+        assert!(body.finished);
+    }
+
+    #[test]
+    fn sse_body_reassembles_a_frame_split_across_reads() {
+        let mut sse = SseBody::default();
+        assert!(
+            sse.feed(b"data: {\"choices\":[{\"delta\":").is_empty(),
+            "an unterminated line is not a payload"
+        );
+        let payloads = sse.feed(b"{\"content\":\"1. a\"}}]}\n\ndata: [DONE]\n\n");
+        assert_eq!(payloads.len(), 2);
+        assert_eq!(delta_content(&payloads[0]).as_deref(), Some("1. a"));
+        assert_eq!(payloads[1], "[DONE]");
+    }
+
+    /// Every frame that is not text: the role announcement, an empty delta, the
+    /// `finish_reason` frame after the last token.
+    #[test]
+    fn delta_content_ignores_frames_without_text() {
+        assert_eq!(
+            delta_content("{\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}"),
+            None
+        );
+        assert_eq!(
+            delta_content("{\"choices\":[{\"delta\":{\"content\":\"\"}}]}"),
+            None
+        );
+        assert_eq!(
+            delta_content("{\"choices\":[{\"finish_reason\":\"stop\",\"delta\":{}}]}"),
+            None
+        );
+        assert_eq!(delta_content("[DONE]"), None);
+        assert_eq!(
+            delta_content("{\"choices\":[{\"delta\":{\"content\":\"2. b\"}}]}").as_deref(),
+            Some("2. b")
+        );
+    }
+
+    /// Streaming changes one field of the request and nothing else, so the
+    /// sampling that was measured against this model is the same on both paths.
+    #[test]
+    fn the_streamed_request_differs_only_by_the_stream_flag() {
+        let plain = completion_request("1. Hello\n", 64, false);
+        let streamed = completion_request("1. Hello\n", 64, true);
+
+        assert!(plain.get("stream").is_none());
+        assert_eq!(streamed["stream"], serde_json::Value::Bool(true));
+
+        let mut stripped = streamed.clone();
+        stripped.as_object_mut().unwrap().remove("stream");
+        assert_eq!(stripped, plain);
+    }
+
+    /// The streamed answer must be the same text the whole-response path returns,
+    /// and it must arrive in more than one piece (otherwise the progress signal
+    /// this exists for would not exist).
+    #[tokio::test]
+    async fn live_streaming_delivers_the_answer_in_pieces() {
+        let Some((binary, model)) = bundled_server_and_model() else {
+            return;
+        };
+        let server = LlamaServer::start(&binary, &model)
+            .await
+            .expect("bundled llama-server starts");
+
+        let mut deltas: Vec<String> = Vec::new();
+        let streamed = server
+            .complete_streaming("1. Hello\n", 64, &mut |delta| deltas.push(delta.to_string()))
+            .await
+            .expect("one streamed completion succeeds");
+
+        assert!(!streamed.is_empty(), "the model must answer something");
+        assert!(
+            deltas.len() > 1,
+            "the answer arrived in {} piece(s), which would not move a bar",
+            deltas.len()
+        );
+        assert_eq!(deltas.concat(), streamed);
+
+        drop(server);
     }
 }

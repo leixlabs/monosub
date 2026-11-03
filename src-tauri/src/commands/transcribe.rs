@@ -1157,6 +1157,10 @@ async fn translate_and_write(
     // `Mutex` because the callback handed to the engine must be `Sync`; there is
     // only ever one writer (the translation stage reports sequentially).
     let sink = std::sync::Mutex::new(sink);
+    // `done`/`total` are cues, and they arrive twice over: once per line as the
+    // model streams the batch (~0.5 s apart), and once per batch as the truth
+    // after validation. `translate_with` has already clamped them and made them
+    // monotonic, so this only has to turn them into a percentage.
     let on_progress = move |done: usize, total: usize| {
         let percent = if total == 0 {
             0.0

@@ -23,6 +23,10 @@
  *     MAS_PROFILE=src-tauri/mas/distribution.provisionprofile \
  *     bun run release:mas
  *
+ *   构建号不用手填：每次都从仓库根的 .mas-build-number 取下一位并写回。
+ *   偶尔要指定（例如接别人的号）：
+ *     MAS_BUILD_NUMBER=9 bun run release:mas
+ *
  * 可选参数：
  *   --dev         不加 --timestamp 以外的区分，仅用于打印提示与跳过 pkg
  *   --no-pkg      只签 .app，不出 pkg
@@ -240,16 +244,54 @@ if (fs.existsSync(frameworksDir)) {
 log('写入 embedded.provisionprofile 与 PrivacyInfo.xcprivacy…');
 fs.copyFileSync(profile, path.join(STAGED_APP, 'Contents/embedded.provisionprofile'));
 
-// CFBundleVersion 每次上传都必须比上一个更大。Tauri 把它写成与 version 相同的
-// 2.0.2，第二次上传同一版本会被 App Store Connect 判成"构建已存在"。
-// 用 MAS_BUILD_NUMBER 覆盖（默认 3），营销版本仍是 2.0.2。
-const buildNumber = process.env.MAS_BUILD_NUMBER ?? '3';
+// CFBundleVersion 每次上传都必须比上一次大：Tauri 把它写成与营销版本相同的
+// 2.0.2，第二次上传同一个版本会被 App Store Connect 判成"构建已存在"。
+//
+// 计数落在仓库根的 .mas-build-number（本地状态，已 gitignore）。读到 N 就取 N+1
+// 并**立刻写回**——先占号再封签：这次就算构建失败，也只是跳过一个号，不会撞号。
+// MAS_BUILD_NUMBER 仍可硬指定，指定值会写回文件成为新的基准。
+//
+// 放在仓库根而不是 src-tauri/mas/：那个目录整个被 gitignore，混着 profile 与
+// 构建号不好排查；单独一个点文件，`cat .mas-build-number` 就能看到当前进度。
+const BUILD_COUNTER_FILE = path.join(ROOT, '.mas-build-number');
+// 文件缺失时的起点：2026-11-03 已上传到 4。
+const SEED_BUILD_NUMBER = 4;
+
+function readBuildCounter() {
+  if (!fs.existsSync(BUILD_COUNTER_FILE)) return null;
+  const value = Number(fs.readFileSync(BUILD_COUNTER_FILE, 'utf8').trim());
+  // 手工改坏了就当没写过，而不是带着 NaN 去 PlistBuddy
+  return Number.isInteger(value) && value > 0 ? value : null;
+}
+
+function writeBuildCounter(value) {
+  fs.writeFileSync(BUILD_COUNTER_FILE, `${value}\n`, 'utf8');
+}
+
+let buildNumber;
+if (isDev) {
+  // dev 包不上传，不消耗计数（否则每次自测都白烧一个号）
+  buildNumber = readBuildCounter() ?? SEED_BUILD_NUMBER;
+} else if (process.env.MAS_BUILD_NUMBER) {
+  const forced = Number(process.env.MAS_BUILD_NUMBER);
+  if (!Number.isInteger(forced) || forced <= 0) {
+    fail(`MAS_BUILD_NUMBER 必须是正整数，收到：${process.env.MAS_BUILD_NUMBER}`);
+  }
+  buildNumber = forced;
+  writeBuildCounter(forced);
+} else {
+  buildNumber = (readBuildCounter() ?? SEED_BUILD_NUMBER) + 1;
+  writeBuildCounter(buildNumber);
+}
+
 execFileSync('/usr/libexec/PlistBuddy', [
   '-c',
   `Set :CFBundleVersion ${buildNumber}`,
   path.join(STAGED_APP, 'Contents/Info.plist'),
 ]);
-log(`构建号：CFBundleVersion = ${buildNumber}`);
+log(
+  `构建号：CFBundleVersion = ${buildNumber}${isDev ? '（--dev 不消耗计数）' : ''}`,
+);
 fs.copyFileSync(PRIVACY_MANIFEST, path.join(STAGED_APP, 'Contents/Resources/PrivacyInfo.xcprivacy'));
 
 // 3) 最后签 app 本体（这一步会用 app entitlements 签主可执行文件并封签）
