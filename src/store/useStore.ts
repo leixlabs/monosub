@@ -87,6 +87,15 @@ export interface StepProgress {
   totalSteps: number
   stepName: string
   /**
+   * How far through *this step* the backend is, 0…100.
+   *
+   * Not the same number as `VideoFile.progress`. That one is run-wide, and step
+   * 1 (extracting the WAV) is worth 2 % of it — so a three-minute extraction
+   * reads "0 %" from beginning to end. The badge prints this one while a step is
+   * running; the bar below keeps drawing the run.
+   */
+  percent: number
+  /**
    * Which part of the recognition step is running: `vad` / `asr` / `diar`.
    *
    * Only the recognition step has sub-phases worth naming — it is the one that
@@ -465,6 +474,14 @@ interface AppState {
   setStorageMode: (mode: StorageMode) => void
   customStoragePath: string
   setCustomStoragePath: (path: string) => void
+  /**
+   * Runtime capability flag, never persisted: the sandboxed (Mac App Store)
+   * build cannot write next to a source file it merely has read access to, so
+   * the save-location control hides "same directory" and the queue asks for an
+   * output folder before it dispatches any work.
+   */
+  isSandboxed: boolean
+  setIsSandboxed: (sandboxed: boolean) => void
 
   // Manual model overrides: role -> model id (design §10.2)
   modelOverrides: Partial<Record<ModelOverrideSlot, string>>
@@ -624,6 +641,11 @@ export const useStore = create<AppState>()(
       setStorageMode: (mode) => set({ storageMode: mode }),
       customStoragePath: '',
       setCustomStoragePath: (path) => set({ customStoragePath: path }),
+      // Filled in by `bootstrapSandboxFlag` (src/lib/grants.ts) on mount. It is
+      // deliberately outside `partialize`: a persisted value would survive into
+      // the DMG build from a sandboxed one.
+      isSandboxed: false,
+      setIsSandboxed: (isSandboxed) => set({ isSandboxed }),
 
       // Manual model overrides (design §10.2)
       modelOverrides: {},

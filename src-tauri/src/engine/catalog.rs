@@ -963,7 +963,14 @@ pub fn model_dir(paths: &AppPaths, id: &str) -> Result<PathBuf, EngineError> {
     Ok(install_dir(paths, &spec))
 }
 
-/// True when every manifest file exists and its size matches (never hashes).
+/// True when every manifest file exists and has content (never hashes).
+///
+/// Presence, not the manifest's byte count: the catalogue describes one
+/// revision while most primary URLs are a `resolve/master` ref, so an upstream
+/// re-upload leaves a perfectly usable file whose length no longer matches
+/// (see `commands::models` module docs). Comparing sizes here would report
+/// "not installed" for a model the engine can actually load, and would make the
+/// UI offer the same 1.8 GB download forever.
 pub fn is_installed(paths: &AppPaths, id: &str) -> bool {
     let Ok(Some(spec)) = lookup(paths, id) else {
         return false;
@@ -971,7 +978,7 @@ pub fn is_installed(paths: &AppPaths, id: &str) -> bool {
     let dir = install_dir(paths, &spec);
     spec.files
         .iter()
-        .all(|file| file_size(&dir.join(&file.path)) == Some(file.size))
+        .all(|file| file_size(&dir.join(&file.path)).is_some_and(|size| size > 0))
 }
 
 /// List every model with its install state; used by `list_models`.
@@ -983,7 +990,9 @@ pub fn list(paths: &AppPaths) -> Result<Vec<ModelStatus>, EngineError> {
         .map(|spec| {
             // The root always exists as a value now (it is a field of `AppPaths`,
             // not an optional resolved at call time), so `installed` starts true
-            // and is falsified by any missing or wrong-sized file below.
+            // and is falsified by any missing or empty file below. Presence only,
+            // mirroring `is_installed`: see its docs for why the manifest size is
+            // not the test.
             let dir = install_dir(paths, &spec);
             let mut installed = true;
             let mut size_on_disk = 0u64;
@@ -991,7 +1000,7 @@ pub fn list(paths: &AppPaths) -> Result<Vec<ModelStatus>, EngineError> {
                 match file_size(&dir.join(&file.path)) {
                     Some(size) => {
                         size_on_disk += size;
-                        installed &= size == file.size;
+                        installed &= size > 0;
                     }
                     None => installed = false,
                 }

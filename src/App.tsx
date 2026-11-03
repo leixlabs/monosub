@@ -18,8 +18,9 @@ import { processQueueBatch, startTranscriptionTask, isModelNotInstalledError } f
 import { modelNotInstalledId } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
 import { reportFrontendError } from './lib/logging';
-import { outputDeniedDir, requestOutputFolder } from './lib/grants';
+import { outputDeniedDir, requestOutputFolder, bootstrapSandboxFlag } from './lib/grants';
 import { UrlImportDialog } from './components/UrlImportDialog';
+import { FolderGrantDialog } from './components/FolderGrantDialog';
 import { ClipboardPrompt } from './components/ClipboardPrompt';
 import { ensureUrlImportListeners } from './lib/urlImport';
 import { useClipboardVideo } from './lib/clipboardWatch';
@@ -109,6 +110,12 @@ function App() {
       settingsRef.current = state.settings;
     });
     return unsubscribe;
+  }, []);
+
+  // 沙盒与否决定"保存位置"能提供什么：沙盒版没有"同目录"，必须在开始前选一次
+  // 输出目录。启动时问一次后端，供底部栏和队列入口同步读同一个答案。
+  useEffect(() => {
+    void bootstrapSandboxFlag();
   }, []);
 
   // Bring window to front when user clicks a system notification.
@@ -204,7 +211,10 @@ function App() {
         waiting: waiting || undefined,
         // `overall`, not `progress`: the latter restarts at 0 for every step,
         // so a bar driven by it would jump backwards four times per file. The
-        // tray percentage and the row's bar both read this one field.
+        // tray percentage and the row's bar both read this one field. The row's
+        // badge reads the step's own figure instead (`stepProgress.percent`) —
+        // step 1 is worth 2 % of the run, so the run-wide number cannot say how
+        // far a multi-minute extraction has got.
         progress: event.payload.overall ?? event.payload.progress,
       };
 
@@ -216,6 +226,7 @@ function App() {
           currentStep: step.current_step,
           totalSteps: step.total_steps,
           stepName: step.step_name,
+          percent: event.payload.progress,
           phase: step.phase,
           stepElapsed: step.step_elapsed,
           totalElapsed: step.total_elapsed,
@@ -448,6 +459,8 @@ function App() {
             isOpen={isUrlImportOpen}
             onClose={() => setIsUrlImportOpen(false)}
           />
+          {/* 沙盒下"保存到视频旁边"的授权说明；系统目录面板排在它之后打开。 */}
+          <FolderGrantDialog />
           {clipboardHit && (
             <ClipboardPrompt
               hit={clipboardHit}

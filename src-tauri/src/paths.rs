@@ -331,7 +331,12 @@ pub fn ensure_writable_output(path: &Path) -> Result<PathBuf, String> {
 }
 
 /// Can a file be created in `dir` right now? Creates and removes a probe file.
-fn dir_accepts_writes(dir: &Path) -> bool {
+///
+/// Public because the frontend asks this *before* a run starts: under the
+/// sandbox "the user picked a file here" says nothing about the folder, so the
+/// import path probes it and asks for the folder grant once, instead of letting
+/// the first transcription fail and then asking.
+pub fn dir_accepts_writes(dir: &Path) -> bool {
     if std::fs::create_dir_all(dir).is_err() {
         return false;
     }

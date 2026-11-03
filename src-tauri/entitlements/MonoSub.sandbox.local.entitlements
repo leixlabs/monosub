@@ -23,10 +23,9 @@
   <key>com.apple.security.network.client</key>
   <true/>
 
-  <!-- llama-server 子进程在 127.0.0.1 监听；子进程继承父沙盒，
-       所以这一项必须声明在 app 层而不是 helper 里 -->
-  <key>com.apple.security.network.server</key>
-  <true/>
+  <!-- 刻意不声明 com.apple.security.network.server：llama-server 子进程走
+       Unix domain socket，不监听 TCP 端口（详见 MonoSub.mas.entitlements）。
+       本地沙盒包与上架包保持逐条一致，这样自测才覆盖真实行为。 -->
 
   <!-- 导入媒体、选 cookies.txt、指定输出目录：用户面板选中即授权 -->
   <key>com.apple.security.files.user-selected.read-write</key>

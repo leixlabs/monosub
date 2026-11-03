@@ -7,7 +7,6 @@ import {
   Loader2,
   SlidersHorizontal,
   Cpu,
-  ExternalLink,
   Languages,
   Link2,
   Package,
@@ -31,7 +30,6 @@ import { SettingsTranslation } from '@/components/SettingsTranslation';
 import { SettingsUrlImport } from '@/components/SettingsUrlImport';
 import { ModelLicensePrompt } from '@/components/ModelLicensePrompt';
 import { getVersion } from '@tauri-apps/api/app';
-import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
 import { cn } from '@/lib/utils';
@@ -61,7 +59,6 @@ import {
   removeModel,
   setModelsDir,
   sortByAvailability,
-  translationModels,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
   type ModelDownloadProgressPayload,
@@ -103,14 +100,6 @@ function BetaBadge({ className }: { className?: string }) {
     </span>
   );
 }
-
-/**
- * The only external link the About card offers. MonoSub is source-available
- * (PolyForm Small Business): the repository is where the source is read and
- * where the licence lives, so this is the address worth showing — not a
- * release/download page, and not an update check.
- */
-const REPO_URL = 'https://github.com/leixlabs/monosub';
 
 /** How long the CLI card's copy button keeps its "copied" label. */
 const COPIED_RESET_MS = 2000;
@@ -320,10 +309,6 @@ export function Settings() {
   const isMountedRef = useRef(true);
   const ignoreDownloadErrorRef = useRef<string | null>(null);
   const [appVersion, setAppVersion] = useState('');
-  // About card: the repository row's copy chip, and a link that would not open.
-  const [repoCopied, setRepoCopied] = useState(false);
-  const [repoError, setRepoError] = useState('');
-  const repoCopyTimerRef = useRef<number | null>(null);
   // Log directory row (Settings ▸ System): the path is read once per open, and
   // a failure to open it is shown in place rather than only in the log.
   const [logDirectory, setLogDirectory] = useState('');
@@ -367,10 +352,6 @@ export function Settings() {
     if (cliCopyTimerRef.current !== null) {
       window.clearTimeout(cliCopyTimerRef.current);
       cliCopyTimerRef.current = null;
-    }
-    if (repoCopyTimerRef.current !== null) {
-      window.clearTimeout(repoCopyTimerRef.current);
-      repoCopyTimerRef.current = null;
     }
   }, []);
 
@@ -512,7 +493,11 @@ export function Settings() {
     try {
       const list = await listModels();
       if (!isMountedRef.current) return;
-      setModels(list);
+      // Ordered here, once: the installed-first split is a *snapshot*, so a
+      // download starting or finishing cannot move the row the user is looking
+      // at (see `sortByAvailability`). Every consumer downstream — both lists in
+      // this pane and `SettingsTranslation` — renders the array as received.
+      setModels(sortByAvailability(list));
     } catch (error) {
       console.error('[list_models] Failed:', error);
       if (!isMountedRef.current) return;
@@ -688,54 +673,6 @@ export function Settings() {
     }
   };
 
-  /**
-   * Open the repository in the system browser.
-   *
-   * `open_external_url` is what the app uses everywhere else; the `window.open`
-   * fallback exists because a WebView without the opener shell (a dev server,
-   * for instance) throws instead. Failure is surfaced in the card as well as
-   * logged, because the address is also printed there — a dead button with a
-   * copyable URL next to it is worse than a button that says why it failed.
-   */
-  const handleOpenRepoUrl = async () => {
-    setRepoError('');
-    try {
-      await invoke('open_external_url', { url: REPO_URL });
-    } catch (error) {
-      console.error('[open_external_url] Failed:', error);
-      try {
-        window.open(REPO_URL, '_blank');
-      } catch (fallbackError) {
-        console.error('[window.open] Failed:', fallbackError);
-        reportFrontendError(error, { context: 'Settings open repository URL' });
-        setRepoError(t('settings.about.openFailed'));
-      }
-    }
-  };
-
-  /** Copy the repository address. The chip says "copied" for two seconds. */
-  const handleCopyRepoUrl = async () => {
-    setRepoError('');
-    try {
-      await writeClipboard(REPO_URL);
-      setRepoCopied(true);
-      if (repoCopyTimerRef.current !== null) window.clearTimeout(repoCopyTimerRef.current);
-      repoCopyTimerRef.current = window.setTimeout(() => {
-        repoCopyTimerRef.current = null;
-        setRepoCopied(false);
-      }, COPIED_RESET_MS);
-    } catch (error) {
-      if (repoCopyTimerRef.current !== null) {
-        window.clearTimeout(repoCopyTimerRef.current);
-        repoCopyTimerRef.current = null;
-      }
-      setRepoCopied(false);
-      console.error('[repo copy] Failed:', error);
-      reportFrontendError(error, { context: 'Settings copy repository URL' });
-      setRepoError(t('settings.about.copyFailed'));
-    }
-  };
-
   const formatOptions: { value: SubtitleFormat; label: string }[] = [
     { value: 'srt', label: 'SRT' },
     { value: 'vtt', label: 'VTT' },
@@ -763,19 +700,12 @@ export function Settings() {
     }))
   ), []);
 
-  // The catalogue mixes both engines; split it once per render pass so the two
-  // lists and their headers stay in step with the loaded models. Both are
-  // ordered installed-first: this pane is where a user checks what they have and
-  // fetches what they lack, so a downloaded model must not sit below dozens of
-  // entries that still need a download.
-  const recognition = useMemo(
-    () => sortByAvailability(recognitionModels(models), downloadingId),
-    [models, downloadingId],
-  );
-  const translation = useMemo(
-    () => sortByAvailability(translationModels(models), downloadingId),
-    [models, downloadingId],
-  );
+  // This pane lists the recognition half of the catalogue only; the translation
+  // model belongs to Settings ▸ Translation (see the note rendered under the
+  // list). The order is whatever `loadModels` froze — a plain filter, no re-sort:
+  // recomputing the installed-first split here moved a row the instant its
+  // download started or finished (measured: "点击下载之后，保持模型的顺序不变化").
+  const recognition = useMemo(() => recognitionModels(models), [models]);
 
   const handleUILanguageChange = (lang: string) => {
     i18n.changeLanguage(lang);
@@ -1043,11 +973,14 @@ export function Settings() {
                       <p className="text-xs text-text-secondary dark:text-gray-400">{t('models.empty')}</p>
                     )}
 
-                    {/* The catalogue holds two unrelated kinds of model: the
-                        recognition plan (audio.cpp) and the local translation
-                        model (llama.cpp). They are grouped rather than merged,
-                        because picking a translation model is not part of
-                        solving the recognition plan (translation-design §9). */}
+                    {/* Recognition only. The catalogue's other half — the local
+                        translation model (llama.cpp) — is deliberately absent:
+                        it has nothing to do with solving the recognition plan
+                        (translation-design §9), and its download now lives only
+                        in Settings ▸ Translation, next to the language and
+                        model choice that need it. One pane owns one decision,
+                        instead of the same row being downloadable in two
+                        places with two different states to read. */}
                     {!isLoadingModels && !modelsError && recognition.length > 0 && (
                       <>
                         <h3 className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide pt-1">
@@ -1067,23 +1000,13 @@ export function Settings() {
                       </>
                     )}
 
-                    {!isLoadingModels && !modelsError && translation.length > 0 && (
-                      <>
-                        <h3 className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide pt-1">
-                          {t('models.translationTitle')}
-                        </h3>
-                        {translation.map((model) => (
-                          <ModelRow
-                            key={model.id}
-                            model={model}
-                            isDownloading={downloadingId === model.id}
-                            percent={downloadPercentById[model.id] ?? 0}
-                            onDownload={(id) => void handleDownloadModel(id)}
-                            onCancel={(id) => void handleCancelModelDownload(id)}
-                            onRemove={(id) => void handleRemoveModel(id)}
-                          />
-                        ))}
-                      </>
+                    {/* Where the translation models went. Without the pointer, a
+                        user who remembers downloading one here would read its
+                        absence as a regression. */}
+                    {!isLoadingModels && !modelsError && (
+                      <p className="text-xxs text-text-tertiary dark:text-gray-500 leading-relaxed">
+                        {t('models.translationElsewhere')}
+                      </p>
                     )}
 
                     {modelActionError && (
@@ -1342,68 +1265,18 @@ export function Settings() {
                     )}
                   </div>
 
-                  {/* About + source */}
-                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-4">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-text-primary dark:text-gray-200">
-                          {t('settings.about.appVersion')}
-                        </p>
-                        <p className="mt-1 text-xs text-text-secondary dark:text-gray-400">
-                          v{appVersion || t('settings.about.unknownVersion')}
-                        </p>
-                      </div>
-
-                      <GlassButton
-                        variant="primary"
-                        size="sm"
-                        onClick={() => void handleOpenRepoUrl()}
-                        data-testid="settings-view-source"
-                      >
-                        <ExternalLink className="w-4 h-4" />
-                        {t('settings.about.viewSource')}
-                      </GlassButton>
-                    </div>
-
-                    {/* The address itself, so the button is never the only way
-                        out: it can be read, selected or copied even when the
-                        opener is unavailable. */}
-                    <div className="space-y-1.5">
-                      <p className="text-xs text-text-secondary dark:text-gray-400">
-                        {t('settings.about.repository')}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={REPO_URL}
-                          onClick={(event) => {
-                            // The WebView must not navigate to it: opening is
-                            // the opener's job, and that keeps the app window.
-                            event.preventDefault();
-                            void handleOpenRepoUrl();
-                          }}
-                          className="min-w-0 flex-1 select-text break-all text-xs text-primary hover:underline"
-                          data-testid="settings-repo-url"
-                        >
-                          {REPO_URL}
-                        </a>
-                        <GlassButton
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void handleCopyRepoUrl()}
-                          data-testid="settings-repo-copy"
-                        >
-                          {repoCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                          {repoCopied ? t('settings.about.copied') : t('settings.about.copy')}
-                        </GlassButton>
-                      </div>
-                    </div>
-
-                    {repoError && (
-                      <p className="text-xs text-danger break-all">{repoError}</p>
-                    )}
-
-                    <p className="text-xs text-text-secondary dark:text-gray-400">
-                      {t('settings.about.hint')}
+                  {/* Version only. The source/copy affordances that used to sit
+                      here are gone by request: the row states which build this
+                      is, and nothing else. */}
+                  <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
+                    <p className="text-sm font-semibold text-text-primary dark:text-gray-200">
+                      {t('settings.about.appVersion')}
+                    </p>
+                    <p
+                      className="mt-1 text-xs text-text-secondary dark:text-gray-400 tabular-nums"
+                      data-testid="settings-app-version"
+                    >
+                      v{appVersion || t('settings.about.unknownVersion')}
                     </p>
                   </div>
                 </section>

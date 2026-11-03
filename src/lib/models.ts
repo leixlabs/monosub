@@ -159,6 +159,9 @@ export const modelNotInstalledId = (error: unknown): string | null => {
 /** Settings category that hosts the model list (see `Settings.tsx`). */
 export const MODELS_SETTINGS_CATEGORY = 'models';
 
+/** Settings category that hosts the translation model (see `Settings.tsx`). */
+export const TRANSLATION_SETTINGS_CATEGORY = 'translate';
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null;
 
@@ -300,31 +303,30 @@ export const translationModels = (models: ModelStatus[]): ModelStatus[] =>
   models.filter(isTranslationModel);
 
 /**
- * Order a catalogue slice the way Settings shows it: **installed first**, then
- * the model whose transfer is in flight, then everything still to download.
+ * Order the catalogue the way Settings shows it: **installed first**, then
+ * everything still to download, stable inside each group.
  *
  * Both model lists in Settings exist to answer "what can I use, and what do I
  * still have to fetch" — a model the user already has should never sit below
- * pages of entries they do not. Sorting here (not in each component) keeps the
- * two panes from drifting apart, and it is stable inside each group, so the
- * catalogue order — and any downstream "default is the first one" reading — is
- * preserved.
+ * pages of entries they do not.
  *
- * `downloadingId` is optional: a caller without download state (or with none in
- * flight) simply gets the installed/not-installed split.
+ * Applied **once, when the catalogue is loaded** (`Settings.loadModels`), never
+ * per render. The split depends on `installed`, which is exactly the field a
+ * download flips twice: to "in flight" and then to "installed". Sorting on every
+ * render therefore moved the row out from under the cursor the moment its
+ * Download button was pressed, and again when the transfer finished — measured:
+ * "点击下载之后，保持模型的顺序不变化". Sorting at load keeps the list still while
+ * the user works through it; reopening the pane (or pressing refresh) re-applies
+ * the split to whatever is installed by then.
+ *
+ * The in-flight row is deliberately *not* promoted any more: that promotion was
+ * the reorder the user saw. A download in progress is visible enough on its own
+ * row (percentage + Cancel) without also jumping to the top.
  */
-export const sortByAvailability = (
-  models: ModelStatus[],
-  downloadingId: string | null = null,
-): ModelStatus[] => {
-  const downloading = (model: ModelStatus) => model.id === downloadingId;
-
-  return [
-    ...models.filter((model) => model.installed),
-    ...models.filter((model) => !model.installed && downloading(model)),
-    ...models.filter((model) => !model.installed && !downloading(model)),
-  ];
-};
+export const sortByAvailability = (models: ModelStatus[]): ModelStatus[] => [
+  ...models.filter((model) => model.installed),
+  ...models.filter((model) => !model.installed),
+];
 
 export const listModels = async (): Promise<ModelStatus[]> => {
   const raw = await invoke<unknown>('list_models');
@@ -393,12 +395,25 @@ export const downloadPercent = (downloaded: number, total: number): number => {
   return Math.max(0, Math.min(100, Math.round((downloaded / total) * 100)));
 };
 
-/** Open Settings on the Models category (used when a model is missing). */
-export const openModelsSettings = (): void => {
+/** Open Settings on a given category. */
+const openSettingsCategory = (category: string): void => {
   try {
-    localStorage.setItem(SETTINGS_OPEN_CATEGORY_STORAGE_KEY, MODELS_SETTINGS_CATEGORY);
+    localStorage.setItem(SETTINGS_OPEN_CATEGORY_STORAGE_KEY, category);
   } catch (error) {
-    console.warn('[openModelsSettings] Failed to persist target category:', error);
+    console.warn('[openSettingsCategory] Failed to persist target category:', error);
   }
   useStore.getState().setIsSettingsOpen(true);
 };
+
+/** Open Settings on the Models category (used when a recognition model is missing). */
+export const openModelsSettings = (): void => openSettingsCategory(MODELS_SETTINGS_CATEGORY);
+
+/**
+ * Open Settings on the Translation category.
+ *
+ * The translation model is downloaded and removed **only** there: the Models
+ * pane lists recognition models, so pointing a missing *translation* model at it
+ * would land the user on a page that does not contain the row they need.
+ */
+export const openTranslationSettings = (): void =>
+  openSettingsCategory(TRANSLATION_SETTINGS_CATEGORY);

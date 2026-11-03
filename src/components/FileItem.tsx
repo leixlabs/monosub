@@ -1,4 +1,4 @@
-import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users, Info, AudioLines, Cpu, FileText, Languages } from 'lucide-react';
+import { Trash2, Play, Square, CheckCircle2, AlertCircle, FolderOpen, Loader2, Clock, Users, Info, AudioLines, Cpu, FileText, Languages, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { VideoFile } from '@/store/useStore';
 import { useStore } from '@/store/useStore';
@@ -20,6 +20,7 @@ import {
   MODEL_DOWNLOAD_ERROR_EVENT,
   MODEL_DOWNLOAD_PROGRESS_EVENT,
   downloadPercent,
+  listModels,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
   type ModelDownloadProgressPayload,
@@ -84,6 +85,26 @@ function SubtitleLink({ path, onOpen, label }: { path: string; onOpen: () => voi
   );
 }
 
+/**
+ * Whether the model a failed run named is installed *now*.
+ *
+ * Asked of the catalogue rather than remembered from the failure: the model may
+ * have been downloaded from Settings, or by the prompt in this row's own dialog,
+ * since the run that missed it. `false` for an unnameable id and for a catalogue
+ * that cannot be read — the safe side, because `false` routes the click to the
+ * dialog, which offers both the download and the model list.
+ */
+const isNamedModelInstalled = async (modelId: string | undefined): Promise<boolean> => {
+  if (!modelId) return false;
+  try {
+    const models = await listModels();
+    return models.find((model) => model.id === modelId)?.installed ?? false;
+  } catch (error) {
+    console.warn('[FileItem] could not read the model catalogue for a retry', error);
+    return false;
+  }
+};
+
 export function FileItem({ file }: FileItemProps) {
   const { t } = useTranslation();
   const removeFile = useStore((state) => state.removeFile);
@@ -98,6 +119,17 @@ export function FileItem({ file }: FileItemProps) {
   const lastElapsedRef = useRef(0);
   const lastUpdateTimeRef = useRef(Date.now());
   const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
+  /**
+   * Whether a retry click is still in flight.
+   *
+   * The start resolves quickly (it dispatches a request), but not synchronously
+   * for the sandboxed build, where it first asks for the output folder. Both the
+   * state and the ref exist: the state drives the spinner, the ref closes the
+   * gap before React applies `disabled` — a double click in that gap would send
+   * two requests for one task id.
+   */
+  const [isRetrying, setIsRetrying] = useState(false);
+  const retryingRef = useRef(false);
 
   useEffect(() => {
     if (file.status !== 'processing' || !file.stepProgress) {
@@ -293,6 +325,54 @@ export function FileItem({ file }: FileItemProps) {
     setErrorDetailsOpen(false);
   };
 
+  /**
+   * Run this failed row again, with the settings it carries right now.
+   *
+   * A failed row keeps `error`; it does not fall back to `pending` the way a
+   * cancelled one does. Without this the only way out of `error` was Delete
+   * followed by re-importing the file — for a model download that finished, or a
+   * folder that has since been granted, that is pure busywork.
+   *
+   * Four deliberate choices:
+   *
+   * * **A missing model does not get a rerun.** The pre-flight would reject the
+   *   request again, raise the same error (and its system notification) and
+   *   clear the row's mirror of a download that may still be running. When the
+   *   named model is still absent the click opens the error dialog instead: that
+   *   is the only surface that can fix it, and it re-reads the catalogue, so a
+   *   model installed since turns into "Start transcription" there.
+   * * **Nothing else is reset here.** `startTranscriptionTask` already clears the
+   *   error, the missing-model flags and the previous run's translation outcome,
+   *   and it is the only one that knows when the request was actually accepted.
+   *   Writing `pending` first (`resetFileAfterModelDownload`'s approach, which is
+   *   about leaving the error state *without* starting anything) would open a
+   *   window in which a still-running batch's `processQueueBatch` could pick this
+   *   row up as an ordinary pending file — two dispatches for one task id.
+   * * **Started directly, never through `processQueueBatch`.** That loop requires
+   *   `isBatchProcessing`, which a single failed file usually no longer is, so
+   *   the retry would silently do nothing (the same reason `handleDeniedOutput`
+   *   in `App.tsx` starts directly).
+   * * **The error dialog is closed first.** Its owner is the `error` branch, so
+   *   the status change unmounts it anyway; closing it here also covers the
+   *   sandbox path, where the folder picker runs before the status changes.
+   */
+  const handleRetry = async () => {
+    if (retryingRef.current) return;
+    retryingRef.current = true;
+    setIsRetrying(true);
+    setErrorDetailsOpen(false);
+    try {
+      if (isMissingModel && !(await isNamedModelInstalled(file.missingModelId))) {
+        setErrorDetailsOpen(true);
+        return;
+      }
+      await startTranscriptionTask(file.id);
+    } finally {
+      retryingRef.current = false;
+      setIsRetrying(false);
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes <= 0) return '--';
     if (bytes < 1024) return bytes + ' B';
@@ -361,13 +441,13 @@ export function FileItem({ file }: FileItemProps) {
           <div className="flex items-center gap-3">
             {file.stepProgress ? (
               <>
-                {/* One badge, two facts: what is running and how far along the
-                    whole run is. The percentage is the run-wide figure — the
-                    same one the bar below draws — because printing the step's
-                    own fraction next to the run's was two numbers for one
-                    question. The step name is dropped inside the recognition
-                    step, where the phase name already says it ("转录中 / 识别中"
-                    would say 转录 twice).
+                {/* One badge, two facts: what is running and how far through it
+                    the backend is. The percentage is the *step's* own figure —
+                    the run-wide one is worth 2 % during extraction, so a
+                    three-minute WAV extraction sat on "0 %" for its whole life.
+                    The bar below still draws the run. The step name is dropped
+                    inside the recognition step, where the phase name already
+                    says it ("转录中 / 识别中" would say 转录 twice).
                     The spinner stays alongside because it is the one thing that
                     moves on its own — the percentage only arrives with an
                     event. */}
@@ -375,12 +455,10 @@ export function FileItem({ file }: FileItemProps) {
                 <GlassBadge variant="primary" size="sm" className="gap-1.5">
                   <StepIcon step={file.stepProgress.stepName} />
                   <span>{badgeLabel}</span>
-                  {file.progress !== undefined && (
-                    <>
-                      <span aria-hidden="true" className="opacity-50">·</span>
-                      <span className="tabular-nums">{Math.round(file.progress)}%</span>
-                    </>
-                  )}
+                  <span aria-hidden="true" className="opacity-50">·</span>
+                  <span className="tabular-nums">
+                    {Math.round(file.stepProgress.percent)}%
+                  </span>
                 </GlassBadge>
                 {/* Elapsed time */}
                 <div className="flex items-center gap-1 text-xs text-text-tertiary dark:text-zinc-500 tabular-nums">
@@ -728,6 +806,22 @@ export function FileItem({ file }: FileItemProps) {
             >
               <FolderOpen className="w-4 h-4" />
               {t('fileItem.open')}
+            </GlassButton>
+          )}
+          {file.status === 'error' && (
+            <GlassButton
+              variant="primary"
+              size="sm"
+              onClick={() => void handleRetry()}
+              // `loading`, not a hand-rolled disabled+spinner: the primitive also
+              // sets `aria-busy` and swaps the icon slot, so the label cannot
+              // shift when the spinner appears.
+              loading={isRetrying}
+              className="w-full"
+              data-testid="file-retry"
+            >
+              {!isRetrying && <RotateCcw className="w-4 h-4" />}
+              {t('fileItem.retry')}
             </GlassButton>
           )}
           <GlassButton

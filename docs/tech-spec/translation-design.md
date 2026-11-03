@@ -65,12 +65,28 @@
 | 方案 | 优点 | 缺点 |
 |------|------|------|
 | `llama-cli` 一次一调用 | 简单、无端口 | 每次都要加载模型；批量控制难 |
-| **`llama-server` 子进程** | 模型只加载一次；HTTP 接口稳定；`/health` 就绪探测简单 | 要管端口和进程生命周期 |
+| **`llama-server` 子进程** | 模型只加载一次；HTTP 接口稳定；`/health` 就绪探测简单 | 要管 socket 与进程生命周期 |
 
 **决定 `llama-server`**（T0-3，见 [translation-poc.md](./translation-poc.md) §4）：每个
-翻译阶段启动一次（监听 `127.0.0.1` 随机端口），翻完即停；`kill_on_drop` 保证取消时
-进程被回收，和 audio.cpp 的取消语义一致。实测冷启动 **0.5–5 s**、RSS **~1.4 GB**、
-Metal 生效、41 条字幕整份 **11–14 s**。
+翻译阶段启动一次，翻完即停；`kill_on_drop` 保证取消时进程被回收，和 audio.cpp 的取消
+语义一致。实测冷启动 **0.5–5 s**、RSS **~1.4 GB**、Metal 生效、41 条字幕整份
+**11–14 s**。
+
+> **传输层后来改成了 Unix domain socket**（macOS/Linux；Windows 仍是 `127.0.0.1`
+> 随机端口）。原因不是性能而是沙盒：App 沙盒下监听 TCP 需要
+> `com.apple.security.network.server`，而该监听存在于只在翻译期间存活的子进程里，
+> App Review 的静态扫描看不到它，按"无对应功能"退回过一次。UDS 是文件，落在容器
+> `tmp` 里，不需要任何网络 entitlement，也无法被外部主机访问；HTTP 请求/响应形状
+> 完全不变，`reqwest` 换成了 `translate/server.rs` 里自带的最小 HTTP/1.1 客户端。
+> 选型对比（`llama-cli` / `llama-server`）的结论不变：`llama-cli` 每批都要重付模型
+> 加载，它救不了这个场景。
+>
+> **沙盒依据（已实测）**：`application.sb` 中有
+> `(allow network-bind network-outbound (resolving-subpath (param "application_container")))`，
+> 即容器内路径的 bind 无条件放行。用只带 `app-sandbox` + `network.client` 的签名二进制
+> 验证：容器 `Data/tmp` 下 bind/listen/accept/收发全部成功；同一程序把 socket 放到
+> `/tmp` 则 `EPERM`。所以 socket 必须留在 `TMPDIR`（沙盒里就是容器 `Data/tmp`），
+> 挪到 `/tmp` 会让翻译直接失效。
 
 > ⚠️ 原稿把「可用 JSON schema / grammar 约束输出」列为 server 的优点——**实测不成立**，
 > 见 §4。`llama-cli` 未做同口径基准，落选依据是结构性的（每批都要重付模型加载）。

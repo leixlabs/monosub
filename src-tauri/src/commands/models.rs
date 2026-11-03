@@ -4,9 +4,21 @@
 //!
 //! Downloads stream into
 //! `<models_dir>/<task>/<family>/<file>.part` — task being one of
-//! `asr` / `vad` / `align` / `diar` / `trans` — verify
-//! size (and sha256 when the manifest pins one) and are then renamed onto the
+//! `asr` / `vad` / `align` / `diar` / `trans` — and are then renamed onto the
 //! final name, so a partial transfer never appears under the real name.
+//!
+//! The manifest's `size` / `sha256` are **hints, not a contract**: most entries
+//! point their primary URL at a `resolve/master` ref, and upstream may replace
+//! the file behind it at any time (qwen3-asr-0.6b-f16 grew by 7.5 KiB in
+//! October 2026, which failed every install once the local catalogue went
+//! stale). A download is accepted when the transfer completes; a length that
+//! disagrees with the manifest is logged as a warning instead of failing, so a
+//! re-uploaded upstream file never bricks an install.
+//!
+//! The `.part` is a **resume point**, not scratch space: cancelling or losing
+//! the connection keeps it, and the next attempt asks the server to continue
+//! from its length with a `Range: bytes=<len>-` request. A partial is only
+//! thrown away when it cannot be extended towards the server's file.
 //! `<models_dir>` is user-configurable (`crate::model_dir`).
 //! Progress is reported through `model_download_progress` (throttled to one
 //! event per [`PROGRESS_INTERVAL`]); completion and failure use
@@ -19,10 +31,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
+use reqwest::{header::RANGE, StatusCode};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::commands::opener::open_directory;
 use crate::paths::AppPaths;
@@ -48,9 +60,6 @@ const CANCEL_JOIN_TIMEOUT: Duration = Duration::from_secs(5);
 /// How often an in-flight transfer re-checks the cancel flag while waiting for
 /// the next chunk, so cancelling a stalled connection still stops promptly.
 const CANCEL_POLL_INTERVAL: Duration = Duration::from_millis(100);
-
-/// Read buffer for the streaming sha256 pass.
-const HASH_BUFFER: usize = 64 * 1024;
 
 /// One manifest file of a model, as `list_models` reports it.
 ///
@@ -239,7 +248,7 @@ struct DownloadErrorPayload {
 }
 
 /// A running download, kept so `cancel_model_download` can stop it and know
-/// that its `.part` file is gone before returning.
+/// that its transfer task has stopped writing before returning.
 struct DownloadEntry {
     cancel: Arc<AtomicBool>,
     task: tokio::task::JoinHandle<()>,
@@ -254,13 +263,11 @@ lazy_static::lazy_static! {
 /// One step per model: the state file transfer can end in.
 #[derive(Debug)]
 enum DownloadError {
-    /// The user cancelled; no `.part` file is left behind and no error event is
-    /// emitted (the cancel command itself reports the outcome).
+    /// The user cancelled. The `.part` is kept as a resume point and no error
+    /// event is emitted (the cancel command itself reports the outcome).
     Cancelled,
     /// Transport or HTTP failure for one URL; the caller may try the next one.
     Network(String),
-    /// Size or sha256 mismatch against the manifest; terminal, no fallback.
-    Verify(String),
     /// Local filesystem failure.
     Io(String),
     /// The manifest entry is unusable (no url, escaping path, …).
@@ -272,7 +279,6 @@ impl std::fmt::Display for DownloadError {
         match self {
             DownloadError::Cancelled => write!(f, "cancelled"),
             DownloadError::Network(m) => write!(f, "download failed: {}", m),
-            DownloadError::Verify(m) => write!(f, "verification failed: {}", m),
             DownloadError::Io(m) => write!(f, "io error: {}", m),
             DownloadError::InvalidManifest(m) => write!(f, "invalid manifest: {}", m),
         }
@@ -322,9 +328,10 @@ pub async fn download_model(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Stop the in-flight download for `id` and remove its `.part` file.
+/// Stop the in-flight download for `id`, keeping its `.part` file so a later
+/// attempt resumes instead of starting over.
 ///
-/// Returns once the transfer task has deleted its `.part` (or after
+/// Returns once the transfer task has stopped (or after
 /// [`CANCEL_JOIN_TIMEOUT`]). Cancelling an unknown or already finished id is a
 /// no-op that returns `Ok(())`, so the command is idempotent.
 #[tauri::command]
@@ -455,8 +462,9 @@ pub async fn set_models_dir(app: AppHandle, path: Option<String>) -> Result<Mode
     get_models_dir(app).await
 }
 
-/// Stop the transfer task registered for `id`, if any, and wait for it to clean
-/// up its `.part` file.
+/// Stop the transfer task registered for `id`, if any, and wait for it to stop
+/// writing. Its `.part` stays on disk on purpose (resume point) — only
+/// [`remove_model`] deletes it.
 async fn cancel_in_flight(id: &str) {
     let entry = DOWNLOADS.lock().await.remove(id);
     let Some(entry) = entry else { return };
@@ -643,19 +651,25 @@ async fn download_files(
 
     for file in files {
         let base = completed;
-        {
+        let written = {
             let mut on_bytes = |written: u64| on_progress(base + written, total);
-            download_file(client, file, dest_dir, cancel, &mut on_bytes).await?;
-        }
-        completed += file.size;
+            download_file(client, file, dest_dir, cancel, &mut on_bytes).await?
+        };
+        // The bytes that actually landed, not the manifest's claim, so a
+        // re-uploaded upstream file cannot make the next file's progress
+        // window start at the wrong offset.
+        completed += written;
     }
 
     Ok(())
 }
-/// Download one manifest file: try each URL in order, verify, then rename.
+/// Download one manifest file: try each URL in order, then rename into place.
 ///
-/// Returns the verified byte count. A verification failure is terminal (the
-/// spec reports it instead of silently retrying another mirror).
+/// Returns the number of bytes that landed on disk, which may differ from
+/// `file.size`: the manifest describes one revision, and a `resolve/master` URL
+/// can start serving another (see the module docs). A transfer that completes
+/// is accepted; the length disagreement is logged, never fatal. A transport
+/// failure falls through to the next URL, keeping the `.part` as a resume point.
 async fn download_file(
     client: &reqwest::Client,
     file: &ModelFile,
@@ -677,31 +691,38 @@ async fn download_file(
     let part = part_path(&dest);
 
     let mut last_error: Option<DownloadError> = None;
-    for url in &file.urls {
-        match transfer(client, url, &part, cancel, on_bytes).await {
-            Ok(()) => {
-                if let Err(err) = verify_file(&part, file.size, file.sha256.as_deref()).await {
-                    let _ = tokio::fs::remove_file(&part).await;
-                    return Err(err);
-                }
-                tokio::fs::rename(&part, &dest).await.map_err(io_error)?;
-                tracing::info!(
-                    path = %dest.display(),
-                    bytes = file.size,
-                    "Model file downloaded and verified"
-                );
-                return Ok(file.size);
-            }
-            Err(DownloadError::Cancelled) => {
-                let _ = tokio::fs::remove_file(&part).await;
-                return Err(DownloadError::Cancelled);
-            }
+    'urls: for url in &file.urls {
+        match transfer(client, url, &part, file.size, cancel, on_bytes).await {
+            Ok(_) => {}
+            Err(DownloadError::Cancelled) => return Err(DownloadError::Cancelled),
             Err(err) => {
                 tracing::warn!(url = %url, error = %err, "Download attempt failed, trying next url");
-                let _ = tokio::fs::remove_file(&part).await;
                 last_error = Some(err);
+                continue 'urls;
             }
         }
+
+        let written = part_len(&part).await;
+        if written != file.size {
+            // Not an error: upstream re-uploaded the file under the same name,
+            // and the catalogue still describes the previous revision. Refusing
+            // the bytes here would make the model impossible to install until
+            // the catalogue is refreshed.
+            tracing::warn!(
+                path = %dest.display(),
+                expected = file.size,
+                actual = written,
+                "Downloaded file does not match the manifest size; accepting it"
+            );
+        }
+
+        tokio::fs::rename(&part, &dest).await.map_err(io_error)?;
+        tracing::info!(
+            path = %dest.display(),
+            bytes = written,
+            "Model file downloaded"
+        );
+        return Ok(written);
     }
 
     Err(last_error.unwrap_or_else(|| {
@@ -709,116 +730,185 @@ async fn download_file(
     }))
 }
 
-/// Stream one URL into `part`, calling `on_bytes` with the running byte count.
+/// Stream one URL into `part`, continuing from whatever `part` already holds.
+///
+/// Returns the offset the body started at: `0` for a fresh transfer, the
+/// existing `.part` length when the server honoured the `Range` request.
+/// `on_bytes` always reports the *absolute* number of bytes on disk, so a
+/// resumed transfer's progress does not restart at zero.
 async fn transfer(
     client: &reqwest::Client,
     url: &str,
     part: &Path,
+    expected_size: u64,
     cancel: &AtomicBool,
     on_bytes: &mut impl FnMut(u64),
-) -> Result<(), DownloadError> {
-    let mut written: u64 = 0;
-    let mut stream = {
+) -> Result<u64, DownloadError> {
+    // One restart is allowed: a range the server will not serve, or a partial
+    // it disagrees about, is repairable by asking again from zero.
+    let mut restarted = false;
+
+    loop {
         if cancel.load(Ordering::SeqCst) {
             return Err(DownloadError::Cancelled);
         }
-        let response = client
-            .get(url)
+
+        let have = part_len(part).await;
+        let have = if have > expected_size {
+            // Longer than the manifest's file, so it cannot be extended towards
+            // it: this is a leftover from a different revision.
+            tracing::warn!(
+                path = %part.display(),
+                bytes = have,
+                expected = expected_size,
+                "Discarding an oversized .part"
+            );
+            let _ = tokio::fs::remove_file(part).await;
+            0
+        } else if have == expected_size && expected_size > 0 {
+            // Complete but never renamed: the process died between the final
+            // flush and the rename. Nothing to fetch — hand the bytes to the rename.
+            on_bytes(have);
+            return Ok(have);
+        } else {
+            have
+        };
+
+        let mut request = client.get(url);
+        if have > 0 {
+            request = request.header(RANGE, format!("bytes={}-", have));
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| DownloadError::Network(format!("GET {}: {}", url, e)))?;
-        if !response.status().is_success() {
+        let status = response.status();
+
+        let resume_at = if status == StatusCode::PARTIAL_CONTENT {
+            // Trust a 206 only when it starts exactly where we asked and agrees
+            // with the manifest on the total length.
+            match content_range_start(&response, expected_size) {
+                Some(start) if start == have => have,
+                _ => {
+                    tracing::warn!(url = %url, "Unusable partial response; restarting from zero");
+                    let _ = tokio::fs::remove_file(part).await;
+                    if !restarted {
+                        restarted = true;
+                        continue;
+                    }
+                    return Err(DownloadError::Network(format!(
+                        "GET {}: unusable partial response",
+                        url
+                    )));
+                }
+            }
+        } else if status.is_success() {
+            // 200 with a `Range` sent: the server ignored it and is sending the
+            // whole file. Take it, from the beginning.
+            if have > 0 {
+                tracing::info!(url = %url, "Server ignores range requests; restarting from zero");
+            }
+            0
+        } else if status == StatusCode::RANGE_NOT_SATISFIABLE {
+            tracing::warn!(url = %url, "Range request rejected; restarting from zero");
+            let _ = tokio::fs::remove_file(part).await;
+            if !restarted {
+                restarted = true;
+                continue;
+            }
             return Err(DownloadError::Network(format!(
                 "GET {}: HTTP {}",
-                url,
-                response.status()
+                url, status
             )));
-        }
-        response.bytes_stream()
-    };
-
-    // Opened with truncate, so a stale partial is never resumed by accident and
-    // an empty body still lands a 0-byte `.part` for the size check to reject.
-    let mut file = tokio::fs::File::create(part).await.map_err(io_error)?;
-
-    // `cancel` is also polled while the stream is idle, so cancelling a stalled
-    // connection does not wait for the next chunk. The first tick is immediate
-    // and discarded, otherwise it would race the first chunk.
-    let mut cancel_poll = tokio::time::interval(CANCEL_POLL_INTERVAL);
-    cancel_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    cancel_poll.tick().await;
-
-    loop {
-        if cancel.load(Ordering::SeqCst) {
-            return Err(DownloadError::Cancelled);
-        }
-        let next = tokio::select! {
-            biased;
-            _ = cancel_poll.tick() => continue,
-            chunk = stream.next() => chunk,
-        };
-        let Some(chunk) = next else {
-            break;
-        };
-        let chunk = chunk.map_err(|e| DownloadError::Network(format!("GET {}: {}", url, e)))?;
-        file.write_all(&chunk).await.map_err(io_error)?;
-        written += chunk.len() as u64;
-        on_bytes(written);
-    }
-
-    file.flush().await.map_err(io_error)?;
-    Ok(())
-}
-
-/// Check the downloaded file against the manifest: byte count, and the sha256
-/// when one is pinned. The hash is computed streaming, never buffered whole.
-async fn verify_file(
-    path: &Path,
-    expected_size: u64,
-    expected_sha256: Option<&str>,
-) -> Result<(), DownloadError> {
-    let metadata = tokio::fs::metadata(path).await.map_err(io_error)?;
-    if metadata.len() != expected_size {
-        return Err(DownloadError::Verify(format!(
-            "'{}': expected {} bytes, got {}",
-            path.display(),
-            expected_size,
-            metadata.len()
-        )));
-    }
-
-    if let Some(expected) = expected_sha256 {
-        let actual = sha256_file(path).await?;
-        if !actual.eq_ignore_ascii_case(expected.trim()) {
-            return Err(DownloadError::Verify(format!(
-                "'{}': sha256 mismatch (expected {}, got {})",
-                path.display(),
-                expected.trim(),
-                actual
+        } else {
+            return Err(DownloadError::Network(format!(
+                "GET {}: HTTP {}",
+                url, status
             )));
-        }
-    }
+        };
 
-    Ok(())
+        if resume_at > 0 {
+            tracing::info!(url = %url, from = resume_at, "Resuming model download");
+            on_bytes(resume_at);
+        }
+
+        // Append only when the server continued where the partial ended; every
+        // other path rewrites the file from byte 0.
+        let mut file = if resume_at > 0 {
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(part)
+                .await
+                .map_err(io_error)?
+        } else {
+            tokio::fs::File::create(part).await.map_err(io_error)?
+        };
+
+        // `cancel` is also polled while the stream is idle, so cancelling a
+        // stalled connection does not wait for the next chunk. The first tick is
+        // immediate and discarded, otherwise it would race the first chunk.
+        let mut cancel_poll = tokio::time::interval(CANCEL_POLL_INTERVAL);
+        cancel_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        cancel_poll.tick().await;
+
+        let mut written = resume_at;
+        let mut stream = response.bytes_stream();
+        loop {
+            if cancel.load(Ordering::SeqCst) {
+                // Flush what we have: these bytes are the resume point, and
+                // losing them means downloading them again.
+                let _ = file.flush().await;
+                return Err(DownloadError::Cancelled);
+            }
+            let next = tokio::select! {
+                biased;
+                _ = cancel_poll.tick() => continue,
+                chunk = stream.next() => chunk,
+            };
+            let Some(chunk) = next else {
+                break;
+            };
+            let chunk = chunk.map_err(|e| DownloadError::Network(format!("GET {}: {}", url, e)))?;
+            file.write_all(&chunk).await.map_err(io_error)?;
+            written += chunk.len() as u64;
+            on_bytes(written);
+        }
+
+        file.flush().await.map_err(io_error)?;
+        return Ok(resume_at);
+    }
 }
 
-/// Streaming sha256 of a file, lowercase hex.
-async fn sha256_file(path: &Path) -> Result<String, DownloadError> {
-    let mut file = tokio::fs::File::open(path).await.map_err(io_error)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0u8; HASH_BUFFER];
-    loop {
-        let read = file.read(&mut buffer).await.map_err(io_error)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex_lower(&hasher.finalize()))
+/// Length of an existing `.part`, or `0` when there is none.
+async fn part_len(part: &Path) -> u64 {
+    tokio::fs::metadata(part)
+        .await
+        .map(|metadata| metadata.len())
+        .unwrap_or(0)
 }
 
-fn hex_lower(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+/// Start offset of a `206 Partial Content` body, when the total length it
+/// reports disagrees with no other value than the manifest's.
+///
+/// A server that answers with a different start, or a different total, is
+/// serving a file this manifest does not describe; appending to the partial
+/// would produce a corrupt file.
+fn content_range_start(response: &reqwest::Response, expected_size: u64) -> Option<u64> {
+    let value = response.headers().get(reqwest::header::CONTENT_RANGE)?;
+    let rest = value.to_str().ok()?.strip_prefix("bytes ")?;
+    let (range, total) = rest.split_once('/')?;
+    let (start, _end) = range.split_once('-')?;
+    let start: u64 = start.trim().parse().ok()?;
+
+    let total = total.trim();
+    if total != "*" {
+        // `saturating_sub` is not enough here: a manifest that says 0 while the
+        // server says 300 MB is a mismatch, not a short file.
+        if total.parse::<u64>().ok()? != expected_size {
+            return None;
+        }
+    }
+    Some(start)
 }
 
 fn http_client() -> Result<reqwest::Client, DownloadError> {
@@ -901,11 +991,11 @@ fn contained_target(
 /// them installed until the next size check happened to look.
 ///
 /// Each manifest file is therefore unlinked individually, together with its
-/// `.part` leftover: `cancel_in_flight` already tries to clean up, but a killed
-/// process never gets the chance, and leaving a partial behind means the next
-/// download starts from it — which this downloader refuses to do. A file that
-/// is already gone is not an error, because "installed" is a property of the
-/// sizes on disk and two models can legitimately share one.
+/// `.part` leftover: the downloader *resumes* from a `.part`, so deleting the
+/// model has to delete it too — otherwise a "removed" model would keep several
+/// hundred megabytes behind and quietly resume if it were downloaded again. A
+/// file that is already gone is not an error, because "installed" is a property
+/// of the sizes on disk and two models can legitimately share one.
 ///
 /// Afterwards the family directory is dropped if emptying it left nothing, and
 /// then the task directory for the same reason, so that removing the last model
@@ -998,6 +1088,7 @@ impl ProgressThrottle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
     use std::io::{BufRead, BufReader, Write};
     use std::net::{TcpListener, TcpStream};
 
@@ -1027,12 +1118,16 @@ mod tests {
         }
     }
 
-    const HELLO_SHA256: &str = "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03";
-
+    /// Digest used only to fill the manifest field: downloads no longer compare
+    /// it, but the tests keep passing a realistic value through `ModelFile`.
     fn sha256_of(bytes: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
-        hex_lower(&hasher.finalize())
+        hasher
+            .finalize()
+            .iter()
+            .map(|byte| format!("{:02x}", byte))
+            .collect()
     }
 
     fn model_file(path: &str, urls: Vec<String>, body: &[u8], sha256: Option<String>) -> ModelFile {
@@ -1050,68 +1145,6 @@ mod tests {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("test http client")
-    }
-
-    #[tokio::test]
-    async fn sha256_file_matches_a_known_digest() {
-        let dir = TempDir::new("sha-ok");
-        let file = dir.path().join("sample.txt");
-        tokio::fs::write(&file, b"hello\n").await.expect("write");
-
-        assert_eq!(sha256_file(&file).await.unwrap(), HELLO_SHA256);
-    }
-
-    #[tokio::test]
-    async fn sha256_file_streams_across_multiple_buffer_reads() {
-        // Larger than HASH_BUFFER, so the streaming loop must hash every block.
-        let body: Vec<u8> = (0..(HASH_BUFFER * 3 + 7)).map(|i| (i % 251) as u8).collect();
-        let dir = TempDir::new("sha-large");
-        let file = dir.path().join("large.bin");
-        tokio::fs::write(&file, &body).await.expect("write");
-
-        assert_eq!(sha256_file(&file).await.unwrap(), sha256_of(&body));
-        assert!(verify_file(&file, body.len() as u64, Some(&sha256_of(&body)))
-            .await
-            .is_ok());
-    }
-
-    #[tokio::test]
-    async fn verify_file_accepts_the_pinned_sha256() {
-        let dir = TempDir::new("sha-accept");
-        let file = dir.path().join("sample.txt");
-        tokio::fs::write(&file, b"hello\n").await.expect("write");
-
-        assert!(verify_file(&file, 6, Some(HELLO_SHA256)).await.is_ok());
-        // Uppercase digests in a manifest are still accepted.
-        assert!(verify_file(&file, 6, Some(&HELLO_SHA256.to_uppercase()))
-            .await
-            .is_ok());
-        // No sha256 pinned: the size check alone decides.
-        assert!(verify_file(&file, 6, None).await.is_ok());
-    }
-
-    #[tokio::test]
-    async fn verify_file_rejects_a_wrong_sha256() {
-        let dir = TempDir::new("sha-bad");
-        let file = dir.path().join("sample.txt");
-        tokio::fs::write(&file, b"hello\n").await.expect("write");
-
-        let wrong = "0".repeat(64);
-        let err = verify_file(&file, 6, Some(&wrong)).await.unwrap_err();
-        assert!(matches!(err, DownloadError::Verify(_)), "got {:?}", err);
-    }
-
-    #[tokio::test]
-    async fn verify_file_rejects_a_size_mismatch() {
-        let dir = TempDir::new("size-bad");
-        let file = dir.path().join("sample.txt");
-        tokio::fs::write(&file, b"hello\n").await.expect("write");
-
-        let err = verify_file(&file, 7, Some(HELLO_SHA256)).await.unwrap_err();
-        match err {
-            DownloadError::Verify(message) => assert!(message.contains("expected 7 bytes")),
-            other => panic!("expected a verify error, got {:?}", other),
-        }
     }
 
     #[test]
@@ -1409,39 +1442,71 @@ mod tests {
     struct Route {
         status: u16,
         body: Vec<u8>,
+        /// Whether this route honours `Range: bytes=<n>-` with a `206`. A route
+        /// that does not is what a CDN ignoring the header looks like.
+        ranged: bool,
     }
 
     /// Minimal blocking HTTP/1.1 server bound to `127.0.0.1:0`. It never leaves
     /// the loopback interface, so these tests need no network access.
     struct TestServer {
         base_url: String,
+        /// `Range` start of every request received, in order (`None` = the
+        /// request carried no `Range`), so a test can prove a resume happened.
+        ranges: Arc<std::sync::Mutex<Vec<Option<u64>>>>,
     }
 
     impl TestServer {
         fn start(routes: Vec<(&'static str, Route)>, chunk_delay: Option<Duration>) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
             let addr = listener.local_addr().expect("server addr");
+            let ranges: Arc<std::sync::Mutex<Vec<Option<u64>>>> = Arc::default();
+            let recorded = Arc::clone(&ranges);
             std::thread::spawn(move || {
                 for stream in listener.incoming() {
                     let Ok(mut stream) = stream else { continue };
-                    let Some(path) = read_request_path(&stream) else {
+                    let Some((path, range)) = read_request(&stream) else {
                         continue;
                     };
+                    recorded.lock().expect("record range").push(range);
                     let route = routes.iter().find(|(route, _)| *route == path);
-                    let (status, body) = match route {
-                        Some((_, route)) => (route.status, route.body.as_slice()),
-                        None => (404, &[][..]),
+                    let result = match (route, range) {
+                        (Some((_, route)), Some(from)) if route.ranged => {
+                            let total = route.body.len() as u64;
+                            if from >= total {
+                                write_response(&mut stream, 416, &[], None, chunk_delay)
+                            } else {
+                                let content_range =
+                                    format!("bytes {}-{}/{}", from, total - 1, total);
+                                write_response(
+                                    &mut stream,
+                                    206,
+                                    &route.body[from as usize..],
+                                    Some(content_range),
+                                    chunk_delay,
+                                )
+                            }
+                        }
+                        (Some((_, route)), _) => {
+                            write_response(&mut stream, route.status, &route.body, None, chunk_delay)
+                        }
+                        (None, _) => write_response(&mut stream, 404, &[], None, chunk_delay),
                     };
-                    let _ = write_response(&mut stream, status, body, chunk_delay);
+                    let _ = result;
                 }
             });
             Self {
                 base_url: format!("http://{}", addr),
+                ranges,
             }
         }
 
         fn url(&self, path: &str) -> String {
             format!("{}{}", self.base_url, path)
+        }
+
+        fn ranges(&self) -> Vec<Option<u64>> {
+            self.ranges.lock().expect("read ranges").clone()
         }
     }
 
@@ -1450,6 +1515,16 @@ mod tests {
             Self {
                 status: 200,
                 body: body.to_vec(),
+                ranged: false,
+            }
+        }
+
+        /// A route that answers a `Range` request with `206` and the remainder.
+        fn ranged(body: &[u8]) -> Self {
+            Self {
+                status: 200,
+                body: body.to_vec(),
+                ranged: true,
             }
         }
 
@@ -1457,40 +1532,62 @@ mod tests {
             Self {
                 status,
                 body: Vec::new(),
+                ranged: false,
             }
         }
     }
 
-    fn read_request_path(stream: &TcpStream) -> Option<String> {
+    fn read_request(stream: &TcpStream) -> Option<(String, Option<u64>)> {
         let mut reader = BufReader::new(stream.try_clone().ok()?);
         let mut request_line = String::new();
         reader.read_line(&mut request_line).ok()?;
         let path = request_line.split(' ').nth(1)?.to_string();
+        let mut range = None;
         loop {
             let mut header = String::new();
             match reader.read_line(&mut header) {
                 Ok(0) => break,
                 Ok(_) if header == "\r\n" || header == "\n" => break,
-                Ok(_) => {}
+                Ok(_) => {
+                    if let Some(value) = header.to_ascii_lowercase().strip_prefix("range:") {
+                        // Only `bytes=<start>-` is used by the downloader.
+                        range = value
+                            .trim()
+                            .split_once('=')
+                            .and_then(|(_, spec)| spec.split_once('-'))
+                            .and_then(|(start, _)| start.trim().parse().ok());
+                    }
+                }
                 Err(_) => break,
             }
         }
-        Some(path)
+        Some((path, range))
     }
 
     fn write_response(
         stream: &mut TcpStream,
         status: u16,
         body: &[u8],
+        content_range: Option<String>,
         chunk_delay: Option<Duration>,
     ) -> std::io::Result<()> {
-        let reason = if status == 200 { "OK" } else { "Error" };
+        let reason = match status {
+            200 => "OK",
+            206 => "Partial Content",
+            416 => "Range Not Satisfiable",
+            _ => "Error",
+        };
+        let content_range = match content_range {
+            Some(value) => format!("Content-Range: {}\r\n", value),
+            None => String::new(),
+        };
         write!(
             stream,
-            "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 {} {}\r\nContent-Length: {}\r\n{}Content-Type: application/octet-stream\r\nConnection: close\r\n\r\n",
             status,
             reason,
-            body.len()
+            body.len(),
+            content_range
         )?;
         stream.flush()?;
         for piece in body.chunks(256) {
@@ -1547,8 +1644,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_files_can_be_restarted_without_a_stale_part_file() {
-        // A `.part` left over from an earlier attempt must not be reused.
+    async fn download_files_discards_a_part_bigger_than_the_manifest_file() {
+        // Too long to be extended towards the manifest's size, so it is a
+        // leftover from another revision: it must not be appended to.
         let body = vec![4u8; 256];
         let server = TestServer::start(vec![("/model.gguf", Route::ok(&body))], None);
         let dir = TempDir::new("download-restart");
@@ -1572,7 +1670,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_writes_verifies_and_renames_the_model_file() {
+    async fn download_writes_and_renames_the_model_file() {
         let body = vec![7u8; 4096];
         let server = TestServer::start(
             vec![("/model.gguf", Route::ok(&body))],
@@ -1600,6 +1698,89 @@ mod tests {
         assert!(!samples.is_empty());
         assert!(samples.windows(2).all(|pair| pair[0] <= pair[1]));
         assert_eq!(*samples.last().unwrap(), body.len() as u64);
+    }
+
+    #[tokio::test]
+    async fn download_resumes_from_the_part_file_it_finds() {
+        let body: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+        let server = TestServer::start(vec![("/model.gguf", Route::ranged(&body))], None);
+        let dir = TempDir::new("download-resume");
+        std::fs::write(dir.path().join("model.gguf.part"), &body[..1024]).expect("seed part");
+        let file = model_file(
+            "model.gguf",
+            vec![server.url("/model.gguf")],
+            &body,
+            Some(sha256_of(&body)),
+        );
+
+        let cancel = AtomicBool::new(false);
+        let mut samples: Vec<u64> = Vec::new();
+        {
+            let mut on_bytes = |written: u64| samples.push(written);
+            download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
+                .await
+                .expect("resume");
+        }
+
+        assert_eq!(std::fs::read(dir.path().join("model.gguf")).unwrap(), body);
+        assert!(!dir.path().join("model.gguf.part").exists());
+        // Exactly one request, continuing at the partial's length: a restart
+        // from zero would show up as a second, range-less request.
+        assert_eq!(server.ranges(), vec![Some(1024)]);
+        // Progress picks up where the disk left off instead of restarting at 0.
+        assert_eq!(samples.first().copied(), Some(1024));
+        assert_eq!(samples.last().copied(), Some(body.len() as u64));
+    }
+
+    #[tokio::test]
+    async fn download_restarts_from_zero_when_the_server_ignores_range() {
+        // A CDN that answers 200 to a `Range` request, with the whole file. The
+        // partial must be truncated, not appended to.
+        let body = vec![6u8; 2048];
+        let server = TestServer::start(vec![("/model.gguf", Route::ok(&body))], None);
+        let dir = TempDir::new("download-ignore-range");
+        std::fs::write(dir.path().join("model.gguf.part"), vec![0u8; 700]).expect("seed part");
+        let file = model_file(
+            "model.gguf",
+            vec![server.url("/model.gguf")],
+            &body,
+            Some(sha256_of(&body)),
+        );
+
+        let cancel = AtomicBool::new(false);
+        let mut on_bytes = |_written: u64| {};
+        download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
+            .await
+            .expect("download");
+
+        assert_eq!(std::fs::read(dir.path().join("model.gguf")).unwrap(), body);
+        assert_eq!(server.ranges(), vec![Some(700)]);
+    }
+
+    #[tokio::test]
+    async fn a_full_size_part_is_renamed_without_another_request() {
+        // The process died between the last flush and the rename: the bytes are
+        // already all there, so only the rename is missing.
+        let body = vec![8u8; 512];
+        let server = TestServer::start(vec![("/model.gguf", Route::status(500))], None);
+        let dir = TempDir::new("download-complete-part");
+        std::fs::write(dir.path().join("model.gguf.part"), &body).expect("seed part");
+        let file = model_file(
+            "model.gguf",
+            vec![server.url("/model.gguf")],
+            &body,
+            Some(sha256_of(&body)),
+        );
+
+        let cancel = AtomicBool::new(false);
+        let mut on_bytes = |_written: u64| {};
+        download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
+            .await
+            .expect("rename the existing part");
+
+        assert_eq!(std::fs::read(dir.path().join("model.gguf")).unwrap(), body);
+        // The route would have failed the download: it was never asked.
+        assert!(server.ranges().is_empty());
     }
 
     #[tokio::test]
@@ -1659,29 +1840,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_rejects_a_size_mismatch_and_removes_the_part_file() {
+    async fn download_accepts_a_file_larger_than_the_manifest_describes() {
+        // The case that used to abort every install of qwen3-asr-0.6b-f16: the
+        // manifest still describes the previous revision, upstream serves a
+        // re-uploaded one. The bytes are good, only the catalogue is stale, so
+        // the download must succeed and report what it actually wrote.
         let body = vec![1u8; 128];
         let server = TestServer::start(vec![("/model.gguf", Route::ok(&body))], None);
-        let dir = TempDir::new("download-size");
+        let dir = TempDir::new("download-stale-size");
         let mut file = model_file("model.gguf", vec![server.url("/model.gguf")], &body, None);
-        file.size = body.len() as u64 + 1;
+        file.size = body.len() as u64 - 1;
 
         let cancel = AtomicBool::new(false);
         let mut on_bytes = |_written: u64| {};
-        let err = download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
+        let written = download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
             .await
-            .unwrap_err();
+            .expect("a stale manifest size is not fatal");
 
-        assert!(matches!(err, DownloadError::Verify(_)), "got {:?}", err);
-        assert!(!dir.path().join("model.gguf").exists());
+        assert_eq!(written, body.len() as u64);
+        assert_eq!(std::fs::read(dir.path().join("model.gguf")).unwrap(), body);
         assert!(!dir.path().join("model.gguf.part").exists());
     }
 
     #[tokio::test]
-    async fn download_rejects_a_sha256_mismatch_and_removes_the_part_file() {
+    async fn download_accepts_a_sha256_the_manifest_does_not_describe() {
         let body = vec![9u8; 128];
         let server = TestServer::start(vec![("/model.gguf", Route::ok(&body))], None);
-        let dir = TempDir::new("download-sha");
+        let dir = TempDir::new("download-stale-sha");
         let file = model_file(
             "model.gguf",
             vec![server.url("/model.gguf")],
@@ -1691,13 +1876,11 @@ mod tests {
 
         let cancel = AtomicBool::new(false);
         let mut on_bytes = |_written: u64| {};
-        let err = download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
+        download_file(&test_client(), &file, dir.path(), &cancel, &mut on_bytes)
             .await
-            .unwrap_err();
+            .expect("the pinned digest is a hint, not a gate");
 
-        assert!(matches!(err, DownloadError::Verify(_)), "got {:?}", err);
-        assert!(!dir.path().join("model.gguf").exists());
-        assert!(!dir.path().join("model.gguf.part").exists());
+        assert_eq!(std::fs::read(dir.path().join("model.gguf")).unwrap(), body);
     }
 
     #[tokio::test]
@@ -1772,11 +1955,12 @@ mod tests {
             started.elapsed()
         );
         assert!(!dir.path().join("model.gguf").exists());
-        assert!(!dir.path().join("model.gguf.part").exists());
+        // Whatever arrived before the cancel stays: it is the resume point.
+        assert!(dir.path().join("model.gguf.part").exists());
     }
 
     #[tokio::test]
-    async fn cancelling_a_download_leaves_no_part_file() {
+    async fn cancelling_a_download_keeps_the_bytes_it_received() {
         let body = vec![5u8; 4096];
         let server = TestServer::start(
             vec![("/model.gguf", Route::ok(&body))],
@@ -1795,7 +1979,14 @@ mod tests {
 
         assert!(matches!(err, DownloadError::Cancelled), "got {:?}", err);
         assert!(!dir.path().join("model.gguf").exists());
-        assert!(!dir.path().join("model.gguf.part").exists());
+        let kept = std::fs::metadata(dir.path().join("model.gguf.part"))
+            .expect("a cancelled download keeps its .part")
+            .len();
+        assert!(
+            kept > 0 && kept < body.len() as u64,
+            "expected a usable partial, kept {kept} of {}",
+            body.len()
+        );
     }
 
     #[tokio::test]

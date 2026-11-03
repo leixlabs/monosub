@@ -181,21 +181,31 @@ src-tauri/src/
 | 命令 | 签名 | 说明 |
 |------|------|------|
 | `list_models` | `() -> Vec<ModelStatus>` | 清单 + `installed: bool` + `size_on_disk` |
-| `download_model` | `(id) -> ()` | 流式下载到 `<file>.part`，完成后校验 size（及 sha256 若有），`rename`；进度事件节流 ≥200ms |
-| `cancel_model_download` | `(id) -> ()` | 中止并删除 `.part` |
+| `download_model` | `(id) -> ()` | 流式下载到 `<file>.part`，传输完成即 `rename`；进度事件节流 ≥200ms |
+| `cancel_model_download` | `(id) -> ()` | 中止，保留 `.part` 作为续传点 |
 | `remove_model` | `(id) -> ()` | 删除该模型目录 |
 | `open_models_dir` | `() -> ()` | 复用 `open_in_finder` |
 
 - 事件：`model_download_progress {id, downloaded, total}`、`model_download_complete {id}`、`model_download_error {id, message}`。
-- 安装判定：文件存在且大小匹配（不读 sha，避免启动时哈希大文件）。
+- 安装判定：文件存在且非空（不比较清单大小、不读 sha）。
 - 首次引导：`start_transcription` 检测默认模型未安装时返回特定错误码 `MODEL_NOT_INSTALLED`，前端弹出下载对话框。
-- 断点续传（HTTP Range）为加分项。
+- 断点续传：`.part` 即续传点。请求带 `Range: bytes=<len>-`，只接受与清单总长一致的 `206`；
+  服务器忽略 `Range`（回 `200`）或回 `416` 时清空重下。取消与网络失败都不删 `.part`，只有 `remove_model` 才删。
+- 清单的 `size`/`sha256` 只是提示：主 URL 多为 `resolve/master` 这种会变的 ref，上游换版后
+  长度与哈希都会变（qwen3-asr-0.6b-f16 在 2026-10 被重传，多了 7.5 KiB）。因此下载不再以
+  清单值判定成败，只在日志里记一条 warning；否则一次上游重传就会让该模型永久装不上。
 
 ### 5.3 转写流水线（每个文件）
 
 全部临时文件放 `temp_dir()/monosub-<task_id>/`，任务结束（成功/失败/取消）整体删除。
 
 **Step 1 提取音频**：沿用现有 ffmpeg 抽取与缓存；音频文件也走转换（命中缓存则跳过）。产物 16kHz / mono / s16le WAV。
+
+进度：ffmpeg 以 `-nostats -progress pipe:1` 运行，stdout 每 0.5 s 一个 `out_time_us=` /
+`progress=continue` 块（分子），stderr 的 `Duration:` banner 给出分母，两者通过 `AtomicU64`
+汇合（谁先读到都可能）。`progress=end` 与最后一块都报 100 %，重复值被丢弃；滤镜链失败后
+不带 `-af` 重试时进度不回退。banner 为 `Duration: N/A` 时没有分子可算，`extract_wav` 在成功
+和命中缓存时各显式报一次 100 %。
 
 **Step 2 取 VAD 切段计划**（在 `audiocpp_cli` 内跑 Silero VAD 推理，耗时极短）：
 

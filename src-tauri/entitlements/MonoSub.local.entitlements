@@ -11,7 +11,8 @@
          - 字幕写回源文件目录、自定义模型目录存明文路径都能正常工作；
          - 随包的命令行工具（audiocpp_cli / llama-server / ffmpeg / ffprobe /
            yt-dlp / monosub-cli）不需要 inherit，各自独立进程；
-         - llama-server 监听 127.0.0.1 也不需要 network.server 声明。
+         - llama-server 走 Unix domain socket（$TMPDIR/monosub-llama-*.sock），
+           沙盒内外都不需要 network.server。
 
        下面这一项只在开启 Hardened Runtime（Developer ID 签名）时才起作用，
        作用是允许加载 Team ID 不同的动态库：随包的 ggml/llama dylib 会再签一次，

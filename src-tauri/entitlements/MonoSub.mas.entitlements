@@ -11,10 +11,14 @@
   <key>com.apple.security.network.client</key>
   <true/>
 
-  <!-- llama-server 子进程要在 127.0.0.1 上监听。子进程只继承父进程的沙盒，
-       所以监听权限必须声明在 app 这一层，而不是 helper 的 entitlements 里。 -->
-  <key>com.apple.security.network.server</key>
-  <true/>
+  <!-- llama-server 子进程用 Unix domain socket（$TMPDIR/monosub-llama-*.sock）
+       与 App 通信，不监听任何 TCP 端口，因此刻意不声明
+       com.apple.security.network.server。
+
+       UDS 是文件系统对象而不是网络端点：沙盒按文件权限放行，子进程继承父沙盒
+       即可访问容器 tmp。曾经用 127.0.0.1 上的随机端口，App Review 的自动检查
+       在静态扫描里看不到子进程的监听，按"无对应功能"退回过一次——别再加回来。
+       见 src-tauri/src/translate/server.rs 模块注释。 -->
 
   <!-- 导入视频/音频、选 cookies.txt、指定输出目录；用户通过面板选中的
        文件/目录由此获得读写权限（powerbox 授权）。 -->

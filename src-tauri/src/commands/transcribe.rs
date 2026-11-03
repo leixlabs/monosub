@@ -13,9 +13,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::Mutex;
 
 use crate::commands::models::MODEL_NOT_INSTALLED;
@@ -809,7 +812,19 @@ pub async fn transcribe_file(
     steps.begin(sink, &params.task_id, 1);
     let audio = {
         let _permit = AUDIO_SEMAPHORE.acquire().await;
-        extract_wav(paths, &params.input)
+        // Real motion for step 1: ffmpeg reports its position every 0.5 s and
+        // the closure turns that into the step's own percentage. Only ever
+        // forwarded forward — a failed filter chain retries from the start, and
+        // the bar must not rewind to 0 % when it does.
+        let mut reported = 0.0_f64;
+        let mut report = |fraction: f64| {
+            if fraction <= reported {
+                return;
+            }
+            reported = fraction;
+            steps.progress(sink, &params.task_id, fraction * 100.0, None);
+        };
+        extract_wav(paths, &params.input, &mut report)
             .await
             .map_err(engine_failure)?
     };
@@ -1712,6 +1727,7 @@ fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
 async fn extract_wav(
     paths: &crate::paths::AppPaths,
     input: &Path,
+    progress: &mut (dyn FnMut(f64) + Send),
 ) -> Result<ExtractedAudio, EngineError> {
     let (cache, temporary) = match get_audio_cache_path(input) {
         Some(path) => (path, false),
@@ -1727,6 +1743,10 @@ async fn extract_wav(
             wav = %cache.display(),
             "reusing cached extracted audio"
         );
+        // Nothing gets decoded, so the step is done the moment it starts.
+        // Without this the bar would sit at 0 % on every cached run and then
+        // jump when the next step begins.
+        progress(1.0);
         return Ok(ExtractedAudio {
             path: cache,
             temporary,
@@ -1734,17 +1754,13 @@ async fn extract_wav(
     }
 
     let ffmpeg = crate::commands::video::get_ffmpeg_path(paths);
-    match run_ffmpeg(&ffmpeg, input, &cache, Some(AUDIO_FILTER_CHAIN)).await {
+    match run_ffmpeg(&ffmpeg, input, &cache, Some(AUDIO_FILTER_CHAIN), &mut *progress).await {
         Ok(()) => {
             tracing::info!(
                 source = %input.display(),
                 wav = %cache.display(),
                 "audio extracted with the filter chain"
             );
-            Ok(ExtractedAudio {
-                path: cache,
-                temporary,
-            })
         }
         Err(filtered) => {
             // Mirrors the old engine's `_extract_basic` fallback: an input
@@ -1756,13 +1772,17 @@ async fn extract_wav(
                 "filtered extraction failed; retrying without filters"
             );
             let _ = std::fs::remove_file(&cache);
-            run_ffmpeg(&ffmpeg, input, &cache, None).await?;
-            Ok(ExtractedAudio {
-                path: cache,
-                temporary,
-            })
+            run_ffmpeg(&ffmpeg, input, &cache, None, &mut *progress).await?;
         }
     }
+
+    // An input whose `Duration:` ffmpeg prints as `N/A` never produces a
+    // fraction, so the successful run still ends the step explicitly.
+    progress(1.0);
+    Ok(ExtractedAudio {
+        path: cache,
+        temporary,
+    })
 }
 
 /// The exact ffmpeg argv, shared by the extraction and its no-filter fallback.
@@ -1782,29 +1802,162 @@ fn ffmpeg_args(input: &Path, output: &Path, filters: Option<&str>) -> Vec<std::f
     args
 }
 
+/// [`ffmpeg_args`] plus the two arguments that make it report its position.
+///
+/// `-progress pipe:1` writes one `key=value` block to stdout every
+/// `-stats_period` (0.5 s by default), which is the only way to learn how far a
+/// multi-minute extraction has got; `-nostats` keeps the human-readable stats
+/// line (and its `\r`) out of stderr, which now only carries the banner and real
+/// warnings. Neither changes a decoded sample, so the extraction itself — and
+/// the P0-9 test that pins it — stays exactly as ported.
+fn with_progress_args(mut args: Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    let output = args
+        .pop()
+        .expect("ffmpeg_args always ends with the output path");
+    args.extend(["-nostats", "-progress", "pipe:1"].map(std::ffi::OsString::from));
+    args.push(output);
+    args
+}
+
+/// How much of ffmpeg's stderr is kept for a failure message. The banner and a
+/// few warnings fit easily; a runaway log is truncated from the front instead of
+/// growing with the input's length.
+const STDERR_KEEP_BYTES: usize = 4096;
+
 async fn run_ffmpeg(
     ffmpeg: &str,
     input: &Path,
     output: &Path,
     filters: Option<&str>,
+    on_progress: &mut (dyn FnMut(f64) + Send),
 ) -> Result<(), EngineError> {
     let mut command = tokio::process::Command::new(ffmpeg);
     #[cfg(target_os = "windows")]
     command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
-    let result = command
-        .args(ffmpeg_args(input, output, filters))
-        .output()
-        .await
+    let mut child = command
+        .args(with_progress_args(ffmpeg_args(input, output, filters)))
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // A cancelled run aborts this future; the decoder must not outlive it
+        // and keep writing the cached WAV after the task's cleanup deleted it.
+        .kill_on_drop(true)
+        .spawn()
         .map_err(|e| {
             EngineError::AudioExtractFailed(format!("failed to run ffmpeg: {}", e))
         })?;
 
-    if !result.status.success() {
+    let stdout = child.stdout.take().ok_or_else(|| {
+        EngineError::AudioExtractFailed("failed to capture ffmpeg stdout".to_string())
+    })?;
+    let stderr = child.stderr.take().ok_or_else(|| {
+        EngineError::AudioExtractFailed("failed to capture ffmpeg stderr".to_string())
+    })?;
+
+    // The numerator (`out_time_us`) arrives on stdout and the denominator
+    // (the input's `Duration:`) on stderr, and either reader may be the first to
+    // run, so they share it through an atomic instead of an ordering.
+    let duration_ms = Arc::new(AtomicU64::new(0));
+    let banner_duration = Arc::clone(&duration_ms);
+
+    // Drain stderr concurrently: ffmpeg writes to both pipes, and a full stderr
+    // pipe would block the child while the progress loop reads stdout.
+    let stderr_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr);
+        let mut kept: Vec<u8> = Vec::new();
+        let mut line: Vec<u8> = Vec::new();
+        loop {
+            line.clear();
+            // `read_until` rather than `lines()`: a filename that is not UTF-8
+            // must not kill the reader and take the failure message with it.
+            match reader.read_until(b'\n', &mut line).await {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            let text = String::from_utf8_lossy(&line);
+            if let Some(seconds) = parse_duration_banner(&text) {
+                banner_duration.store((seconds * 1000.0).round() as u64, Ordering::Relaxed);
+            }
+            kept.extend_from_slice(&line);
+            if kept.len() > STDERR_KEEP_BYTES {
+                let excess = kept.len() - STDERR_KEEP_BYTES;
+                kept.drain(..excess);
+            }
+        }
+        kept
+    });
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<f64>();
+    let tick_duration = Arc::clone(&duration_ms);
+    let stdout_task = tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        let mut position: Option<f64> = None;
+        // Identical ticks are noise — the last block and `progress=end` both
+        // report 100 %, and a step whose number stops moving should not keep
+        // re-rendering it.
+        let mut last_sent: Option<f64> = None;
+        let mut send = |fraction: f64| {
+            if last_sent == Some(fraction) {
+                return;
+            }
+            last_sent = Some(fraction);
+            let _ = tx.send(fraction);
+        };
+        while let Ok(Some(line)) = reader.next_line().await {
+            if let Some(value) = line
+                .strip_prefix("out_time_us=")
+                .or_else(|| line.strip_prefix("out_time_ms="))
+            {
+                // Both are microseconds: ffmpeg's `out_time_ms` has always been
+                // a mirror of `out_time_us`, not a millisecond figure.
+                if let Ok(us) = value.trim().parse::<u64>() {
+                    position = Some(us as f64 / 1e6);
+                }
+            } else if let Some(value) = line.strip_prefix("out_time=") {
+                // Only overwrite on a parseable stamp: ffmpeg prints
+                // `out_time=N/A` before the first frame, and that must not
+                // discard a position the microseconds already gave us.
+                if let Some(seconds) = parse_timestamp(value.trim()) {
+                    position = Some(seconds);
+                }
+            } else if let Some(value) = line.strip_prefix("progress=") {
+                if value.trim() == "end" {
+                    send(1.0);
+                    return;
+                }
+                // A block's `out_time_*` only becomes meaningful once the block
+                // closes, and one tick per block is what the 0.5 s cadence is
+                // for — emitting per key would fire three times per block.
+                if let Some(position) = position.take() {
+                    if let Some(fraction) =
+                        progress_fraction(position, tick_duration.load(Ordering::Relaxed))
+                    {
+                        send(fraction);
+                    }
+                }
+            }
+        }
+    });
+
+    // A child's stdout closes when the process exits (or when it closes the pipe
+    // itself), so this loop ends exactly when ffmpeg is done writing.
+    while let Some(fraction) = rx.recv().await {
+        on_progress(fraction);
+    }
+    let status = child.wait().await.map_err(|e| {
+        EngineError::AudioExtractFailed(format!("failed to wait for ffmpeg: {}", e))
+    })?;
+    let stderr = stderr_task.await.map_err(|e| {
+        EngineError::AudioExtractFailed(format!("ffmpeg stderr reader failed: {}", e))
+    })?;
+    let _ = stdout_task.await;
+
+    if !status.success() {
         return Err(EngineError::AudioExtractFailed(format!(
             "ffmpeg exited with {:?}: {}",
-            result.status.code(),
-            stderr_tail(&result.stderr)
+            status.code(),
+            stderr_tail(&stderr)
         )));
     }
     if !output.is_file() {
@@ -1814,6 +1967,40 @@ async fn run_ffmpeg(
         )));
     }
     Ok(())
+}
+
+/// `  Duration: 00:58:12.34, start: 0.000000, bitrate: 1234 kb/s` → `3492.34`.
+///
+/// Read from ffmpeg's own banner instead of probing first: this is the length of
+/// the stream it is about to decode, so numerator and denominator can never come
+/// from different streams. Returns `None` for `Duration: N/A` and for every line
+/// that is not the banner.
+fn parse_duration_banner(line: &str) -> Option<f64> {
+    let rest = line.trim_start().strip_prefix("Duration:")?;
+    parse_timestamp(rest.split(',').next()?.trim())
+}
+
+/// `HH:MM:SS.micro` seconds → `f64` seconds. Anything else → `None`.
+fn parse_timestamp(stamp: &str) -> Option<f64> {
+    let mut parts = stamp.split(':');
+    let hours: f64 = parts.next()?.trim().parse().ok()?;
+    let minutes: f64 = parts.next()?.trim().parse().ok()?;
+    let seconds: f64 = parts.next()?.trim().parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(hours * 3600.0 + minutes * 60.0 + seconds)
+}
+
+/// Position as a fraction of the input, or `None` while the length is unknown.
+///
+/// Clamped because ffmpeg can report an `out_time` past the duration (the last
+/// block after a trim), and a step that reads 103 % is a bug report.
+fn progress_fraction(position_seconds: f64, duration_ms: u64) -> Option<f64> {
+    if duration_ms == 0 || !position_seconds.is_finite() {
+        return None;
+    }
+    Some((position_seconds / (duration_ms as f64 / 1000.0)).clamp(0.0, 1.0))
 }
 
 /// Last few stderr lines: enough to identify a failure, without the banner.
@@ -3023,6 +3210,128 @@ mod tests {
             .collect();
         assert!(args.windows(2).any(|pair| pair == ["-ar", "16000"]));
         assert!(args.windows(2).any(|pair| pair == ["-ac", "1"]));
+    }
+
+    /// The reporting arguments must not disturb the extraction they report on:
+    /// same argv, same order, output path still last.
+    #[test]
+    fn progress_arguments_only_add_reporting_to_the_same_extraction() {
+        let plain = ffmpeg_args(
+            Path::new("/media/clip.mov"),
+            Path::new("/media/clip_audio.wav"),
+            Some(AUDIO_FILTER_CHAIN),
+        );
+        let with_progress = with_progress_args(plain.clone());
+
+        let plain: Vec<String> = plain
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let with_progress: Vec<String> = with_progress
+            .iter()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(with_progress.last().unwrap(), "/media/clip_audio.wav");
+        assert!(with_progress.windows(2).any(|pair| pair == ["-progress", "pipe:1"]));
+        assert!(with_progress.iter().any(|arg| arg == "-nostats"));
+
+        let stripped: Vec<&String> = with_progress
+            .iter()
+            .filter(|arg| !matches!(arg.as_str(), "-nostats" | "-progress" | "pipe:1"))
+            .collect();
+        assert_eq!(stripped, plain.iter().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn reads_the_duration_out_of_ffmpegs_banner() {
+        // Verbatim from ffmpeg 9's stderr, indentation included.
+        assert_eq!(
+            parse_duration_banner("  Duration: 00:58:12.34, start: 0.000000, bitrate: 1234 kb/s"),
+            Some(3492.34)
+        );
+        assert_eq!(
+            parse_duration_banner("Duration: 01:02:03.00, start: -0.007000, bitrate: 64 kb/s"),
+            Some(3723.0)
+        );
+        // A live/unknown-length input has no denominator, so no fraction.
+        assert_eq!(parse_duration_banner("  Duration: N/A, bitrate: N/A"), None);
+        // Everything else in the banner is not a duration.
+        assert_eq!(parse_duration_banner("  Stream #0:1: Audio: aac, 48000 Hz"), None);
+        assert_eq!(parse_duration_banner(""), None);
+    }
+
+    #[test]
+    fn parses_ffmpeg_timestamps_and_rejects_junk() {
+        assert_eq!(parse_timestamp("00:00:12.345678"), Some(12.345678));
+        assert_eq!(parse_timestamp("1:02:03.5"), Some(3723.5));
+        assert_eq!(parse_timestamp("N/A"), None);
+        assert_eq!(parse_timestamp("00:12"), None);
+        assert_eq!(parse_timestamp("00:00:01.0:extra"), None);
+    }
+
+    #[test]
+    fn progress_fraction_needs_a_known_duration_and_never_exceeds_one() {
+        assert_eq!(progress_fraction(30.0, 60_000), Some(0.5));
+        assert_eq!(progress_fraction(0.0, 3_480_000), Some(0.0));
+        // The last block can land past the reported duration.
+        assert_eq!(progress_fraction(61.0, 60_000), Some(1.0));
+        // No `Duration:` line parsed yet (or `N/A`) → nothing to report.
+        assert_eq!(progress_fraction(30.0, 0), None);
+        assert_eq!(progress_fraction(f64::INFINITY, 60_000), None);
+    }
+
+    /// The spawn → pipe → parse → callback path, end to end, against a stand-in
+    /// that prints ffmpeg's real banner and `-progress` blocks (captured from
+    /// ffmpeg 9: one block every 0.5 s, `out_time_ms` in microseconds, and
+    /// `progress=end` on the last one).
+    ///
+    /// The parsers are covered above; what only this test can catch is the
+    /// wiring — the duration arriving on one pipe while the position arrives on
+    /// the other, one callback per block, and `end` landing as exactly 1.0.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn extraction_reports_one_tick_per_progress_block() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = scratch_dir("ffmpeg-progress");
+        let script = dir.join("stand-in-ffmpeg.sh");
+        let output = dir.join("out.wav");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\n\
+                 echo '  Duration: 00:00:04.00, start: 0.000000, bitrate: 64 kb/s' >&2\n\
+                 for sec in 1 2 3 4; do\n\
+                 us=$((sec * 1000000))\n\
+                 echo \"out_time_us=$us\"\n\
+                 echo \"out_time_ms=$us\"\n\
+                 echo \"out_time=00:00:0$sec.000000\"\n\
+                 echo 'speed=30x'\n\
+                 echo 'progress=continue'\n\
+                 sleep 0.01\n\
+                 done\n\
+                 echo 'progress=end'\n\
+                 : > '{}'\n",
+                output.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut seen: Vec<f64> = Vec::new();
+        run_ffmpeg(
+            script.to_str().unwrap(),
+            Path::new("/media/ignored.mov"),
+            &output,
+            None,
+            &mut |fraction| seen.push(fraction),
+        )
+        .await
+        .expect("the stand-in exits 0 and creates the output");
+
+        assert_eq!(seen, vec![0.25, 0.5, 0.75, 1.0]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

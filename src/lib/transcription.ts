@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
 import i18n from '@/i18n';
 import { reportFrontendError } from '@/lib/logging';
+import { ensureOutputAccess, parentDir } from '@/lib/grants';
 import {
   MODEL_NOT_INSTALLED_ERROR,
   modelNotInstalledId,
@@ -145,6 +146,29 @@ export const startTranscriptionTask = async (taskId: string) => {
 
   if (!file || file.status === 'processing') {
     return false;
+  }
+
+  // 沙盒下"写回视频旁边"需要那个目录的授权：文件的选择只给出文件本身，父目录
+  // 仍然只读。这条兜住所有不经工具栏的启动路径（单文件开始、URL 导入的自动
+  // 开始）；批量入口在点"全部开始"时已经一次性处理过，正常流程走不到这里。
+  //
+  // URL 导入的行自带 `outputDir`（导入时已授权），不需要再问。
+  if (!file.outputDir && state.isSandboxed) {
+    const dir = parentDir(file.path);
+    const allowed = await ensureOutputAccess(dir ? [dir] : []);
+    if (!allowed) {
+      state.updateFile(file.id, {
+        status: 'error',
+        progress: 0,
+        error: i18n.t('errors.outputFolderRequired'),
+        missingModelId: undefined,
+        missingModel: undefined,
+        downloadProgress: undefined,
+      });
+      state.setIsProcessing(false);
+      state.setCurrentTaskId(null);
+      return false;
+    }
   }
 
   const outputPath = getOutputPath(file.path, file.name, file.outputDir);

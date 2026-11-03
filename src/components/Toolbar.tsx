@@ -5,6 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
 import { processQueueBatch } from '@/lib/transcription';
+import { ensureOutputAccess, parentDir } from '@/lib/grants';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassBadge } from '@/components/ui/glass-badge';
 import { BatchDiarizationToggle } from '@/components/BatchDiarizationToggle';
@@ -62,6 +63,17 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
   };
 
   const handleStartAll = async () => {
+    // 沙盒下"同目录"要先拿到目录授权（选文件只给了文件本身的权限）。这里把整
+    // 批的源目录一次性收齐，说明书 + 面板只走一轮；用户取消就整批不启动，而不是
+    // 让每个文件各自撞一次 EPERM。
+    if (useStore.getState().isSandboxed) {
+      const dirs = useStore
+        .getState()
+        .files.filter((file) => file.status === 'pending' && !file.outputDir)
+        .map((file) => parentDir(file.path))
+        .filter((dir): dir is string => dir !== null);
+      if (!(await ensureOutputAccess(dirs))) return;
+    }
     setIsBatchProcessing(true);
     processQueueBatch();
   };

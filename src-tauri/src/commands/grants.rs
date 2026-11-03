@@ -40,6 +40,32 @@ pub async fn authorize_dir(app: AppHandle, path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Is a file creatable in `dir` right now?
+///
+/// The frontend asks this before a run starts. Under the sandbox a folder is
+/// never writable just because the user picked a file inside it, so the
+/// sandboxed build has to know *before* dispatching work — asking after the
+/// first write has already failed is what made users pick a folder twice.
+///
+/// The probe is a real create-and-delete, not a mode-bit inspection: a
+/// sandboxed directory can look writable and still refuse `open()`.
+#[tauri::command]
+pub fn output_dir_writable(path: String) -> bool {
+    let dir = PathBuf::from(path.trim());
+    !dir.as_os_str().is_empty() && crate::paths::dir_accepts_writes(&dir)
+}
+
+/// Does this process run inside the macOS App Sandbox?
+///
+/// The frontend uses the answer to change what the save-location control even
+/// offers: a sandboxed build cannot write next to the source file, so it asks
+/// for an output folder once (remembered as a bookmark) instead of offering a
+/// mode that is guaranteed to fail.
+#[tauri::command]
+pub fn app_sandboxed() -> bool {
+    crate::paths::is_sandboxed()
+}
+
 /// Restore every remembered grant at launch.
 ///
 /// A sandbox grant does not survive the process, so this runs once during setup:

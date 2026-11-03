@@ -42,7 +42,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 semver = "1"
-sha2 = "0.10"
 tauri-plugin-notification = "2"
 hound = "3.5"
 # URL parsing for the import whitelist (`site::url`) — normalising a pasted
@@ -60,9 +59,14 @@ tauri-plugin-clipboard-manager = "2.5.0"
 # name and exits the new one.
 tauri-plugin-single-instance = "2"
 
+# Test-only: fixtures fill `ModelFile::sha256`, which the downloader no longer
+# compares against (see `commands::models` module docs), so nothing at runtime
+# hashes a model file any more.
+[dev-dependencies]
+sha2 = "0.10"
+
 [profile.dev]
 incremental = true
-
 [features]
 # `tauri-app` gates `AppPaths::from_app`, the one place the core needs a Tauri
 # handle. The GUI enables it; a CLI binary compiles without it so the shared

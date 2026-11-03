@@ -134,11 +134,12 @@ src-tauri/mas/distribution.provisionprofile   # 已在 .gitignore 里
 | 场景 | 行为 |
 |---|---|
 | 中间文件（16k wav、缩略图） | 沙盒下一律落进程 scratch 区（`$TMPDIR/monosub/<路径哈希>_…`），DMG 版仍写在源文件旁 |
-| 输出目录可写 | 照旧写到 `<源目录>/<stem>.srt` |
-| 输出目录不可写 | 返回 `OUTPUT_NOT_WRITABLE:<目录>`，**绝不静默改存到别处** |
-| 前端收到该状态 | 弹一次目录面板（默认落在被拒目录）→ `authorize_dir` 存 security-scoped bookmark → 设为保存位置 → 自动重试该文件 |
-| 用户取消 | 行内显示 `errors.outputFolderRequired`，不重试 |
-| 下次启动 | `main.rs` setup 调 `activate_grants()` 重放所有 bookmark，**不再询问** |
+| 保存位置 | 沙盒版**保留"同目录"**，但那只是意愿：选文件只给出该文件的权限，父目录仍然只读，所以写入前需要该目录的授权。`app_sandboxed` 让前端知道自己在沙盒里（`lib/grants.ts::bootstrapSandboxFlag`），DMG 版完全不受影响 |
+| 任务开始前 | `ensureOutputAccess(源目录列表)`：**先弹应用内说明对话框**（`FolderGrantDialog`，讲清为什么需要授权、只问一次），用户点「授权」后再弹系统目录面板（`defaultPath` 指向该目录），`authorize_dir` 存 bookmark。授权后仍按"同目录"写 `<源目录>/<stem>.srt` |
+| 用户在面板里选了别的目录 | 视为"字幕放这里"，切到 `custom` 模式，后续文件不再逐个询问（面板只弹一次） |
+| 用户取消 | 不派发任务，行内显示 `errors.outputFolderRequired`——绝不在没有权限时开跑 |
+| 输出目录不可写（兜底） | bookmark 失效等情况仍返回 `OUTPUT_NOT_WRITABLE:<目录>`，绝不静默改存到别处；前端重授权后重试该文件 |
+| 下次启动 | `main.rs` setup 调 `activate_grants()` 重放所有 bookmark，**不再询问**；启动前那次探写也会因此通过 |
 
 DMG 版不受影响：`paths::is_sandboxed()` 为假时 `authorize_dir` 直接返回，什么都不存。
 
@@ -242,7 +243,7 @@ scripts/release/reset-sandbox.sh --full      # 删整个容器 = 重装（bookma
 1. 拖入 `.mp4` / `.mov` / `.m4a` → 生成字幕（看是否 `EPERM`）
 2. 模型下载 + 删除 + 重装
 3. 指定自定义模型目录 → **退出重启** → 还能否读到模型
-4. 翻译（llama-server 子进程 + 127.0.0.1 监听）
+4. 翻译（llama-server 子进程 + `$TMPDIR` 下的 Unix socket；不该出现 bind 失败，也不该需要 network.server）
 5. URL 导入（官方字幕命中 / 音频下载兜底两条路）
 6. 通知、托盘菜单、窗口透明
 7. `sandboxd` 日志里没有任何 `deny` 才继续

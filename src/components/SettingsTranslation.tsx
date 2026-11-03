@@ -11,7 +11,6 @@ import { GlassSwitch } from '@/components/ui/glass-switch';
 import {
   formatModelSize,
   modelManifestSize,
-  sortByAvailability,
   translationModels,
   type ModelStatus,
 } from '@/lib/models';
@@ -57,14 +56,10 @@ export function SettingsTranslation({
   const settings = useStore((state) => state.settings);
   const updateSettings = useStore((state) => state.updateSettings);
 
-  // Installed first, then whatever is downloading, then the rest — the same rule
-  // the Models pane uses, from one shared helper so the two panes cannot drift.
-  // Ordering is stable inside each group, so the catalogue order — and therefore
-  // the default model — is unchanged.
-  const available = useMemo(
-    () => sortByAvailability(translationModels(models), downloadingId),
-    [models, downloadingId],
-  );
+  // Ordered by the Models pane, once, when it loaded the catalogue: this pane
+  // shows the same array, so the two cannot drift and a download cannot move a
+  // row (`sortByAvailability` is applied at load, never per render).
+  const available = useMemo(() => translationModels(models), [models]);
 
   // Endonyms, so the list is readable whatever the UI language is. Ordered like
   // `TRANSLATE_TARGET_LANGUAGES`, and exhaustive by type: adding a target without
@@ -186,9 +181,10 @@ export function SettingsTranslation({
         </p>
       </div>
 
-      {/* The translation models, with the same install / download / remove
-          actions as the Models pane. Kept here so a user who just turned
-          translation on can install the model without leaving the pane. */}
+      {/* The translation models, with install / download / remove — and the
+          **only** place those actions live now: the Models pane lists the
+          recognition half of the catalogue only, so this pane has to be
+          self-sufficient for a user who just turned translation on. */}
       <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50 space-y-3">
         <h3 className="text-xs font-semibold text-text-secondary dark:text-gray-400 uppercase tracking-wide">
           {t('models.translationTitle')}

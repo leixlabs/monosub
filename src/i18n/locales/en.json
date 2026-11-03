@@ -68,7 +68,8 @@
     },
     "translateSkippedHint": "No translated file was written. The source was detected as {{language}}, which is already the target language, so a copy would only duplicate the original. Change the target language in Settings ▸ Translation.",
     "queued": "Queued",
-    "waitingForSlot": "Waiting for a free slot"
+    "waitingForSlot": "Waiting for a free slot",
+    "retry": "Retry"
   },
   "steps": {
     "extracting_audio": "Extracting audio",
@@ -97,6 +98,15 @@
     "translate": "Translate",
     "translateHint": "Turn translation on or off for every pending file"
   },
+  "grants": {
+    "title": "Folder access needed",
+    "body": "The macOS sandbox does not let the app write into a folder you have not approved, so saving subtitles next to the video needs one confirmation.",
+    "hint": "Click Allow and the system panel opens already pointing at that folder — confirm it. The permission is remembered, so this is not asked again.",
+    "moreFolders": "{{count}} more folders",
+    "allow": "Allow",
+    "cancel": "Cancel",
+    "panelTitle": "Choose where to save subtitles"
+  },
   "settings": {
     "title": "Settings",
     "output": {
@@ -119,14 +129,7 @@
     "about": {
       "title": "About",
       "appVersion": "App Version",
-      "unknownVersion": "Unknown",
-      "viewSource": "View Source",
-      "repository": "Repository",
-      "copy": "Copy",
-      "copied": "Copied",
-      "copyFailed": "Could not copy the address",
-      "openFailed": "Could not open the link. Copy the address and open it in a browser.",
-      "hint": "MonoSub is source-available: the whole codebase, and the licence it ships under, live in the repository above."
+      "unknownVersion": "Unknown"
     },
     "resetDefaults": "Reset Defaults",
     "done": "Done",
@@ -200,6 +203,7 @@
     "rescanHint": "Re-read install state from disk (use after copying models in by hand)",
     "recognitionTitle": "Recognition models",
     "translationTitle": "Translation models",
+    "translationElsewhere": "Translation models are downloaded and managed in Settings ▸ Translation.",
     "supported": "Supported",
     "supportedHint": "Run end to end here and known to work",
     "unverified": "Unverified",
@@ -264,6 +268,7 @@
       "start": "Start transcription",
       "later": "Later",
       "openSettings": "Open Settings → Models",
+      "openTranslationSettings": "Open Settings → Translation",
       "failed": "The download failed: {{message}}"
     },
     "detailsTitle": "Error details",

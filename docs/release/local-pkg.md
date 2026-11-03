@@ -143,7 +143,7 @@ log stream --predicate 'process == "sandboxd"' --info | grep leixlabs.monosub
 1. 拖入 `.mp4` → 字幕写回**源文件目录**（沙盒下这是最可能失败的一条）
 2. 模型下载 / 删除 / 重装（network.client + 现有容器权限）
 3. 指定自定义模型目录 → **退出重启** → 还能读到（bookmarks.app-scope）
-4. 翻译：`llama-server` 子进程 + `127.0.0.1` 监听（network.server + helper inherit）
+4. 翻译：`llama-server` 子进程 + `$TMPDIR/monosub-llama-*.sock`（helper inherit；**不需要** network.server）
 5. URL 导入：平台字幕命中、音频下载兜底两条路
 6. 通知、托盘、窗口透明
 

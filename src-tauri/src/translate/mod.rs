@@ -448,9 +448,11 @@ mod tests {
     use super::*;
     use crate::subtitle::Segment as Cue;
     use std::collections::HashMap;
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::{TcpListener, TcpStream};
+    use std::io::{BufRead, BufReader};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+
+    use server::Endpoint;
 
     fn cue(index: usize, text: &str) -> Cue {
         Cue {
@@ -477,14 +479,14 @@ mod tests {
         Status(u16),
     }
 
-    /// Minimal blocking HTTP/1.1 listener on loopback that answers
-    /// `/v1/chat/completions` with a canned completion.
+    /// One mock listener on the same transport the real stage uses: a Unix
+    /// socket on unix, loopback TCP on Windows (see [`server::Endpoint`]).
     ///
     /// The real request path is used (`server::post_completion`), so the JSON
-    /// body, the `.choices[0].message.content` extraction and the numbered-line
-    /// parser are all covered — only the model is fake.
+    /// body, the HTTP framing, the `.choices[0].message.content` extraction and
+    /// the numbered-line parser are all covered — only the model is fake.
     struct MockServer {
-        base_url: String,
+        endpoint: Endpoint,
         /// Requests seen, in order, for assertions about batching.
         requests: Arc<Mutex<Vec<String>>>,
     }
@@ -493,40 +495,9 @@ mod tests {
         /// `responder` maps a request body to a canned response, so a test can
         /// under-return for one batch and answer correctly for the next.
         fn start(responder: impl Fn(&str) -> Reply + Send + Sync + 'static) -> Self {
-            let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
-            let addr = listener.local_addr().expect("mock addr");
             let requests: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-            let seen = Arc::clone(&requests);
-
-            std::thread::spawn(move || {
-                for stream in listener.incoming() {
-                    let Ok(mut stream) = stream else { continue };
-                    let Some((path, body)) = read_request(&stream) else {
-                        continue;
-                    };
-                    if path != "/v1/chat/completions" {
-                        let _ = write_response(&mut stream, 404, "");
-                        continue;
-                    }
-                    seen.lock().unwrap().push(body.clone());
-                    match responder(&body) {
-                        Reply::Body(content) => {
-                            let payload = serde_json::json!({
-                                "choices": [{ "message": { "role": "assistant", "content": content } }]
-                            });
-                            let _ = write_response(&mut stream, 200, &payload.to_string());
-                        }
-                        Reply::Status(status) => {
-                            let _ = write_response(&mut stream, status, "{\"error\":\"boom\"}");
-                        }
-                    }
-                }
-            });
-
-            Self {
-                base_url: format!("http://{}", addr),
-                requests,
-            }
+            let endpoint = spawn_listener(responder, Arc::clone(&requests));
+            Self { endpoint, requests }
         }
 
         fn request_count(&self) -> usize {
@@ -534,20 +505,27 @@ mod tests {
         }
     }
 
-    /// A [`Completer`] that talks to the mock over real HTTP.
+    impl Drop for MockServer {
+        /// The listener thread lives on (it is blocked in `accept`), so the
+        /// socket file is what has to be cleaned up explicitly — otherwise every
+        /// test run leaves one behind in `TMPDIR`.
+        fn drop(&mut self) {
+            #[cfg(unix)]
+            if let Endpoint::Socket(path) = &self.endpoint {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
+    /// A [`Completer`] that talks to the mock through the production transport.
     struct RemoteCompleter {
-        client: reqwest::Client,
-        url: String,
+        endpoint: Endpoint,
     }
 
     impl RemoteCompleter {
         fn new(server: &MockServer) -> Self {
             Self {
-                client: reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(10))
-                    .build()
-                    .expect("test client"),
-                url: format!("{}/v1/chat/completions", server.base_url),
+                endpoint: server.endpoint.clone(),
             }
         }
     }
@@ -558,17 +536,87 @@ mod tests {
             prompt: &'a str,
             max_tokens: u32,
         ) -> server::BoxFuture<'a, Result<String, TranslateError>> {
-            Box::pin(server::post_completion(
-                &self.client,
-                &self.url,
-                prompt,
-                max_tokens,
-            ))
+            Box::pin(server::post_completion(&self.endpoint, prompt, max_tokens))
         }
     }
 
-    fn read_request(stream: &TcpStream) -> Option<(String, String)> {
-        let mut reader = BufReader::new(stream.try_clone().ok()?);
+    /// Bind a fresh socket under `TMPDIR` and answer on a background thread.
+    #[cfg(unix)]
+    fn spawn_listener(
+        responder: impl Fn(&str) -> Reply + Send + Sync + 'static,
+        seen: Arc<Mutex<Vec<String>>>,
+    ) -> Endpoint {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+
+        let sequence = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!(
+            "monosub-mock-{}-{}.sock",
+            std::process::id(),
+            sequence
+        ));
+        let _ = std::fs::remove_file(&path);
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind mock socket");
+
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                serve_one(&mut stream, &responder, &seen);
+            }
+        });
+
+        Endpoint::Socket(path)
+    }
+
+    /// Windows keeps loopback TCP (see the `server` module docs), so the mock
+    /// follows the same rule and the tests stay cross-platform.
+    #[cfg(windows)]
+    fn spawn_listener(
+        responder: impl Fn(&str) -> Reply + Send + Sync + 'static,
+        seen: Arc<Mutex<Vec<String>>>,
+    ) -> Endpoint {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+        let port = listener.local_addr().expect("mock addr").port();
+
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                serve_one(&mut stream, &responder, &seen);
+            }
+        });
+
+        Endpoint::Tcp { port }
+    }
+
+    fn serve_one<S>(
+        stream: &mut S,
+        responder: &(impl Fn(&str) -> Reply + Send + Sync),
+        seen: &Mutex<Vec<String>>,
+    ) where
+        S: std::io::Read + std::io::Write,
+    {
+        let Some((path, body)) = read_request(stream) else {
+            return;
+        };
+        if path != "/v1/chat/completions" {
+            let _ = write_response(stream, 404, "");
+            return;
+        }
+        seen.lock().unwrap().push(body.clone());
+        match responder(&body) {
+            Reply::Body(content) => {
+                let payload = serde_json::json!({
+                    "choices": [{ "message": { "role": "assistant", "content": content } }]
+                });
+                let _ = write_response(stream, 200, &payload.to_string());
+            }
+            Reply::Status(status) => {
+                let _ = write_response(stream, status, "{\"error\":\"boom\"}");
+            }
+        }
+    }
+
+    fn read_request<S: std::io::Read>(stream: &mut S) -> Option<(String, String)> {
+        let mut reader = BufReader::new(stream);
         let mut request_line = String::new();
         reader.read_line(&mut request_line).ok()?;
         let path = request_line.split(' ').nth(1)?.to_string();
@@ -596,7 +644,11 @@ mod tests {
         Some((path, String::from_utf8_lossy(&body).into_owned()))
     }
 
-    fn write_response(stream: &mut TcpStream, status: u16, body: &str) -> std::io::Result<()> {
+    fn write_response<S: std::io::Write>(
+        stream: &mut S,
+        status: u16,
+        body: &str,
+    ) -> std::io::Result<()> {
         write!(
             stream,
             "HTTP/1.1 {} X\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",

@@ -117,6 +117,8 @@ fn main() {
             get_models_dir,
             set_models_dir,
             authorize_dir,
+            output_dir_writable,
+            app_sandboxed,
             update_tray_menu,
             update_tray_progress,
         ])

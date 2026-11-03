@@ -17,6 +17,7 @@ import {
   listModels,
   modelManifestSize,
   openModelsSettings,
+  openTranslationSettings,
   type ModelDownloadCompletePayload,
   type ModelDownloadErrorPayload,
   type ModelDownloadProgressPayload,
@@ -391,6 +392,18 @@ export function MissingModelPrompt({
   // already on disk.
   const isInstalled = model.installed;
 
+  /**
+   * Where "open settings" goes.
+   *
+   * Two panes, one decision each: the Models pane lists recognition models, the
+   * Translation pane is the only place a translation model can be downloaded or
+   * removed. Sending a missing translation model to the Models pane landed the
+   * user on a page that no longer contains its row.
+   */
+  const settingsTarget = isTranslationModel(model)
+    ? { open: openTranslationSettings, label: 'errors.missingModel.openTranslationSettings' }
+    : { open: openModelsSettings, label: 'errors.missingModel.openSettings' };
+
   return (
     <div
       className="space-y-2 rounded-xl border border-divider bg-bg-secondary/70 px-3 py-2 dark:border-white/10 dark:bg-white/5"
@@ -492,11 +505,11 @@ export function MissingModelPrompt({
             <GlassButton
               variant="outline"
               size="sm"
-              onClick={openModelsSettings}
+              onClick={settingsTarget.open}
               data-testid="missing-model-settings"
             >
               <Settings2 className="w-4 h-4" />
-              {t('errors.missingModel.openSettings')}
+              {t(settingsTarget.label)}
             </GlassButton>
           </>
         )}

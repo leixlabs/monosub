@@ -70,7 +70,8 @@ binary, **yt-dlp**, downloads platform subtitles or audio for URL import. There 
 
 The inference engines never share a process: audio.cpp and llama.cpp each embed their own
 ggml, so linking both into one binary would collide. `translate/server.rs` talks to the
-child over HTTP on `127.0.0.1` instead. `yt-dlp` is spawned per URL-import stage and is a
+child over HTTP on a Unix domain socket (`$TMPDIR/monosub-llama-*.sock`; loopback TCP on
+Windows, where llama.cpp has no AF_UNIX) instead. `yt-dlp` is spawned per URL-import stage and is a
 downloader, not an engine — it is listed here only so nobody assumes there are exactly two
 bundled binaries.
 
@@ -480,7 +481,7 @@ FFmpeg extracts 16 kHz mono s16le WAV (cached next to the media as *_audio.wav)
 Rust post-processes (split/estimate/merge, speaker-aware) → writes every format
     ↓
 Translation enabled AND source ≠ target?  (translate::language::should_translate)
-    │ yes  → llama-server (127.0.0.1, spawned per stage) → <stem>.<lang>.<ext>
+    │ yes  → llama-server (unix socket, spawned per stage) → <stem>.<lang>.<ext>
     │ no   → skipped; originals are already on disk either way
     ↓
 Rust emits events → React updates the UI
@@ -774,9 +775,11 @@ that moment — the user's words: "把这个开关作为默认值的设置，运
 `TranscribeRequest.translate_enabled` therefore carries `file.translate`, not the setting;
 URL import has no queue row to toggle before the job starts, so it still reads the default.
 
-- **Engine**: `translate/server.rs` spawns the bundled `llama-server` on a random
-  `127.0.0.1` port, one process per translation stage, and kills it on drop. It waits for
-  `GET /health` to answer `{"status":"ok"}` before sending anything.
+- **Engine**: `translate/server.rs` spawns the bundled `llama-server` on a Unix domain
+  socket under `TMPDIR` (loopback TCP on Windows), one process per translation stage, and
+  kills it on drop. It waits for `GET /health` to answer `{"status":"ok"}` before sending
+  anything. A socket is a file, so this needs **no** `com.apple.security.network.server` —
+  which is why that entitlement is absent from both entitlements files.
 - **Output contract**: numbered lines, **not** structured output. Measured against
   HY-MT1.5-1.8B, `response_format: json_schema` echoed the source untranslated or returned
   an empty array, and a raw GBNF grammar returned `[]`. Asking for `1. …` lines and
@@ -1070,8 +1073,8 @@ supported video, shows a dismissible pill with one import button.
 | `open_in_finder` | Reveal a file / open a directory in the system file manager (`commands::opener`) |
 | `open_file` | Open a written subtitle with its default app (`commands::opener::open_file`); what a finished row's subtitle name calls — *revealing* leaves the user one double-click short of reading it |
 | `list_models` | Catalogue + per-model install state |
-| `download_model` | Stream a model, verify size/SHA256, then rename |
-| `cancel_model_download` | Abort a download and delete the `.part` |
+| `download_model` | Stream a model — resuming a `.part` with `Range` — then rename (the manifest `size`/`sha256` are hints only; a re-uploaded upstream file is accepted with a warning) |
+| `cancel_model_download` | Abort a download; its `.part` stays as the resume point |
 | `remove_model` | Delete a model directory |
 | `open_models_dir` | Create + **open** the models folder itself (not `-R` in its parent) |
 | `activate_license` / `validate_license` / `deactivate_license` | Polar licensing |
@@ -1148,17 +1151,39 @@ the average makes one running task look half-speed. Without this, a queued file
 showed "启动中…" with a spinner — claiming work that had not begun — which is the
 normal state for every file after the first at the default concurrency of 1.
 
-**Two percentages, and only one is shown.** `progress` is the fraction *within the
-current step* and restarts at 0 whenever a step begins; `overall` is the run-wide figure
-and is what `FileItem`'s bar, its badge, the tray title and the CLI's `percent` all read.
-Before `overall` existed the frontend mapped `progress` onto `file.progress`, so the bar
-and the menu-bar percentage fell back to 0 % at every step change. `overall` is absent on
-`queued` / `error` events, where there is no position in the run to report.
+**Two percentages, and each one has exactly one reader.** `progress` is the fraction
+*within the current step* and restarts at 0 whenever a step begins; `overall` is the
+run-wide figure and is what `FileItem`'s bar, the tray title and the CLI's `percent` all
+read. Before `overall` existed the frontend mapped `progress` onto `file.progress`, so the
+bar and the menu-bar percentage fell back to 0 % at every step change. `overall` is absent
+on `queued` / `error` events, where there is no position in the run to report.
 
-The per-step figure is carried on the event but **not rendered**: an earlier cut printed
-it inside the badge next to the run-wide percentage, which was two numbers for one
-question (the user's words: "这个数字去掉和上面重复了"). The row now states the number
-once, in the badge, and the bar draws the same value.
+The badge prints the **step's** figure (`stepProgress.percent`, i.e. `progress`), not
+`overall`. It used to print `overall` for both the badge and the bar, on the grounds that
+one number for one question beats two — but step 1 is worth 2 % of the run, so a
+three-minute WAV extraction held the badge on "提取音频 · 0 %" for its whole life and the
+user read that as a hung task. The rule that survived the reversal is the original one:
+the row states the number once — the badge says how far through the *running step* it is,
+the bar draws the *run*. Printing both in the badge is still wrong (that is what got
+removed).
+
+The cost of that choice is four resets per run: the badge reaches 100 % at the end of
+each step and restarts at 0 % on the next, while the bar keeps climbing. If a future cut
+dislikes the resets, the fix is not to put `overall` back in the badge — it is to stop
+weighting extraction at 2 % (see below), because that weight is what made the run-wide
+number useless during step 1 in the first place.
+
+**Step 1 reports real progress.** `run_ffmpeg` spawns ffmpeg with `-nostats -progress
+pipe:1` and reads two pipes at once: the input's `Duration:` banner on stderr (the
+denominator) and one `out_time_us=` / `progress=continue` block on stdout every 0.5 s (the
+numerator). Both readers share the duration through an `AtomicU64`, because either may run
+first. Ticks are de-duplicated and monotonic: `progress=end` and the last block both say
+100 %, and a failed filter chain retries from the start without rewinding the bar to 0 %.
+Before this the extraction used `Command::output()`, which buffers both pipes until the
+process exits, so step 1 could not report anything between its 0 % start and its
+completion — the "0 % forever" above was that, not a UI bug. An input whose banner says
+`Duration: N/A` produces no ticks, so `extract_wav` reports 100 % on success and on a
+cache hit explicitly.
 
 **The steps are not equal shares of the bar.** `overall` sums a weight table
 (`STEP_WEIGHTS_WITHOUT_TRANSLATION` = 0.02 / 0.03 / 0.85 / 0.10; the translating variant
@@ -1458,6 +1483,7 @@ settings: AppSettings           // User preferences (persisted)
 modelOverrides: Partial<Record<'asr' | 'vad' | 'align' | 'diar', string>>  // persisted
 storageMode: 'same' | 'custom'  // Output location (persisted)
 customStoragePath: string       // Custom output directory (persisted)
+isSandboxed: boolean            // Sandboxed build: "same directory" needs a folder grant first (NOT persisted)
 isProcessing: boolean           // Global processing state
 currentTaskId: string | null    // Active task
 urlImports: Record<string, UrlImportState>  // In-flight URL imports (NOT persisted)
@@ -2125,8 +2151,8 @@ through verbatim). Revisit if the project moves to React 19, which added the rea
 4. **File system access**: limited to user-selected directories and app data
 5. **Subprocess isolation**: every bundled binary (`audiocpp_cli`, `llama-server`, `yt-dlp`)
    runs as a separate child process with `stdin` closed and no inherited environment
-   secrets; `llama-server` listens only on `127.0.0.1`, and every child is `kill_on_drop` so
-   it dies with its task
+   secrets; `llama-server` listens on a per-run Unix socket inside the container `tmp` and
+   never on a TCP port, and every child is `kill_on_drop` so it dies with its task
 6. **Cookies are opt-in**: the URL import reads Bilibili cookies from a browser only after the
    user picks one in Settings or in the 412 prompt (`--cookies-from-browser`); the default is
    "not configured", so no browser data is touched unasked
