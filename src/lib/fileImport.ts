@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore, type VideoFile } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 
 export const MEDIA_EXTENSIONS = [
   'mp4',
@@ -109,6 +110,8 @@ export interface AddPathsToQueueResult {
   added: number;
   skippedDuplicates: number;
   skippedUnsupported: number;
+  /** Files that were valid but blocked by the free tier's one-file limit. */
+  blockedByPro: number;
 }
 
 export const addPathsToQueue = async ({
@@ -137,14 +140,34 @@ export const addPathsToQueue = async ({
     uniqueFiles.push(file);
   }
 
-  if (uniqueFiles.length > 0) {
-    addFiles(uniqueFiles);
-    uniqueFiles.forEach((file) => enrichQueuedFile(file, source));
+  // The App Store free tier may have only one unfinished file. The backend
+  // enforces the same rule again in `start_transcription`; this check is what
+  // keeps the queue UI honest and gives the user a reason instead of a
+  // half-added drop. `pending` + `processing` are the only states that count:
+  // completed rows from earlier runs must not block a new one.
+  const maxQueueFiles = useEntitlementStore.getState().status.maxQueueFiles;
+  let filesToAdd = uniqueFiles;
+  let blockedByPro = 0;
+  if (maxQueueFiles !== null) {
+    const activeFiles = existingFiles.filter(
+      (file) => file.status === 'pending' || file.status === 'processing',
+    ).length;
+    const room = Math.max(0, maxQueueFiles - activeFiles);
+    if (uniqueFiles.length > room) {
+      blockedByPro = uniqueFiles.length - room;
+      filesToAdd = uniqueFiles.slice(0, room);
+    }
+  }
+
+  if (filesToAdd.length > 0) {
+    addFiles(filesToAdd);
+    filesToAdd.forEach((file) => enrichQueuedFile(file, source));
   }
 
   return {
-    added: uniqueFiles.length,
+    added: filesToAdd.length,
     skippedDuplicates: queuedFiles.length - uniqueFiles.length,
     skippedUnsupported,
+    blockedByPro,
   };
 };

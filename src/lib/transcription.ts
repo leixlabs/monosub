@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useStore } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 import i18n from '@/i18n';
 import { reportFrontendError } from '@/lib/logging';
 import { ensureOutputAccess, parentDir } from '@/lib/grants';
@@ -50,6 +51,16 @@ export const processQueueBatch = () => {
   const currentFiles = state.files;
   const pendingFiles = currentFiles.filter((f) => f.status === 'pending');
   const processingFiles = currentFiles.filter((f) => f.status === 'processing');
+
+  // Old free queues may contain more than one unfinished file (for example a
+  // queue created by an earlier build). Explain the limit before dispatching;
+  // the backend would reject the second task with `proRequiredBatch`.
+  const maxQueueFiles = useEntitlementStore.getState().status.maxQueueFiles;
+  if (maxQueueFiles !== null && pendingFiles.length + processingFiles.length > maxQueueFiles) {
+    useEntitlementStore.getState().openUpgrade();
+    state.setIsBatchProcessing(false);
+    return;
+  }
 
   // The user's 并发数 (Settings ▸ 文件). The backend semaphore is sized from the
   // same number (`set_transcription_concurrency`), so dispatching more than it

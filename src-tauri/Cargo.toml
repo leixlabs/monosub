@@ -73,11 +73,18 @@ incremental = true
 # modules stay Tauri-free.
 default = ["tauri-app"]
 tauri-app = []
+# Mac App Store build only: StoreKit 2 in-app purchase. The dependency is
+# target-specific and optional, so the DMG / Windows / CLI builds don't compile
+# the Swift bridge (which needs Xcode 26.4+).
+appstore = ["dep:storekit-rs"]
 
 # Security-scoped bookmarks (`bookmark.rs`): a sandbox grant is process-local, so
 # remembering a user-chosen folder needs NSURL bookmarks. macOS only — every other
 # platform stores plain paths.
 [target.'cfg(target_os = "macos")'.dependencies]
+# StoreKit 2 bindings for the Mac App Store build. `appstore` feature only;
+# see `src/commands/iap/` and docs/release/macos-iap-plan.md.
+storekit-rs = { version = "=0.5.2", optional = true }
 objc2 = "0.6"
 # 「在访达中显示 / 打开文件夹」：沙盒里 /usr/bin/open 拿不到 LaunchServices 授权，
 # 只有 NSWorkspace 能把容器内的路径交给 Finder。

@@ -1,6 +1,7 @@
 import { Plus, Trash2, Film, StopCircle, Link2, Play } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { addPathsToQueue, MEDIA_EXTENSIONS } from '@/lib/fileImport';
@@ -51,6 +52,9 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
         source: 'Toolbar',
       });
 
+      if (result.blockedByPro > 0) {
+        useEntitlementStore.getState().openUpgrade();
+      }
       if (result.skippedDuplicates > 0) {
         console.warn(`[Toolbar] Skipped ${result.skippedDuplicates} duplicate file(s)`);
       }
@@ -63,6 +67,14 @@ export function Toolbar({ onImportUrl }: ToolbarProps) {
   };
 
   const handleStartAll = async () => {
+    // Free tier: if old state left more than one pending row, explain the limit
+    // before dispatching; the backend will reject the second task anyway.
+    const maxQueueFiles = useEntitlementStore.getState().status.maxQueueFiles;
+    if (maxQueueFiles !== null && pendingCount > maxQueueFiles) {
+      useEntitlementStore.getState().openUpgrade();
+      return;
+    }
+
     // 沙盒下"同目录"要先拿到目录授权（选文件只给了文件本身的权限）。这里把整
     // 批的源目录一次性收齐，说明书 + 面板只走一轮；用户取消就整批不启动，而不是
     // 让每个文件各自撞一次 EPERM。

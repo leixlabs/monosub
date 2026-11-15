@@ -72,6 +72,11 @@ fn main() {
             // 用户每次重启都要重新选一次保存位置。
             monosub::commands::grants::activate_grants(app.handle());
 
+            // IAP: install the initial entitlement, start StoreKit's
+            // `Transaction.updates` listener on the MAS build, and refresh the
+            // current purchase in the background. Direct builds are a no-op.
+            monosub::commands::iap::init(app.handle());
+
             // 创建系统托盘
             tray::create_tray(app.handle())?;
             Ok(())
@@ -121,6 +126,13 @@ fn main() {
             app_sandboxed,
             update_tray_menu,
             update_tray_progress,
+            pro_status,
+            pro_refresh,
+            pro_product,
+            pro_purchase,
+            pro_restore,
+            pro_dev_set_state,
+            pro_dev_clear_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 import { FileItem } from './FileItem';
 import { UrlImportItem } from './UrlImportItem';
 import { Film, Subtitles } from 'lucide-react';
@@ -38,6 +39,9 @@ export function FileList() {
       source: 'FileListDrop',
     });
 
+    if (result.blockedByPro > 0) {
+      useEntitlementStore.getState().openUpgrade();
+    }
     if (result.skippedDuplicates > 0) {
       console.warn(`[FileListDrop] Skipped ${result.skippedDuplicates} duplicate file(s)`);
     }

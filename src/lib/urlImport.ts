@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import i18n, { toSupportedLanguage } from '@/i18n';
 import { useStore, type OutputLanguage, type UrlImportState } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 import { addPathsToQueue } from '@/lib/fileImport';
 import { reportFrontendError } from '@/lib/logging';
 import { processQueueBatch } from '@/lib/transcription';
@@ -254,6 +255,18 @@ const queueImportedAudio = async (
     addFiles: store.addFiles,
     source: 'UrlImport',
   });
+
+  if (result.blockedByPro > 0) {
+    // The import finished while the free queue was already full (another tab
+    // or a race). Keep the row visible with an actionable message rather than
+    // dropping the downloaded file silently.
+    useEntitlementStore.getState().openUpgrade();
+    store.updateUrlImport(taskId, {
+      status: 'error',
+      error: i18n.t('errors.proRequiredBatch'),
+    });
+    return;
+  }
 
   if (result.added > 0) {
     const added = useStore.getState().files.find((file) => !before.has(file.path));

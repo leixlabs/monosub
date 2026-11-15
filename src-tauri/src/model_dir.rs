@@ -100,6 +100,17 @@ pub struct BackendSettings {
     /// again, which is the behaviour this field exists to remove.
     #[serde(default, rename = "dirGrants", skip_serializing_if = "Vec::is_empty")]
     pub dir_grants: Vec<crate::bookmark::DirGrant>,
+
+    /// Cached grandfathering marker, set only after a verified `AppTransaction`
+    /// says this installation originally came from an App Store version older
+    /// than 2.1.0. It is a convenience for offline launches, not a security
+    /// boundary: the real entitlement still comes from StoreKit.
+    #[serde(default, rename = "proGrandfathered", skip_serializing_if = "is_false")]
+    pub pro_grandfathered: bool,
+}
+
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 impl BackendSettings {

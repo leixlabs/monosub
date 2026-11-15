@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { GlassButton } from '@/components/ui/glass-button';
 import { startUrlImport } from '@/lib/urlImport';
 import type { ClipboardHit } from '@/lib/clipboardWatch';
+import { useStore } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 
 interface ClipboardPromptProps {
   hit: ClipboardHit;
@@ -37,6 +39,18 @@ export function ClipboardPrompt({ hit, onDismiss, onStarted }: ClipboardPromptPr
     setIsStarting(true);
     setError('');
     try {
+      const entitlement = useEntitlementStore.getState();
+      const maxQueueFiles = entitlement.status.maxQueueFiles;
+      if (maxQueueFiles !== null) {
+        const activeFiles = useStore.getState().files.filter(
+          (file) => file.status === 'pending' || file.status === 'processing',
+        ).length;
+        if (activeFiles >= maxQueueFiles) {
+          entitlement.openUpgrade();
+          return;
+        }
+      }
+
       // The same entry point the paste dialog uses, so the clipboard path gets
       // identical behaviour: same output dir, same formats, same translation
       // settings, same `url_import_*` events.

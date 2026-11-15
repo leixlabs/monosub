@@ -206,3 +206,14 @@ offers an app download. If the EULA claims ownership over the code, it must also
 state explicitly that MonoSub does not own FFmpeg and where the FFmpeg copyright
 holders can be found, and it must not prohibit reverse engineering.
 
+
+## storekit-rs
+
+- Version: 0.5.2
+- Source: https://github.com/doom-fish/storekit-rs
+- License: MIT OR Apache-2.0
+- Used by: Mac App Store build only (`appstore` Cargo feature); provides safe Rust
+  bindings over Apple's StoreKit 2 Swift APIs for the non-consumable MonoSub Pro
+  in-app purchase.
+- Linkage: compiled as a Swift static bridge into the app; StoreKit remains an
+  Apple system framework and is not redistributed.

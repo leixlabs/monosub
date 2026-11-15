@@ -296,6 +296,24 @@ pub async fn start_url_import(
 ) -> Result<(), String> {
     let task_id = request.task_id.clone();
 
+    // Free tier: the app may process one file at a time. An import will become
+    // a file later, so starting it while a transcription is active — or while
+    // another import is still in flight — would be a bypass; reject before the
+    // job is registered.
+    if !crate::commands::iap::is_pro() {
+        let active_imports = {
+            let tasks = IMPORT_TASKS.lock().await;
+            tasks.values().filter(|entry| !entry.handle.is_finished()).count()
+        };
+        if active_imports >= 1
+            || crate::commands::transcribe::has_active_transcription().await
+        {
+            tracing::warn!(task_id = %task_id, "rejected URL import on the free tier");
+            emit_error(&app, &task_id, "proRequiredBatch");
+            return Ok(());
+        }
+    }
+
     tracing::info!(
         task_id = %task_id,
         url = %request.url,

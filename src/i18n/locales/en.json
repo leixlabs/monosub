@@ -284,7 +284,8 @@
     "logsFailed": "Could not open the log folder.",
     "close": "Close",
     "outputFolderRequired": "Choose a folder to save subtitles into — the app cannot write to the current one.",
-    "modelsDirNotAccessible": "The models folder cannot be read: the sandbox has no grant for it. Re-select that folder in Settings → Models."
+    "modelsDirNotAccessible": "The models folder cannot be read: the sandbox has no grant for it. Re-select that folder in Settings → Models.",
+    "proRequiredBatch": "The unlicensed version can process one file at a time. Get a MonoSub license for unlimited batch transcription."
   },
   "notification": {
     "completed": "Subtitle generation completed"
@@ -422,5 +423,33 @@
     "title": "Video link on your clipboard",
     "import": "Import",
     "dismiss": "Dismiss"
+  },
+  "pro": {
+    "title": "Unlock batch transcription",
+    "subtitle": "The unlicensed version processes one file at a time. With a MonoSub license you can add unlimited files and run them in one batch.",
+    "productName": "MonoSub License",
+    "priceFallback": "$9.99 / ¥48",
+    "oneTime": "One-time license · No subscription",
+    "benefitBatch": "Unlimited files in the queue",
+    "benefitFamily": "Family Sharing supported",
+    "freeHint": "The unlicensed version keeps every single-file feature: transcription, translation, speaker separation, word timestamps and all export formats.",
+    "upgrade": "Get License",
+    "restore": "Restore License",
+    "restoring": "Restoring…",
+    "pending": "License pending",
+    "pendingBadge": "Pending",
+    "activeBadge": "Licensed",
+    "active": "MonoSub is licensed. You can add unlimited files.",
+    "grandfathered": "A MonoSub license is included for users who downloaded MonoSub from the App Store before 2.1.0.",
+    "checking": "Checking your license…",
+    "notNow": "Not now",
+    "priceLine": "{{price}} · one-time license",
+    "devTitle": "License test state (development only)",
+    "devFree": "Unlicensed",
+    "devPro": "Licensed",
+    "devPending": "Pending",
+    "devError": "Error",
+    "devClear": "Use real provider",
+    "freeLimit": "The unlicensed version processes one file at a time."
   }
 }

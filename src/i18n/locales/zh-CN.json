@@ -230,7 +230,8 @@
     "logsFailed": "无法打开日志目录。",
     "close": "关闭",
     "outputFolderRequired": "需要授权一个保存位置才能写入字幕。请选择文件夹后重试。",
-    "modelsDirNotAccessible": "模型目录无法读取：沙盒没有这个目录的授权。请在 设置 → 模型 里重新选择一次该目录。"
+    "modelsDirNotAccessible": "模型目录无法读取：沙盒没有这个目录的授权。请在 设置 → 模型 里重新选择一次该目录。",
+    "proRequiredBatch": "未授权版一次只能处理一个文件。获取 MonoSub 授权后可解锁无限批量转录。"
   },
   "models": {
     "cancel": "取消",
@@ -422,5 +423,33 @@
     "title": "剪贴板里有视频链接",
     "import": "导入",
     "dismiss": "忽略"
+  },
+  "pro": {
+    "title": "解锁批量转录",
+    "subtitle": "未授权版一次只能处理一个文件；获得 MonoSub 授权后可一次添加多个文件并批量执行。",
+    "productName": "MonoSub 授权",
+    "priceFallback": "¥48 / $9.99",
+    "oneTime": "一次买断授权 · 无订阅",
+    "benefitBatch": "队列中可添加无限文件",
+    "benefitFamily": "支持家庭共享",
+    "freeHint": "未授权版保留全部单文件功能：转录、翻译、说话人分离、词级时间戳和所有导出格式。",
+    "upgrade": "获取授权",
+    "restore": "恢复授权",
+    "restoring": "正在恢复…",
+    "pending": "授权处理中",
+    "pendingBadge": "待处理",
+    "activeBadge": "已授权",
+    "active": "MonoSub 已授权，可添加无限文件。",
+    "grandfathered": "在 2.1.0 之前从 App Store 下载 MonoSub 的老用户已获得授权。",
+    "checking": "正在检查授权状态…",
+    "notNow": "以后再说",
+    "priceLine": "{{price}} · 一次买断授权",
+    "devTitle": "授权状态测试（仅开发）",
+    "devFree": "未授权",
+    "devPro": "已授权",
+    "devPending": "待处理",
+    "devError": "错误",
+    "devClear": "使用真实 Provider",
+    "freeLimit": "未授权版一次只能处理一个文件。"
   }
 }

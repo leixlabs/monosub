@@ -143,7 +143,9 @@ if (!args.has('--skip-build')) {
   log('构建 .app（tauri build --bundles app）…');
   execFileSync(
     path.join(ROOT, 'node_modules/.bin/tauri'),
-    ['build', '--config', 'src-tauri/tauri.mas.conf.json', '--bundles', 'app'],
+    // `appstore` enables the StoreKit 2 Swift bridge and the real entitlement
+    // provider. The DMG build never sets it and stays unlimited/free.
+    ['build', '--config', 'src-tauri/tauri.mas.conf.json', '--bundles', 'app', '--features', 'appstore'],
     { cwd: ROOT, stdio: 'inherit' },
   );
 }

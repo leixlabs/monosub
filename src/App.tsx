@@ -14,6 +14,7 @@ import { FileList } from './components/FileList';
 import { BottomBar } from './components/BottomBar';
 import { Settings } from './components/Settings';
 import { useStore } from './store/useStore';
+import { useEntitlementStore } from './store/useEntitlement';
 import { processQueueBatch, startTranscriptionTask, isModelNotInstalledError } from './lib/transcription';
 import { modelNotInstalledId } from './lib/models';
 import { addPathsToQueue } from './lib/fileImport';
@@ -21,6 +22,7 @@ import { reportFrontendError } from './lib/logging';
 import { outputDeniedDir, requestOutputFolder, bootstrapSandboxFlag } from './lib/grants';
 import { UrlImportDialog } from './components/UrlImportDialog';
 import { FolderGrantDialog } from './components/FolderGrantDialog';
+import { ProUpgradeDialog } from './components/ProUpgradeDialog';
 import { ClipboardPrompt } from './components/ClipboardPrompt';
 import { ensureUrlImportListeners } from './lib/urlImport';
 import { useClipboardVideo } from './lib/clipboardWatch';
@@ -116,6 +118,7 @@ function App() {
   // 输出目录。启动时问一次后端，供底部栏和队列入口同步读同一个答案。
   useEffect(() => {
     void bootstrapSandboxFlag();
+    void useEntitlementStore.getState().bootstrap();
   }, []);
 
   // Bring window to front when user clicks a system notification.
@@ -347,6 +350,10 @@ function App() {
         return;
       }
 
+      if (status === 'proRequiredBatch') {
+        useEntitlementStore.getState().openUpgrade();
+      }
+
       const modelMissing = isModelNotInstalledError(status);
       // `status` is either the MODEL_NOT_INSTALLED sentinel, one of the
       // `errors.*` keys the Rust layer emits for its known failure modes, or a
@@ -420,6 +427,9 @@ function App() {
           addFiles: useStore.getState().addFiles,
           source: 'WindowDrop',
         }).then((result) => {
+          if (result.blockedByPro > 0) {
+            useEntitlementStore.getState().openUpgrade();
+          }
           if (result.skippedDuplicates > 0) {
             console.warn(`[WindowDrop] Skipped ${result.skippedDuplicates} duplicate file(s)`);
           }
@@ -461,6 +471,7 @@ function App() {
           />
           {/* 沙盒下"保存到视频旁边"的授权说明；系统目录面板排在它之后打开。 */}
           <FolderGrantDialog />
+          <ProUpgradeDialog />
           {clipboardHit && (
             <ClipboardPrompt
               hit={clipboardHit}

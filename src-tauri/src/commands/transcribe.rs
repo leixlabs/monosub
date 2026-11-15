@@ -357,6 +357,27 @@ pub async fn start_transcription(
     // (GUI path) and in `main` (CLI path); both are idempotent.
     ensure_transcription_limit();
 
+    // Free App Store users may have only one unfinished transcription at a
+    // time. The frontend stops the second file before it enters the queue; this
+    // is the backend's defence against a stale frontend, a devtools call, or a
+    // race between two add-file paths. `TASKS` includes tasks parked behind the
+    // concurrency semaphore, so "queued but not started" is covered too.
+    if !crate::commands::iap::is_pro() {
+        let active = {
+            let tasks = TASKS.lock().await;
+            tasks
+                .values()
+                .filter(|entry| !entry.handle.is_finished())
+                .count()
+        };
+        if active >= 1 {
+            let task_id = request.id.clone();
+            tracing::warn!(task_id = %task_id, "rejected a second file on the free tier");
+            emit_error(&app, &task_id, "proRequiredBatch");
+            return Ok(task_id);
+        }
+    }
+
     // 模型目录读不了要在这里说清楚：再往里走，缺模型会被报成"未安装"，
     // 那是句假话（模型可能就在那个没授权的目录里）。
     {
@@ -671,6 +692,18 @@ pub async fn start_transcription(
     );
 
     Ok(task_id)
+}
+
+/// Whether any transcription task is still queued or running.
+///
+/// Used by the URL-import command for the free-tier gate: an import eventually
+/// becomes a file, so it must not start while the one allowed file is active.
+/// Kept here because `TASKS` is private to this module.
+pub async fn has_active_transcription() -> bool {
+    let tasks = TASKS.lock().await;
+    tasks
+        .values()
+        .any(|entry| !entry.handle.is_finished())
 }
 
 /// Cancel a running task.

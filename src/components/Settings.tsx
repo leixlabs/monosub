@@ -28,6 +28,7 @@ import { SettingsModelPlan } from '@/components/SettingsModelPlan';
 import { SettingsModelsDir } from '@/components/SettingsModelsDir';
 import { SettingsTranslation } from '@/components/SettingsTranslation';
 import { SettingsUrlImport } from '@/components/SettingsUrlImport';
+import { ProSettingsCard } from '@/components/ProSettingsCard';
 import { ModelLicensePrompt } from '@/components/ModelLicensePrompt';
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
@@ -1043,6 +1044,9 @@ export function Settings() {
 
               {activeCategory === 'system' && (
                 <section className="space-y-4">
+                  {/* MonoSub Pro / IAP */}
+                  <ProSettingsCard />
+
                   {/* Interface language */}
                   <div className="p-4 rounded-2xl border border-divider dark:border-zinc-700 bg-bg-secondary/70 dark:bg-zinc-900/50">
                     <div className="flex items-center justify-between gap-4">

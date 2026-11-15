@@ -3,6 +3,7 @@ import { Link2, Loader2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useStore } from '@/store/useStore';
+import { useEntitlementStore } from '@/store/useEntitlement';
 import { authorizeDir } from '@/lib/grants';
 import { GlassButton } from '@/components/ui/glass-button';
 import { GlassSwitch } from '@/components/ui/glass-switch';
@@ -99,6 +100,22 @@ export function UrlImportDialog({ isOpen, onClose }: UrlImportDialogProps) {
       if (parsed.accepted.length === 0) {
         // Everything was rejected; keep the panel open so the rows stay visible.
         return;
+      }
+
+      // Free tier: one unfinished file only. A URL import will become a file
+      // later, so it has to be counted when the import starts, not when the
+      // audio finishes downloading. Multi-URL pastes are blocked as a whole:
+      // starting only the first would silently discard the rest.
+      const entitlement = useEntitlementStore.getState();
+      const maxQueueFiles = entitlement.status.maxQueueFiles;
+      if (maxQueueFiles !== null) {
+        const activeFiles = useStore.getState().files.filter(
+          (file) => file.status === 'pending' || file.status === 'processing',
+        ).length;
+        if (activeFiles >= maxQueueFiles || parsed.accepted.length > maxQueueFiles) {
+          entitlement.openUpgrade();
+          return;
+        }
       }
 
       await startUrlImports(parsed.accepted, mediaKind);

@@ -113,7 +113,7 @@ src-tauri/mas/distribution.provisionprofile   # 已在 .gitignore 里
 | `src-tauri/entitlements/MonoSubHelper.mas.entitlements` | 6 个命令行工具：`app-sandbox` + `inherit` |
 | `src-tauri/Info.mas.plist` | 分类 `productivity`、出口合规 `false`、版权 |
 | `src-tauri/PrivacyInfo.xcprivacy` | 隐私清单（避免 ITMS-91053） |
-| `src-tauri/tauri.mas.conf.json` | 只出 `.app`、挂 entitlements、`minimumSystemVersion 12.0` |
+| `src-tauri/tauri.mas.conf.json` | 只出 `.app`、挂 entitlements、`minimumSystemVersion 13.0`（AppTransaction 要求） |
 | `scripts/release/mas.mjs` | 构建 → 由内向外签名 → 校验 → 出 `.pkg` |
 | `package.json` | 新增 `bun run release:mas` |
 
@@ -308,7 +308,8 @@ App 专用密码在 appleid.apple.com → 登录与安全 → App 专用密码 �
 - 描述 / 关键词 / 支持网址 / **隐私政策网址**（必须有，可放到 landing_page）
 - 截图：1280×800、1440×900、2560×1600、2880×1800 任一组（至少 1 张）
 - 分级：4+（无用户内容）
-- 价格：免费
+- 价格：免费（App 内另有非消耗型内购 **MonoSub Pro — $9.99 / ¥48**，详见 [macos-iap-plan.md](./macos-iap-plan.md)）
+- 内购：App ID 开启 **In-App Purchase** 后重新生成 distribution profile；App Store Connect 创建 `leixlabs.monosub.pro`，开启 Family Sharing
 - **App 隐私**：选"不收集数据"（本 app 全本地推理，确实不收集）
 - 出口合规：`Info.mas.plist` 已声明 `ITSAppUsesNonExemptEncryption = false`
 

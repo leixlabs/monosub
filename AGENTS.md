@@ -166,7 +166,7 @@ monosub/
 │   │   │   ├── transcribe.rs    # Task registry, events, cancellation
 │   │   │   ├── models.rs        # Model download/verify/remove
 │   │   │   ├── video.rs         # FFmpeg/FFprobe paths, metadata, thumbnails
-│   │   │   ├── license.rs       # Polar licensing + is_pro_licensed
+│   │   │   ├── iap/            # StoreKit 2 IAP + Pro entitlement (MAS only)
 │   │   │   ├── update.rs        # GitHub release check
 │   │   │   └── tray.rs          # Menu-bar item: renders labels + progress rows
 │   │   └── logging.rs
@@ -1077,7 +1077,7 @@ supported video, shows a dismissible pill with one import button.
 | `cancel_model_download` | Abort a download; its `.part` stays as the resume point |
 | `remove_model` | Delete a model directory |
 | `open_models_dir` | Create + **open** the models folder itself (not `-R` in its parent) |
-| `activate_license` / `validate_license` / `deactivate_license` | Polar licensing |
+| `pro_status` / `pro_refresh` / `pro_product` / `pro_purchase` / `pro_restore` | StoreKit 2 IAP / Pro entitlement (MAS build only) |
 | `check_github_release_update` | Update check — kept in the backend, but **no UI calls it**: Settings ▸ System ▸ About points at the repository instead (see below) |
 | `update_tray_menu` | Localise the tray's Show / Hide / Quit labels (progress rows are preserved) |
 | `update_tray_progress` | `progress: {title?, rows[]}`; the menu-bar text + the greyed progress rows a left click shows |

@@ -6,7 +6,7 @@
       "entitlements": "entitlements/MonoSub.mas.entitlements",
       "infoPlist": "Info.mas.plist",
       "hardenedRuntime": false,
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "13.0"
     }
   }
 }

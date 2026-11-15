@@ -1,5 +1,6 @@
 pub mod external;
 pub mod grants;
+pub mod iap;
 pub mod gpu;
 pub mod logs;
 pub mod models;
@@ -12,6 +13,7 @@ pub mod video;
 
 pub use external::*;
 pub use grants::*;
+pub use iap::*;
 pub use gpu::*;
 pub use logs::*;
 pub use models::*;
