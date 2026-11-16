@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 export type ProProvider =
   | 'app_store'
   | 'app_store_grandfathered'
+  | 'microsoft_store'
   | 'direct'
   | 'checkout'
   | 'fake'

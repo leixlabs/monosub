@@ -1,28 +1,31 @@
 //! In-App Purchase / Pro entitlement.
 //!
-//! The Mac App Store build is free to download; a non-consumable "MonoSub Pro"
-//! purchase removes the one-file watch limit enforced by the frontend and by
-//! `start_transcription`.
+//! Both store builds are free to download; a single non-consumable purchase
+//! ("MonoSub License" / "MonoSub Pro") removes the one-file queue limit enforced
+//! by the frontend and by `start_transcription`:
+//!
+//! * **Mac App Store** — StoreKit 2, see `storekit.rs`. Grandfathered users stay
+//!   Pro (`grandfather.rs`).
+//! * **Microsoft Store** — a Durable, non-consumable add-on, see `msstore.rs`.
+//!   No grandfathering: nothing had sold before the paid capability shipped.
 //!
 //! Design constraints that shape this module:
 //!
-//! * **StoreKit 2 is the authority.** We never write an `is_pro` boolean into
-//!   `settings.json` and trust it later; `Transaction.currentEntitlements`
-//!   (plus `AppTransaction` for grandfathered users) is queried on launch and
-//!   after every purchase/restore.
-//! * **Only the MAS build pays.** `appstore` is a Cargo feature enabled only by
-//!   `scripts/release/mas.mjs`. A normal DMG build returns `Direct` and never
-//!   compiles the Swift bridge.
+//! * **The store is the authority.** We never write an `is_pro` boolean into
+//!   `settings.json` and trust it later; entitlements are queried on launch and
+//!   after every purchase/restore (`currentEntitlements` on Apple,
+//!   `AddOnLicenses` / `IsInUserCollection` on Windows).
+//! * **Only Store builds pay.** `appstore` (macOS) and `msstore` (Windows) are
+//!   Cargo features enabled by their respective release scripts only. Every other
+//!   build (DMG, NSIS self-install, CLI) returns `Direct` and is unlimited.
 //! * **Debug builds have a fake provider.** `pro_dev_set_state` changes state
-//!   only under `debug_assertions`, so UI and queue tests need neither an App
-//!   Store Connect product nor a sandbox account. In a release build the
-//!   command exists but returns an error and cannot grant Pro.
-//! * **Grandfathered users stay Pro.** Existing App Store downloads are
-//!   recognized with `AppTransaction.originalAppVersion < 2.1.0` and never see
-//!   a purchase prompt.
+//!   only under `debug_assertions`; a release binary refuses it and cannot grant
+//!   Pro.
 
 #[cfg(all(target_os = "macos", feature = "appstore"))]
 mod grandfather;
+#[cfg(all(target_os = "windows", feature = "msstore"))]
+mod msstore;
 mod provider;
 #[cfg(all(target_os = "macos", feature = "appstore"))]
 mod storekit;
@@ -32,16 +35,22 @@ use std::sync::{OnceLock, RwLock};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
+/// Apple non-consumable product id (Mac App Store).
 pub const PRO_PRODUCT_ID: &str = "leixlabs.monosub.pro";
+/// The Partner Center "Product ID" of the Microsoft Store durable add-on,
+/// surfaced to code as `StoreProduct::InAppOfferToken` (Microsoft Store).
+pub const PRO_ADDON_OFFER_TOKEN: &str = "monosub_pro";
+/// The Store-assigned id of that add-on, used by `RequestPurchaseAsync`.
+pub const PRO_ADDON_STORE_ID: &str = "9PG23VS4QX3G";
 /// The version that introduces the paid batch capability. Users whose original
-/// App Store download is older than this are grandfathered into Pro.
+/// App Store download is older than this are grandfathered into Pro (macOS only).
 pub const PAID_VERSION: &str = "2.1.0";
 
 /// How many unfinished files a build may have in its queue.
 ///
 /// `Some(1)` is the free tier; `None` is unlimited (Pro, grandfathered, or a
-/// non-App-Store build today). Keeping this in one type is what lets the
-/// frontend and the Rust command agree without duplicating a boolean.
+/// non-Store build today). Keeping this in one type is what lets the frontend
+/// and the Rust command agree without duplicating a boolean.
 pub const FREE_MAX_QUEUE_FILES: usize = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,10 +66,10 @@ pub struct ProProduct {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProStatus {
-    /// Whether this build can sell anything at all. `false` on Windows and on
-    /// DMG builds where there is no StoreKit integration.
+    /// Whether this build can sell anything at all. `false` on DMG / NSIS /
+    /// other non-Store builds.
     pub supported: bool,
-    /// `app_store` | `app_store_grandfathered` | `direct` | `checkout`
+    /// `app_store` | `app_store_grandfathered` | `microsoft_store` | `direct` | `checkout` | `fake`
     pub provider: String,
     /// `unknown` | `checking` | `free` | `pro` | `pending` | `error`
     pub status: String,
@@ -73,12 +82,32 @@ pub struct ProStatus {
     pub error: Option<String>,
 }
 
-impl ProStatus {
+/// The provider string for whichever store build this is; `"direct"` when the
+/// build sells nothing. Lets `unknown()` / `free()` stay single definitions that
+/// still name the right storefront.
+fn store_provider() -> &'static str {
     #[cfg(all(target_os = "macos", feature = "appstore"))]
+    {
+        "app_store"
+    }
+    #[cfg(all(target_os = "windows", feature = "msstore"))]
+    {
+        "microsoft_store"
+    }
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
+    {
+        "direct"
+    }
+}
+
+impl ProStatus {
     fn unknown() -> Self {
         Self {
             supported: true,
-            provider: "app_store".to_string(),
+            provider: store_provider().to_string(),
             status: "unknown".to_string(),
             is_pro: false,
             max_queue_files: Some(FREE_MAX_QUEUE_FILES),
@@ -99,11 +128,10 @@ impl ProStatus {
         }
     }
 
-    #[cfg(all(target_os = "macos", feature = "appstore"))]
     fn free() -> Self {
         Self {
             supported: true,
-            provider: "app_store".to_string(),
+            provider: store_provider().to_string(),
             status: "free".to_string(),
             is_pro: false,
             max_queue_files: Some(FREE_MAX_QUEUE_FILES),
@@ -139,11 +167,17 @@ impl ProStatus {
 }
 
 fn default_status() -> ProStatus {
-    #[cfg(all(target_os = "macos", feature = "appstore"))]
+    #[cfg(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    ))]
     {
         ProStatus::unknown()
     }
-    #[cfg(not(all(target_os = "macos", feature = "appstore")))]
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
     {
         provider::DirectProvider.status()
     }
@@ -156,7 +190,7 @@ fn status_lock() -> &'static RwLock<ProStatus> {
 }
 
 /// Latest snapshot. Cheap: clones a handful of strings; called by the queue
-/// gate on every file start, so it must not touch StoreKit synchronously.
+/// gate on every file start, so it must not touch the store synchronously.
 pub fn current() -> ProStatus {
     status_lock()
         .read()
@@ -185,8 +219,8 @@ fn emit(app: &AppHandle, status: &ProStatus) {
     }
 }
 
-/// Install the initial state and, on the MAS build, start the StoreKit
-/// transaction listener and refresh entitlements off the main thread.
+/// Install the initial state and, on a store build, refresh entitlements off the
+/// main thread (and, on macOS, start StoreKit's transaction listener).
 pub fn init(app: &AppHandle) {
     #[cfg(all(target_os = "macos", feature = "appstore"))]
     {
@@ -200,7 +234,22 @@ pub fn init(app: &AppHandle) {
         storekit::start_update_listener(app.clone());
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "appstore")))]
+    #[cfg(all(target_os = "windows", feature = "msstore"))]
+    {
+        let app_for_refresh = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = refresh_and_emit(&app_for_refresh).await {
+                tracing::warn!(error = %error, "initial Microsoft Store IAP refresh failed");
+            }
+        });
+        // No push channel like StoreKit's `Transaction.updates`: entitlement is
+        // re-queried on demand (`pro_refresh`) and after purchase / restore.
+    }
+
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
     {
         let _ = app;
     }
@@ -245,7 +294,38 @@ async fn refresh_and_emit(app: &AppHandle) -> Result<ProStatus, String> {
         Ok(status)
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "appstore")))]
+    #[cfg(all(target_os = "windows", feature = "msstore"))]
+    {
+        let previous = current();
+        let mut checking = previous.clone();
+        checking.status = "checking".to_string();
+        let checking = replace(checking);
+        emit(app, &checking);
+
+        let result = tauri::async_runtime::spawn_blocking(msstore::refresh_status)
+            .await
+            .map_err(|error| format!("IAP refresh task failed: {error}"))?;
+
+        let status = match result {
+            Ok(status) => status,
+            Err(error) => {
+                tracing::warn!(error = %error, "Microsoft Store IAP refresh failed");
+                let mut status = previous;
+                status.status = "error".to_string();
+                status.error = Some(error);
+                status
+            }
+        };
+
+        let status = replace(status);
+        emit(app, &status);
+        Ok(status)
+    }
+
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
     {
         let status = current();
         emit(app, &status);
@@ -272,7 +352,17 @@ pub async fn pro_product() -> Result<Option<ProProduct>, String> {
             .map_err(|error| format!("product lookup task failed: {error}"))?
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "appstore")))]
+    #[cfg(all(target_os = "windows", feature = "msstore"))]
+    {
+        tauri::async_runtime::spawn_blocking(msstore::product_info)
+            .await
+            .map_err(|error| format!("product lookup task failed: {error}"))?
+    }
+
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
     {
         Ok(None)
     }
@@ -311,7 +401,31 @@ pub async fn pro_purchase(app: AppHandle) -> Result<ProStatus, String> {
         Ok(status)
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "appstore")))]
+    #[cfg(all(target_os = "windows", feature = "msstore"))]
+    {
+        let app_for_purchase = app.clone();
+        let result =
+            tauri::async_runtime::spawn_blocking(move || msstore::purchase(&app_for_purchase))
+                .await
+                .map_err(|error| format!("purchase task failed: {error}"))?;
+        let status = match result {
+            Ok(status) => status,
+            Err(error) => {
+                let mut failed = current();
+                failed.status = "error".to_string();
+                failed.error = Some(error);
+                failed
+            }
+        };
+        let status = replace(status);
+        emit(&app, &status);
+        Ok(status)
+    }
+
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
     {
         let _ = app;
         Ok(current())
@@ -348,7 +462,31 @@ pub async fn pro_restore(app: AppHandle) -> Result<ProStatus, String> {
         Ok(status)
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "appstore")))]
+    #[cfg(all(target_os = "windows", feature = "msstore"))]
+    {
+        // The Microsoft Store has no explicit "sync" call; re-reading the license
+        // and the user collection *is* the restore.
+        let result = tauri::async_runtime::spawn_blocking(msstore::refresh_status)
+            .await
+            .map_err(|error| format!("restore task failed: {error}"))?;
+        let status = match result {
+            Ok(status) => status,
+            Err(error) => {
+                let mut failed = current();
+                failed.status = "error".to_string();
+                failed.error = Some(error);
+                failed
+            }
+        };
+        let status = replace(status);
+        emit(&app, &status);
+        Ok(status)
+    }
+
+    #[cfg(not(any(
+        all(target_os = "macos", feature = "appstore"),
+        all(target_os = "windows", feature = "msstore")
+    )))]
     {
         let _ = app;
         Ok(current())
@@ -391,7 +529,7 @@ pub fn pro_dev_set_state(app: AppHandle, state: String) -> Result<ProStatus, Str
 }
 
 /// Undo [`pro_dev_set_state`], returning to the provider the build normally
-/// uses. The caller can then invoke `pro_refresh` for a real StoreKit query.
+/// uses. The caller can then invoke `pro_refresh` for a real store query.
 #[tauri::command]
 pub fn pro_dev_clear_state(app: AppHandle) -> Result<ProStatus, String> {
     #[cfg(debug_assertions)]

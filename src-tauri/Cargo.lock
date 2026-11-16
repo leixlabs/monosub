@@ -2164,7 +2164,7 @@ dependencies = [
 
 [[package]]
 name = "monosub"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "futures-util",
  "hound",
@@ -2193,6 +2193,9 @@ dependencies = [
  "url",
  "uuid",
  "window-vibrancy 0.6.0",
+ "windows 0.62.2",
+ "windows-collections 0.3.2",
+ "windows-future 0.3.2",
 ]
 
 [[package]]

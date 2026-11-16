@@ -1,6 +1,6 @@
 [package]
 name = "monosub"
-version = "2.0.2"
+version = "2.1.0"
 description = "Local voice to article desktop app"
 authors = ["VoiceToText"]
 license = "PolyForm-Small-Business-1.0.0"
@@ -77,6 +77,10 @@ tauri-app = []
 # target-specific and optional, so the DMG / Windows / CLI builds don't compile
 # the Swift bridge (which needs Xcode 26.4+).
 appstore = ["dep:storekit-rs"]
+# Microsoft Store build only: `Windows.Services.Store.StoreContext` durable
+# add-on purchase. Target-specific and optional — the DMG / NSIS / CLI builds
+# never compile it, so they stay `Direct` (unlimited) exactly as before.
+msstore = ["dep:windows", "dep:windows-collections", "dep:windows-future"]
 
 # Security-scoped bookmarks (`bookmark.rs`): a sandbox grant is process-local, so
 # remembering a user-chosen folder needs NSURL bookmarks. macOS only — every other
@@ -96,3 +100,24 @@ objc2-foundation = { version = "0.3", features = [
     "NSString",
     "NSURL",
 ] }
+
+# Windows.Services.Store (StoreContext) for the Microsoft Store build. Pinned to
+# `0.62` on purpose: tauri / tao / wry already compile `windows 0.62.2`, so the
+# HWND returned by `WebviewWindow::hwnd()` is the same type we use here — no
+# conversion heuristics. The crate is only pulled in by the `msstore` feature.
+[target.'cfg(target_os = "windows")'.dependencies]
+# Pinned to the exact version tauri/tao/wry compile, so `WebviewWindow::hwnd()`
+# returns this same `HWND` type. `Win32_System_WinRT` is for `RoInitialize` on
+# the worker thread that joins the async purchase operation.
+windows = { version = "=0.62.2", optional = true, features = [
+    "Services_Store",
+    "Foundation",
+    "Foundation_Collections",
+    "Win32_Foundation",
+    "Win32_UI_Shell",
+    "Win32_System_WinRT",
+] }
+# Direct deps so the module can *name* the `IIterable` / `IAsyncOperation` types
+# the Store APIs return (the umbrella crate does not re-export them for use).
+windows-collections = { version = "=0.3.2", optional = true }
+windows-future = { version = "=0.3.2", optional = true }

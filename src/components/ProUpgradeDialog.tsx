@@ -69,10 +69,12 @@ export function ProUpgradeDialog() {
                 <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
                 {t('pro.benefitBatch')}
               </li>
-              <li className="flex items-start gap-2 text-xs text-text-secondary dark:text-zinc-300">
-                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
-                {t('pro.benefitFamily')}
-              </li>
+              {status.provider === 'app_store' && (
+                <li className="flex items-start gap-2 text-xs text-text-secondary dark:text-zinc-300">
+                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                  {t('pro.benefitFamily')}
+                </li>
+              )}
             </ul>
           </div>
 

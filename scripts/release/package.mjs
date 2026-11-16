@@ -227,7 +227,10 @@ function buildWindows() {
 
     // --no-bundle: the Store package is the MSIX, not an NSIS/MSI installer, and
     // skipping the bundler also avoids downloading NSIS/WiX on a restricted network.
-    run(tauriCli(), ['build', '--no-bundle']);
+    // --features msstore: compiles the Windows.Services.Store durable add-on
+    // integration so this Store build is free-download + IAP. The NSIS
+    // self-install (`release:exe`) never passes this flag and stays Direct.
+    run(tauriCli(), ['build', '--no-bundle', '--features', 'msstore']);
 
     const exePath = path.join(srcTauriDir, 'target', 'release', 'monosub.exe');
     if (!isFile(exePath)) die(`Expected ${exePath} after the build`);
