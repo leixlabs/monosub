@@ -40,8 +40,9 @@ import { log, die, header, humanSize } from '../lib/log.mjs';
 import { hostPlatform, cliName } from '../lib/platform.mjs';
 import { projectRoot, scriptsDir, srcTauriDir, distDir, resourcesDir, binDir, tauriCli } from '../lib/paths.mjs';
 import { ensureDir, copyFile, remove, exists, isFile, listFiles, fileSize } from '../lib/fs.mjs';
-import { run, requireTools } from '../lib/shell.mjs';
+import { run, requireTools, tryCapture } from '../lib/shell.mjs';
 import { syncVersionsFromTauri } from '../lib/version.mjs';
+import { checkedInVersion, installedTauriCliVersion } from '../lib/nsis-template.mjs';
 
 const args = process.argv.slice(2);
 
@@ -103,6 +104,8 @@ function main() {
 
     reportPayload();
     warnAboutViteWipe();
+    checkNsisTemplate();
+    checkIntegrityLevel();
 
     log.step('5. 编译并打包 NSIS 安装包（最慢的一步：LZMA 要压 2 GB 资源，本机实测约 6 分钟）...');
     // --bundles nsis pins the target: tauri.conf.json says "all", which would also
@@ -220,6 +223,69 @@ function warnAboutViteWipe() {
     if (atRisk.length === 0) return;
     log.warn('dist\\ 同时是 Vite 的输出目录 —— 接下来的前端构建会清空它：');
     log.warn(`  ${atRisk.join(', ')} 会被删掉（要保留就先发布或挪走）。`);
+}
+
+/**
+ * Say out loud when the forked NSIS template is out of step with the CLI.
+ *
+ * `bundle.windows.nsis.template` points at a copy of Tauri's template, patched
+ * so an upgrade cannot dead-end on the previous version's uninstaller (see
+ * scripts/lib/nsis-template.mjs). The bundler fills `{{...}}` placeholders into
+ * whatever template it is given, so a copy generated for an older CLI can
+ * reference variables the installed one no longer substitutes — and a plain
+ * copy of the stock template silently drops the upgrade fix. Neither breaks the
+ * build loudly, so it is checked here, every run, before the expensive steps.
+ */
+function checkNsisTemplate() {
+    const pinned = checkedInVersion();
+    if (!pinned) {
+        log.warn('src-tauri\\nsis\\installer.nsi 缺少 fork 头 —— 它可能被换成了官方模板。');
+        log.warn('  升级流程的补丁会随之消失；运行 bun run nsis:sync 重新生成。');
+        return;
+    }
+    const installed = installedTauriCliVersion();
+    if (pinned !== installed) {
+        log.warn(`NSIS 模板来自 tauri-cli v${pinned}，当前安装的是 v${installed}。`);
+        log.warn('  先跑 bun run nsis:sync，否则模板里的 {{...}} 可能与 CLI 对不上。');
+    }
+}
+
+/**
+ * Say out loud when this checkout cannot install its own output.
+ *
+ * A process inherits the mandatory integrity level of the file it is started
+ * from. When the project tree carries a Low label, the installer built here runs
+ * at Low too, and Low cannot write %LOCALAPPDATA%, %APPDATA% or HKCU — so the
+ * wizard stops at "Output folder: ..." having created nothing, and `/S` exits 0
+ * in milliseconds without writing anything. Neither failure names the cause.
+ *
+ * Measured on this machine: `icacls <project>` showed
+ * `Mandatory Label\Low Mandatory Level`, the exe under it ran at Low while the
+ * same bytes in %TEMP% ran at Medium, and an A/B of one probe installer went
+ * FAILED/FAILED -> ok/ok purely by moving the file.
+ *
+ * A warning rather than a failure: the build itself is fine and the artifact is
+ * correct, it is only this shell that cannot launch it. `install.mjs` and
+ * `check-integrity.mjs --fix` are the two ways out, both printed here.
+ */
+function checkIntegrityLevel() {
+    const label = integrityLabel(projectRoot);
+    if (label === null || label === 'Medium' || label === 'High' || label === 'System') return;
+    log.warn(`本项目目录的完整性级别是 ${label} —— 从这里双击/静默运行安装包都会“成功”但什么都不装。`);
+    log.warn('  从该目录启动的进程继承这个级别，而 Low 不能写 %LOCALAPPDATA%、%APPDATA%、HKCU。');
+    log.warn('  修复: node scripts/release/check-integrity.mjs --fix');
+    log.warn('  或直接跑 bun run release:install（会把安装包放到干净路径再运行）。');
+}
+
+/**
+ * The mandatory integrity label of `dir` (`Low`/`Medium`/…), or null when it
+ * carries none. `icacls` prints nothing for an unlabelled directory.
+ */
+function integrityLabel(dir) {
+    const text = tryCapture('icacls', [dir]);
+    if (!text) return null;
+    const match = text.match(/Mandatory Label\\(\w+) Mandatory Level/);
+    return match ? match[1] : null;
 }
 
 /** Everything the installer carries: the app binary plus the resources tree. */

@@ -55,6 +55,7 @@ scripts/
 │   ├── build-ffmpeg-lgpl-macos.mjs 从源码编 LGPL-only ffmpeg（商店版必须）
 │   ├── polish-dmg.mjs      DMG 窗口几何修正（create-dmg 会覆盖掉配置）
 │   ├── installer.mjs       Windows 专用：本地用的 NSIS .exe
+│   ├── sync-nsis-template.mjs 按 tauri-cli 版本重生成打补丁的 NSIS 模板
 │   ├── local-pkg.mjs       本机可启动的 .pkg（--sandbox 时行为等同 MAS 包）
 │   ├── mas.mjs             Mac App Store：构建 → 逐层签名 → .pkg
 │   └── reset-sandbox.sh    清容器/授权，反复验证「只问一次」
@@ -112,6 +113,9 @@ bun run mas:test            # 重签 .app 直接打开，跳过出包（最快�
 | `release/release.mjs` | `--skip-build`（`--skip-package` 是旧名）只核对 `dist/` 已有产物 |
 | `release/package.mjs` | `--skip-resources` 复用 `resources/`；`--sign` 额外产出 dev-signed 副本（仅 Windows） |
 | `release/prepare-resources.mjs` | 无参数，幂等 |
+| `release/sync-nsis-template.mjs` | `--check` 只比对不改文件（不一致即非零退出）；`--version <x.y.z>` 指定 tauri-cli tag。升级 `@tauri-apps/cli` 后必须跑 |
+| `release/install.mjs` | `--no-build` 用 `dist/` 现有产物 `--passive` 用 `/P` 显示进度页 `--uninstall` 卸载。先把 exe 复制到 `%TEMP%` 再运行，然后校验文件树/卸载项/快捷方式 |
+| `release/check-integrity.mjs` | `--fix` 递归把本仓库目录树改回 Medium 完整性级别；非 Windows 直接跳过 |
 | `release/verify.mjs` | `<path-to-dmg-or-msix>`，失败即非零退出 |
 | `release/mas.mjs` | `--dev` `--no-pkg` `--skip-build` `--open`；env `MAS_SIGN_IDENTITY` `MAS_INSTALLER_IDENTITY` `MAS_PROFILE` `MAS_BUILD_NUMBER`；构建号自动 +1，记在仓库根 `.mas-build-number` |
 | `release/local-pkg.mjs` | `--sandbox` `--skip-build` `--no-pkg` `--no-pkg-sign` `--ad-hoc` `--identity` `--notarize` `--install` `--open`；env `LOCAL_SIGN_IDENTITY` `LOCAL_INSTALLER_IDENTITY` `LOCAL_BUILD_NUMBER` `NOTARY_PROFILE` |
@@ -329,8 +333,69 @@ GTX 1080 上会直接报 `no kernel image is available for execution on the devi
 
 机器上没有 NVIDIA 显卡时，`prepare-resources.mjs` 只警告不中止。
 
+### yt-dlp 的临时目录（`Could not create temporary directory!`）
+
+随包的 `yt-dlp*.exe` 是 PyInstaller 单文件构建：Python 还没启动之前，bootloader
+就要在 `%TEMP%` 下建 `_MEI<pid>xxxxxx` 并给它设一条"仅当前用户"的 DACL，失败即
+`[PYI-…:ERROR] Could not create temporary directory!` 并以 `0xFFFFFFFF` 退出
+（Node 报成 `4294967295`）。`GetTempPathW` 先读 `TMP` 再读 `TEMP`，所以变量指向
+不存在、过长、满了或被策略拦住的目录时，进程在打印任何东西之前就死了 ——
+`release:exe` 看起来像"二进制坏了"，其实下载和校验都没问题。
+
+`verifyYtDlp()` 因此**实际运行**这个 exe 逐个试候选目录（继承的 `TMP/TEMP` →
+`%LOCALAPPDATA%\Temp` → `build\pyi-tmp`），记住能用的那个，全部失败才报错并列出
+每个候选的退出码与 bootloader 原文。`--skip-resources` 不是解法：装好的应用走
+`paths::pyinstaller_temp_dir()` 用同一个 exe 同一个变量，URL 导入会一样失败。
+三个目录都失败时是环境问题（杀软拦 `_MEI*`、TMP 指向非 NTFS/网络盘），需要加
+排除项而不是改脚本。
+
 macOS 不受影响：那边 audio.cpp 是静态链接，llama 的 dylib 本来就平铺在 `bin/`，
 没有冲突，后端仍是 `metal`。
+
+### 安装包"成功退出但什么都没装"：完整性级别（mandatory integrity label）
+
+`dist\<product>_<v>_x64-setup.exe` 双击后向导能打开、走到
+`Output folder: %LOCALAPPDATA%\<product>` 就卡住，目录始终不创建；换成 `/S` 静默模式则
+**3 毫秒内 exit code 0**，不建目录、不写注册表、不建快捷方式、也不报错。
+
+这不是安装包的问题。Windows 给进程的完整性级别来自**它被启动的那个文件**，而 Low
+级别不能写 `%LOCALAPPDATA%`、`%APPDATA%`、`HKCU`（它们默认 Medium）。所以当仓库目录树
+带着 `Mandatory Label\Low`（本机实测：`C:\Users\lei\Projects` 上有
+`(OI)(CI)(NW)`，整棵树继承）时，从 `dist\` 启动的安装器就是 Low，第一次
+`SetOutPath $LOCALAPPDATA\...` 就失败 —— GUI 模式下这个失败只表现为"目录没建出来"，
+`/S` 模式下没有任何 UI，于是 0 退出。
+
+判据实测（同一份字节只换位置）：项目目录下启动 = **Low**，复制到 `%TEMP%` 后 =
+**Medium**；把签名的 `notepad.exe`/`node.exe` 放进项目树也是 Low、放进
+`Downloads`/`%LOCALAPPDATA%` 就是 Medium —— 变量是**路径**，不是签名、不是二进制。
+同一个根因也是 `yt-dlp` 那条 `Could not create temporary directory!` 的真凶。
+
+```powershell
+# 报告（非 Windows 直接跳过）
+node scripts/release/check-integrity.mjs
+# 修复：递归改成 Medium（本机 118748 个文件、0 失败、约 84 秒，不需要管理员）
+node scripts/release/check-integrity.mjs --fix
+#   等价于 icacls "<目录>" /setintegritylevel "(OI)(CI)Medium" /T /C
+
+# 或者直接从干净路径装（release:install 会自动这么做）
+bun run release:install
+```
+
+`release/install.mjs` 的两个要点：
+
+- **先把 exe 复制到 `%TEMP%` 再运行**，因为进程继承的是启动位置的级别，复制过去新进程
+  就是 Medium。这不是绕过一个坏构建 —— 树上的标签不受构建控制（沙箱、组策略、
+  别的工具都可能打上去）。
+- **判据是文件系统，不是退出码**：NSIS 在完全失败时也返回 0，所以它逐个校验
+  安装目录/文件数、`HKCU\...\Uninstall\<product>` 的 `DisplayVersion`、开始菜单
+  `.lnk`，缺一个就非零退出并列出缺什么。`if (exit === 0) 成功` 正是这个 bug 骗过人的方式。
+
+`installer.mjs` 打包时也会跑一次检查，级别不对就警告并打印上面两条修复路径。
+
+排查这类问题的两个操作要点：`Start-Process -Wait` 遇到 GUI 安装器会一直挂着（`/S` 也
+不一定让它无窗口），要用 `System.Diagnostics.Process` + `UseShellExecute=$false` 自己轮询
+`HasExited`；`icacls` 输出的 `Mandatory Label\...` 行是唯一可靠的级别读数（无标签的
+目录不打印这一行）。
 
 ## 加一个平台
 

@@ -466,6 +466,13 @@ async fn run_once(
         // non-UTF-8 bytes in the first place (see `read_line_lossy`).
         command.env("PYTHONIOENCODING", "utf-8");
         command.env("PYTHONUTF8", "1");
+        // One-file PyInstaller unpacks into %TEMP%\_MEI* before Python starts and
+        // exits 0xFFFFFFFF with "Could not create temporary directory!" when that
+        // fails. Point it at a directory we know is writable instead.
+        if let Some(dir) = crate::paths::pyinstaller_temp_dir() {
+            command.env("TMP", dir.as_os_str());
+            command.env("TEMP", dir.as_os_str());
+        }
     }
 
     command

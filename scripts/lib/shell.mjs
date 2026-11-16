@@ -132,6 +132,27 @@ export function tryCaptureMerged(command, args = [], options = {}) {
 }
 
 /**
+ * `captureMerged` without the throw: `{ code, output }`, `code` 127 when the
+ * process cannot start.
+ *
+ * For call sites that must tell "ran but exited non-zero" apart from "ran fine"
+ * — the yt-dlp probe has to read the bootloader's own message to explain why
+ * every temp directory it tried was rejected.
+ */
+export function runCaptured(command, args = [], options = {}) {
+    const result = spawn(command, args, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        encoding: 'utf8',
+        ...options,
+    });
+    if (result.error) return { code: 127, output: result.error.message };
+    return {
+        code: result.status ?? 127,
+        output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trim(),
+    };
+}
+
+/**
  * Absolute path to a tool, or null.
  * `where` on Windows (it also matches `.cmd`/`.bat`), `command -v` elsewhere.
  */

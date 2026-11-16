@@ -279,6 +279,64 @@ pub fn scratch_dir() -> PathBuf {
     dir
 }
 
+/// A temp directory the bundled one-file PyInstaller binaries can unpack into,
+/// or `None` when the system temp directory is fine and should be inherited.
+///
+/// `resources/bin/yt-dlp*.exe` is a PyInstaller one-file build: before any
+/// Python runs, the bootloader creates `<temp>\_MEI<pid>xxxxxx` with a
+/// current-user-only DACL and aborts when that fails:
+///
+/// ```text
+/// [PYI-27076:ERROR] Could not create temporary directory!
+/// ```
+///
+/// with exit code `0xFFFFFFFF`. `GetTempPathW` reads TMP then TEMP, so a value
+/// pointing at a missing, over-long, full or policy-blocked directory turns URL
+/// import into a failure that reads like a missing binary — there is no yt-dlp
+/// diagnostic to classify because Python never starts.
+///
+/// The probe is an ordinary create/remove: it catches the common causes (missing
+/// path, no permission, read-only volume) but not a directory that accepts a
+/// create while refusing the bootloader's restrictive DACL (FAT32, some network
+/// shares). There the child fails exactly as it did before — no regression.
+#[cfg(target_os = "windows")]
+pub fn pyinstaller_temp_dir() -> Option<PathBuf> {
+    let system = std::env::temp_dir();
+    if can_create_directory(&system) {
+        return None;
+    }
+
+    let fallback = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .map(|base| base.join(APP_IDENTIFIER).join("tmp"))
+        .or_else(|| {
+            std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join(".monosub-tmp"))
+        })?;
+
+    std::fs::create_dir_all(&fallback).ok()?;
+    if !can_create_directory(&fallback) {
+        return None;
+    }
+
+    tracing::warn!(
+        system = %system.display(),
+        fallback = %fallback.display(),
+        "the system temp directory cannot host a PyInstaller unpack; using the app directory"
+    );
+    Some(fallback)
+}
+
+/// One create/remove under `parent`; false when the directory rejects entries.
+#[cfg(target_os = "windows")]
+fn can_create_directory(parent: &Path) -> bool {
+    let probe = parent.join(format!("_MEI_probe_{}", std::process::id()));
+    let created = std::fs::create_dir(&probe).is_ok();
+    if created {
+        let _ = std::fs::remove_dir(&probe);
+    }
+    created
+}
+
 /// Stable cache path for a derived artifact of `source`.
 ///
 /// The path is keyed by a hash of the *absolute* source path so two files with
@@ -364,6 +422,28 @@ fn short_hash(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A temp directory that refuses entries must be reported as unusable, or a
+    /// broken TMP would be accepted and URL import would keep failing with the
+    /// bootloader's message instead of falling back.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn the_temp_probe_rejects_a_missing_directory_and_accepts_a_real_one() {
+        let missing = std::env::temp_dir().join(format!(
+            "monosub-pyi-probe-missing-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&missing);
+        assert!(!can_create_directory(&missing));
+
+        let usable = std::env::temp_dir().join(format!(
+            "monosub-pyi-probe-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&usable).unwrap();
+        assert!(can_create_directory(&usable));
+        let _ = std::fs::remove_dir_all(&usable);
+    }
 
     /// The config dir and the models root are independent: a `modelsDir` that
     /// points somewhere completely unrelated must be honoured verbatim, and must

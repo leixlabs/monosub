@@ -71,6 +71,7 @@ import fs from 'node:fs';
 import { log, die, humanSize } from '../lib/log.mjs';
 import { hostPlatform, targetTriple, bundledName } from '../lib/platform.mjs';
 import {
+    projectRoot,
     resourcesDir,
     binDir,
     sileroDir,
@@ -80,7 +81,7 @@ import {
 import { ensureDir, copyFile, remove, isExecutable, listFiles, fileSize, makeScratchDir, writeTextFile, filesWithPrefix } from '../lib/fs.mjs';
 import { download, assertSha256, matchesSha256 } from '../lib/net.mjs';
 import { extractZip, extractTarGz } from '../lib/archive.mjs';
-import { run, tryCapture } from '../lib/shell.mjs';
+import { run, runCaptured, tryCapture } from '../lib/shell.mjs';
 import { verifyFfmpegLicense } from '../lib/ffmpeg.mjs';
 
 // --- Pinned upstream ------------------------------------------------------
@@ -114,6 +115,11 @@ const platform = hostPlatform();
 
 // Must be initialised before main() runs (see pruneStaleFlatEngines below).
 const ENGINE_DLL_PREFIXES = ['llama', 'ggml', 'mtmd', 'libomp'];
+
+// Environment that let yt-dlp unpack, resolved on first use (see verifyYtDlp).
+// Declared here, not beside the function, for the same reason as above: main()
+// starts before module evaluation reaches the bottom of this file.
+let ytDlpEnv = null;
 
 main().catch((error) => {
     log.err(error.message);
@@ -561,7 +567,7 @@ function smokeTestWindows() {
     run(path.join(binDir, 'audiocpp_cli', bundledName('audiocpp_cli')), ['--version']);
     run(path.join(binDir, 'llama-server', bundledName('llama-server')), ['--version']);
     run(path.join(binDir, bundledName('ffmpeg')), ['-version']);
-    run(path.join(binDir, bundledName('yt-dlp')), ['--version']);
+    verifyYtDlp(path.join(binDir, bundledName('yt-dlp')));
 
     if (nvidiaAdapterCount().trim() === '0') {
         log.warn('No NVIDIA display adapter found: the CUDA engines load, but recognition will');
@@ -602,7 +608,75 @@ async function fetchYtDlpBinary(asset, sha256, expectedSize) {
         remove(scratch);
     }
 
-    run(target, ['--version']);
+    verifyYtDlp(target);
+}
+
+/**
+ * Run `yt-dlp --version` with a temp directory its own bootloader accepts.
+ *
+ * The bundled yt-dlp is a one-file PyInstaller build. Before any Python starts,
+ * the bootloader creates `<temp>\_MEI<pid>xxxxxx` with a current-user-only DACL
+ * and aborts when that fails:
+ *
+ *     [PYI-27076:ERROR] Could not create temporary directory!
+ *
+ * with exit code 0xFFFFFFFF (Node reports 4294967295). `GetTempPathW` reads TMP
+ * then TEMP, so a value pointing at a missing, over-long, full or policy-blocked
+ * directory kills the process before it can print anything — `release:exe` then
+ * fails at the smoke test even though the binary and its checksum are correct.
+ *
+ * `--skip-resources` is not a fix for this: the installed app spawns the same exe
+ * through the same variables (see `paths::pyinstaller_temp_dir`), so URL import
+ * would fail the same way. Probing the real executable is the only check that
+ * sees the failure the app would see.
+ */
+function verifyYtDlp(target) {
+    if (ytDlpEnv) {
+        run(target, ['--version'], { env: ytDlpEnv });
+        return;
+    }
+
+    // Lazily built: the normal machine only ever evaluates the first, and a run
+    // that needs neither fallback should not litter the tree with directories.
+    const attempts = [
+        ['inherited TMP/TEMP', () => process.env],
+        ['%LOCALAPPDATA%\\Temp', () => tempEnv(localAppDataTemp())],
+        ['build\\pyi-tmp', () => tempEnv(ensureDir(path.join(projectRoot, 'build', 'pyi-tmp')))],
+    ];
+
+    const failures = [];
+    for (const [index, [label, resolveEnv]] of attempts.entries()) {
+        const env = resolveEnv();
+        if (!env) continue;
+        const { code, output } = runCaptured(target, ['--version'], { env });
+        const firstLine = output.split(/\r?\n/)[0] ?? '';
+        if (code === 0) {
+            ytDlpEnv = env;
+            if (index > 0) {
+                log.warn(`yt-dlp cannot unpack into the system temp directory; using ${label}`);
+            }
+            log.ok(`yt-dlp ${firstLine}`);
+            return;
+        }
+        failures.push(`  ${label}: exit ${code}${firstLine ? ` — ${firstLine}` : ''}`);
+    }
+
+    throw new Error(
+        `yt-dlp cannot create its temporary directory:\n${failures.join('\n')}\n` +
+            '  Fix: point TMP and TEMP at a writable folder (e.g. set TMP=C:\\Temp) ' +
+            'or relax the policy blocking %TEMP%\\_MEI*.'
+    );
+}
+
+/** Environment with TMP/TEMP overridden, or null when `dir` is unavailable. */
+function tempEnv(dir) {
+    return dir ? { ...process.env, TMP: dir, TEMP: dir } : null;
+}
+
+/** `%LOCALAPPDATA%\Temp`, created on demand; null when there is no LOCALAPPDATA. */
+function localAppDataTemp() {
+    const base = process.env.LOCALAPPDATA;
+    return base ? ensureDir(path.join(base, 'Temp')) : null;
 }
 
 /**

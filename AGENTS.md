@@ -390,6 +390,19 @@ machine"; the MSIX stays the Store artifact.
   `[[bin]]` target to the install root (`%LOCALAPPDATA%\MonoSub\monosub-cli.exe`), so the
   NSIS install ends up with the CLI in two places and **neither is on `PATH`** — there is
   no execution alias here, that mechanism is MSIX-only.
+- **The NSIS template is forked** — `bundle.windows.nsis.template` points at
+  `src-tauri/nsis/installer.nsi`, Tauri's own template with three patches that live in
+  `scripts/lib/nsis-template.mjs`. Upgrading an existing install was a dead end upstream:
+  the reinstall page ran the *old* `uninstall.exe` with this window hidden and without
+  `/P`, so its confirm page waited for a click nobody could see and its Restart Manager
+  "app is running" prompt aborted the whole uninstall section (nothing deleted, non-zero
+  exit) → "Unable to uninstall!", on every retry. The fork always drives the old
+  uninstaller passively (`/P`: confirm page skipped, app closed without asking) and, if
+  it still fails, offers to install over the old tree instead of dead-ending.
+  `bun run nsis:sync` regenerates the template from the installed `@tauri-apps/cli` and
+  fails loudly if an anchor moved — **run it after every CLI bump**; the template is
+  version-matched to the CLI's `{{...}}` placeholders, and `installer.mjs` warns when the
+  checked-in header names a different CLI than the one installed.
 - **NSIS cannot emit an installer whose data section exceeds ~2 GB** (it is 32-bit;
   `makensis` dies with `error mmapping file ... is out of range`, or writes a ~100 KB
   stub and exits 0). Both CUDA engines put `resources\` at ~2.0 GB *uncompressed*; the
@@ -413,6 +426,27 @@ machine"; the MSIX stays the Store artifact.
 - `dist/` doubles as Vite's `outDir`, so the `bun run build` inside `tauri build` wipes
   it — including a previously built `.msix` sitting there. `installer.mjs` warns when it
   finds one before the build, because the deletion is otherwise silent.
+- **An installer started from a Low-integrity directory installs nothing and says so with
+  exit code 0.** Windows gives a process the mandatory integrity level of the *file it was
+  started from*, and Low cannot write `%LOCALAPPDATA%`, `%APPDATA%` or `HKCU` (Medium). So
+  when the checkout tree carries `Mandatory Label\Low` — a sandbox tool's leftover, as
+  measured here: `C:\Users\lei\Projects` had `(OI)(CI)(NW)` and the whole tree inherited it
+  — the NSIS wizard opens, prints `Output folder: %LOCALAPPDATA%\MonoSub`, and never
+  creates it; `/S` exits **0 in 3 ms** having written no directory, no registry key and no
+  shortcut. Nothing in the artifact is wrong: the same bytes copied to `%TEMP%` installed
+  84 files / 2025.6 MB in 78 s, and an A/B of one probe installer (writes to
+  `%LOCALAPPDATA%` + `HKCU`) went FAILED/FAILED → ok/ok purely by moving the file, while
+  signed `notepad.exe`/`node.exe` ran at Low under the project tree and Medium in
+  `Downloads`/`%LOCALAPPDATA%` — the path, not the signature or the binary, is the
+  variable. The same wall is what a bundled PyInstaller `yt-dlp` hits as
+  `Could not create temporary directory!`. Three guards now exist:
+  `bun run release:install` copies the artifact to `%TEMP%` before running it and then
+  **verifies the file tree, the uninstall key and the Start-menu shortcut** rather than
+  trusting the exit code; `bun run release:integrity [--fix]` reports and repairs the
+  label (`icacls <root> /setintegritylevel "(OI)(CI)Medium" /T /C`, 118 748 files, 0
+  failures, no elevation needed on your own tree); `installer.mjs` warns at build time.
+  **Never** use the installer's exit code as the install verdict — that is exactly how this
+  failure reads as success.
 
 
 Six things about the Windows path that are easy to get wrong:

@@ -45,7 +45,8 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "compression": "lzma"
+        "compression": "lzma",
+        "template": "nsis/installer.nsi"
       }
     },
     "macOS": {
