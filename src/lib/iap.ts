@@ -60,6 +60,30 @@ export const setDevProState = (state: 'free' | 'pro' | 'grandfathered' | 'pendin
 
 export const clearDevProState = (): Promise<ProStatus> => invoke<ProStatus>('pro_dev_clear_state');
 
+/** 离线授权信息（checkout 构建）。 */
+export interface LicenseInfo {
+  product: string;
+  version: string;
+  email: string;
+  name: string | null;
+  issuedAt: number;
+  expiresAt: number | null;
+  orderId: string | null;
+  licensedTo: string;
+}
+
+/** 粘贴授权码激活（离线 Ed25519 验签）。 */
+export const activateLicense = (license: string): Promise<ProStatus> =>
+  invoke<ProStatus>('pro_activate_license', { license });
+
+/** 当前授权信息，用于「关于 / Licensed to」。 */
+export const getLicenseInfo = (): Promise<LicenseInfo | null> =>
+  invoke<LicenseInfo | null>('license_info');
+
+/** 打开内嵌购买窗口（checkout.leix.dev 商品页）。 */
+export const openCheckoutWindow = (url: string): Promise<void> =>
+  invoke<void>('open_checkout_window', { url });
+
 /** True when this page is running inside the Tauri webview (not plain Vite). */
 export const isTauri = (): boolean =>
   typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

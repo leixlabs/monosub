@@ -47,6 +47,8 @@ hound = "3.5"
 # URL parsing for the import whitelist (`site::url`) — normalising a pasted
 # link by hand is how `?p=3` and tracking parameters get confused.
 url = "2.5"
+ed25519-dalek = "2"
+base64 = "0.22"
 futures-util = "0.3"
 
 # Debug-only UI testing/automation bridge (tauri-pilot). Inert in release builds.
@@ -58,6 +60,7 @@ tauri-plugin-clipboard-manager = "2.5.0"
 # the plugin hands the new process's argv to the instance that already owns the
 # name and exits the new one.
 tauri-plugin-single-instance = "2"
+tauri-plugin-deep-link = "2"
 
 # Test-only: fixtures fill `ModelFile::sha256`, which the downloader no longer
 # compares against (see `commands::models` module docs), so nothing at runtime

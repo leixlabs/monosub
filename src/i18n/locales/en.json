@@ -450,6 +450,14 @@
     "devPending": "Pending",
     "devError": "Error",
     "devClear": "Use real provider",
-    "freeLimit": "The unlicensed version processes one file at a time."
+    "freeLimit": "The unlicensed version processes one file at a time.",
+    "checkout": {
+      "hint": "Paste the license code you received after purchase to activate (works offline).",
+      "placeholder": "Paste license code (starts with eyJ...)",
+      "activate": "Activate",
+      "buy": "Buy / Get a license",
+      "empty": "Please paste a license code first",
+      "licensedTo": "Licensed to {{who}}"
+    }
   }
 }

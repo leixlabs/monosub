@@ -52,7 +52,8 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         // Clipboard watch: reads only what the user already copied, and only to
         // offer a confirm button (see `site::clipboard`).
-        .plugin(tauri_plugin_clipboard_manager::init());
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_deep_link::init());
 
     // Debug-only UI automation bridge (tauri-pilot). Compiled out of release builds.
     #[cfg(debug_assertions)]
@@ -76,6 +77,26 @@ fn main() {
             // `Transaction.updates` listener on the MAS build, and refresh the
             // current purchase in the background. Direct builds are a no-op.
             monosub::commands::iap::init(app.handle());
+
+            // 深链：monosub://activate?code=<license> 自动激活（WebView 购买后回传）
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let dl_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        let code = url
+                            .query_pairs()
+                            .find(|(k, _)| k == "code")
+                            .map(|(_, v)| v.to_string());
+                        if let Some(code) = code {
+                            if let Err(e) = monosub::commands::iap::activate_from_license(&dl_handle, &code) {
+                                tracing::warn!(error = %e, "deep link activate failed");
+                            }
+                        }
+                    }
+                });
+            }
 
             // 创建系统托盘
             tray::create_tray(app.handle())?;
@@ -133,6 +154,9 @@ fn main() {
             pro_restore,
             pro_dev_set_state,
             pro_dev_clear_state,
+            pro_activate_license,
+            license_info,
+            open_checkout_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

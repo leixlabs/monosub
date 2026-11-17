@@ -72,5 +72,14 @@
         }
       }
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "monosub"
+        ]
+      }
+    }
   }
 }

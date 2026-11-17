@@ -450,6 +450,14 @@
     "devPending": "待处理",
     "devError": "错误",
     "devClear": "使用真实 Provider",
-    "freeLimit": "未授权版一次只能处理一个文件。"
+    "freeLimit": "未授权版一次只能处理一个文件。",
+    "checkout": {
+      "hint": "粘贴购买后收到的授权码即可激活（离线验证，无需联网）。",
+      "placeholder": "粘贴授权码（以 eyJ… 开头）",
+      "activate": "激活",
+      "buy": "去购买 / 获取授权码",
+      "empty": "请先粘贴授权码",
+      "licensedTo": "已授权给 {{who}}"
+    }
   }
 }

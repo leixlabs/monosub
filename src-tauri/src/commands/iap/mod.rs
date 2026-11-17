@@ -26,6 +26,7 @@
 mod grandfather;
 #[cfg(all(target_os = "windows", feature = "msstore"))]
 mod msstore;
+mod checkout;
 mod provider;
 #[cfg(all(target_os = "macos", feature = "appstore"))]
 mod storekit;
@@ -179,7 +180,15 @@ fn default_status() -> ProStatus {
         all(target_os = "windows", feature = "msstore")
     )))]
     {
-        provider::DirectProvider.status()
+        ProStatus {
+            supported: true,
+            provider: "checkout".to_string(),
+            status: "free".to_string(),
+            is_pro: false,
+            max_queue_files: Some(FREE_MAX_QUEUE_FILES),
+            product: None,
+            error: None,
+        }
     }
 }
 
@@ -251,7 +260,9 @@ pub fn init(app: &AppHandle) {
         all(target_os = "windows", feature = "msstore")
     )))]
     {
-        let _ = app;
+        let status = checkout::status_from_disk(app);
+        let status = replace(status);
+        emit(app, &status);
     }
 }
 
@@ -327,7 +338,7 @@ async fn refresh_and_emit(app: &AppHandle) -> Result<ProStatus, String> {
         all(target_os = "windows", feature = "msstore")
     )))]
     {
-        let status = current();
+        let status = replace(checkout::status_from_disk(app));
         emit(app, &status);
         Ok(status)
     }
@@ -488,9 +499,37 @@ pub async fn pro_restore(app: AppHandle) -> Result<ProStatus, String> {
         all(target_os = "windows", feature = "msstore")
     )))]
     {
-        let _ = app;
-        Ok(current())
+        let status = replace(checkout::status_from_disk(&app));
+        emit(&app, &status);
+        Ok(status)
     }
+}
+
+/// 用户粘贴授权码激活（离线 Ed25519 校验，落盘后返回 Pro）。
+#[tauri::command]
+pub fn pro_activate_license(app: AppHandle, license: String) -> Result<ProStatus, String> {
+    let status = replace(checkout::activate(&app, &license)?);
+    emit(&app, &status);
+    Ok(status)
+}
+
+/// 当前授权信息（用于「关于 / Licensed to」展示）。
+#[tauri::command]
+pub fn license_info(app: AppHandle) -> Option<checkout::LicenseInfo> {
+    checkout::info(&app)
+}
+
+/// 深链（monosub://activate?code=...）激活：验签成功后落盘并发事件。
+pub fn activate_from_license(app: &AppHandle, license: &str) -> Result<(), String> {
+    let status = replace(checkout::activate(app, license)?);
+    emit(app, &status);
+    Ok(())
+}
+
+/// 打开内嵌 checkout 购买窗口（Tauri WebviewWindow）。
+#[tauri::command]
+pub fn open_checkout_window(app: AppHandle, url: String) -> Result<(), String> {
+    checkout::open_checkout(&app, &url)
 }
 
 /// Debug-only switch used by Settings ▸ Developer and tauri-pilot scenarios.

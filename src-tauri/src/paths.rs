@@ -14,7 +14,7 @@
 //!
 //! ```text
 //! config_dir   ~/Library/Application Support/leixlabs.monosub
-//! models_root  /Users/lei/dev/projects/2601-monosub/models      ← from settings.json
+//! models_root  /Users/lei/dev/projects/monosub-2601/models      ← from settings.json
 //! ```
 //!
 //! Nothing derives one from the other. Keep them separate.

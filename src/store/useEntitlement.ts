@@ -10,6 +10,9 @@ import {
   refreshProStatus,
   restorePro,
   setDevProState,
+  activateLicense as activateLicenseCmd,
+  getLicenseInfo,
+  type LicenseInfo,
   type ProStatus,
 } from '@/lib/iap';
 
@@ -23,6 +26,7 @@ import {
  */
 interface EntitlementStore {
   status: ProStatus;
+  licenseInfo: LicenseInfo | null;
   initialized: boolean;
   upgradeOpen: boolean;
   busy: 'idle' | 'purchase' | 'restore';
@@ -37,6 +41,8 @@ interface EntitlementStore {
   closeUpgrade: () => void;
   setDevState: (state: 'free' | 'pro' | 'grandfathered' | 'pending' | 'error') => Promise<void>;
   clearDevState: () => Promise<void>;
+  activateLicense: (license: string) => Promise<void>;
+  loadLicenseInfo: () => Promise<void>;
 }
 
 const initialStatus: ProStatus = {
@@ -64,6 +70,7 @@ const directFallback: ProStatus = {
 
 export const useEntitlementStore = create<EntitlementStore>((set, get) => ({
   status: initialStatus,
+  licenseInfo: null,
   initialized: false,
   upgradeOpen: false,
   busy: 'idle',
@@ -88,6 +95,7 @@ export const useEntitlementStore = create<EntitlementStore>((set, get) => ({
       try {
         const status = await getProStatus();
         set({ status, error: status.error ?? null });
+        if (status.provider === 'checkout') void get().loadLicenseInfo();
       } catch (error) {
         // A dev build that has not been restarted with the new command still
         // has to remain usable; treat the failure as direct/unlimited rather
@@ -182,6 +190,35 @@ export const useEntitlementStore = create<EntitlementStore>((set, get) => ({
       void get().refresh();
     } catch (error) {
       console.warn('[iap] pro_dev_clear_state failed', error);
+    }
+  },
+
+  activateLicense: async (license) => {
+    if (get().busy !== 'idle') return;
+    set({ busy: 'purchase', error: null });
+    try {
+      const status = await activateLicenseCmd(license);
+      set({ status: { ...status, product: get().status.product ?? null } });
+      if (status.isPro) {
+        set({ upgradeOpen: false });
+        void get().loadLicenseInfo();
+      }
+    } catch (error) {
+      console.warn('[iap] pro_activate_license failed', error);
+      set({ error: String(error) });
+      throw error;
+    } finally {
+      set({ busy: 'idle' });
+    }
+  },
+
+  loadLicenseInfo: async () => {
+    if (!isTauri()) return;
+    try {
+      const info = await getLicenseInfo();
+      set({ licenseInfo: info });
+    } catch (error) {
+      console.warn('[iap] license_info failed', error);
     }
   },
 }));

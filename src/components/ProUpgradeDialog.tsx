@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Check, Loader2, Sparkles } from 'lucide-react';
+import { Check, Loader2, Sparkles, KeyRound } from 'lucide-react';
 import {
   GlassDialog,
   GlassDialogContent,
@@ -10,6 +11,9 @@ import {
 } from '@/components/ui/glass-dialog';
 import { GlassButton } from '@/components/ui/glass-button';
 import { useEntitlementStore } from '@/store/useEntitlement';
+import { openCheckoutWindow } from '@/lib/iap';
+
+const CHECKOUT_URL = (import.meta.env.VITE_CHECKOUT_URL as string | undefined) ?? 'https://checkout.leix.dev/p/monosub-pro';
 
 /**
  * The one upgrade surface. It is opened whenever the queue gate would refuse a
@@ -29,12 +33,68 @@ export function ProUpgradeDialog() {
   const error = useEntitlementStore((state) => state.error);
   const purchase = useEntitlementStore((state) => state.purchase);
   const restore = useEntitlementStore((state) => state.restore);
+  const activate = useEntitlementStore((state) => state.activateLicense);
+  const [code, setCode] = useState('');
+  const [localErr, setLocalErr] = useState<string | null>(null);
 
   const product = status.product;
   const price = product?.displayPrice ?? t('pro.priceFallback');
   const isGrandfathered = status.provider === 'app_store_grandfathered';
 
   if (status.provider === 'direct') return null;
+
+  if (status.provider === 'checkout') {
+    async function onActivate() {
+      setLocalErr(null);
+      if (!code.trim()) {
+        setLocalErr(t('pro.checkout.empty'));
+        return;
+      }
+      try {
+        await activate(code.trim());
+      } catch (e) {
+        setLocalErr(String(e));
+      }
+    }
+    return (
+      <GlassDialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
+        <GlassDialogContent className="max-w-md rounded-3xl" data-testid="pro-upgrade-dialog">
+          <GlassDialogHeader>
+            <div className="mb-1 grid h-10 w-10 place-items-center rounded-2xl bg-primary/10 text-primary">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <GlassDialogTitle>{t('pro.title')}</GlassDialogTitle>
+            <GlassDialogDescription>{t('pro.subtitle')}</GlassDialogDescription>
+          </GlassDialogHeader>
+          <div className="mt-4 space-y-2">
+            <p className="rounded-xl bg-black/[0.03] px-3 py-2 text-xs text-text-secondary dark:bg-white/[0.04] dark:text-zinc-400">
+              {t('pro.checkout.hint')}
+            </p>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder={t('pro.checkout.placeholder')}
+              className="w-full rounded-lg border border-divider dark:border-zinc-700 bg-bg-primary dark:bg-zinc-800 px-3 py-2 text-xs font-mono"
+              data-testid="checkout-license-input"
+            />
+            {(localErr || error) && <p className="text-xs text-danger">{localErr ?? error}</p>}
+          </div>
+          <GlassDialogFooter>
+            <GlassButton variant="ghost" size="sm" onClick={close} data-testid="pro-not-now">
+              {t('pro.notNow')}
+            </GlassButton>
+            <GlassButton variant="outline" size="sm" onClick={() => void openCheckoutWindow(CHECKOUT_URL)}>
+              {t('pro.checkout.buy')}
+            </GlassButton>
+            <GlassButton variant="primary" size="sm" onClick={() => void onActivate()} disabled={busy !== 'idle'} data-testid="checkout-activate-btn">
+              {busy === 'purchase' ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+              {t('pro.checkout.activate')}
+            </GlassButton>
+          </GlassDialogFooter>
+        </GlassDialogContent>
+      </GlassDialog>
+    );
+  }
 
   return (
     <GlassDialog open={open} onOpenChange={(next) => { if (!next) close(); }}>
