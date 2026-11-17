@@ -17,6 +17,7 @@ import { blogIndexUrl, blogPostPath } from '../lib/seo';
 import { absoluteUrl } from '../lib/site';
 import { formatDate, readingMinutes } from '../lib/blogMeta';
 import { highPriorityImage, lowPriorityImage } from '../lib/imagePriority';
+import { APP_STORE_URL } from '../lib/links';
 
 /**
  * The index follows the shape a reader actually arrives with: a statement of what
@@ -41,10 +42,10 @@ const CategoryChip = ({
     type="button"
     onClick={onClick}
     aria-pressed={active}
-    className={`px-4 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors ${
+    className={`rounded-full border px-4 py-1.5 text-sm whitespace-nowrap transition-colors ${
       active
-        ? 'bg-white text-black font-medium'
-        : 'bg-white/[0.06] text-gray-300 hover:bg-white/[0.12] hover:text-white'
+        ? 'border-gold/40 bg-gold-200 font-medium text-gold-800'
+        : 'border-line text-ink-6 hover:border-ink-5 hover:text-ink'
     }`}
   >
     {label}
@@ -63,18 +64,11 @@ const FeaturedCard = ({ post, locale }: { post: Post; locale: Locale }) => {
   return (
     <Link
       to={blogPostPath(locale, post.slug)}
-      className="group relative block overflow-hidden rounded-3xl border border-primary/25 bg-dark-card transition-colors hover:border-primary/60"
+      className="group card relative block overflow-hidden transition-colors hover:border-gold/40"
     >
-      {/* A soft wash from the accent, so the featured card reads as a different
-          class of object than the grid below rather than just a wider box. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.14] via-transparent to-accent/[0.08]"
-      />
-
       <div className="relative">
         {cover && (
-          <div className="overflow-hidden border-b border-dark-border bg-black/40">
+          <div className="overflow-hidden border-b border-line bg-paper-2">
             <img
               src={cover.src}
               alt={cover.alt}
@@ -84,28 +78,26 @@ const FeaturedCard = ({ post, locale }: { post: Post; locale: Locale }) => {
                  page, so its image is the LCP candidate — load it eagerly and let
                  the browser prioritise it. Everything below lazy-loads. */
               {...highPriorityImage}
-              className="w-full h-auto transition-transform duration-500 group-hover:scale-[1.02]"
+              className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.02]"
             />
           </div>
         )}
 
         <div className="p-8 md:p-12">
-          <div className="flex items-center gap-3 mb-5">
-            <span className="px-2.5 py-1 rounded-full bg-primary/20 text-xs text-primary font-medium">
-              {CATEGORY_LABEL[post.category][locale]}
-            </span>
-            <span className="text-xs text-gray-500 uppercase tracking-wider">{ui.featured}</span>
+          <div className="mb-5 flex items-center gap-3">
+            <span className="badge badge--gold">{CATEGORY_LABEL[post.category][locale]}</span>
+            <span className="index-num">{ui.featured}</span>
           </div>
 
-          <h2 className="text-2xl md:text-[2.5rem] font-bold leading-[1.12] tracking-tight mb-4 group-hover:text-primary transition-colors">
+          <h2 className="mb-4 text-2xl font-semibold leading-[1.14] tracking-tight text-ink transition-colors group-hover:text-gold md:text-[2.4rem]">
             {content.title}
           </h2>
 
-          <p className="text-gray-300 leading-relaxed max-w-2xl mb-7 text-base md:text-lg">
+          <p className="mb-7 max-w-2xl text-base leading-relaxed text-ink-6 md:text-lg">
             {post.teaser?.[locale] ?? content.description}
           </p>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-5">
             <span>{post.competitor}</span>
             <span aria-hidden="true">·</span>
             <time dateTime={content.updated}>{formatDate(content.updated, locale)}</time>
@@ -126,35 +118,33 @@ const PostCard = ({ post, locale }: { post: Post; locale: Locale }) => {
   return (
     <Link
       to={blogPostPath(locale, post.slug)}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-dark-border bg-white/[0.02] transition-colors hover:border-primary/50 hover:bg-white/[0.04]"
+      className="group card card--flat flex flex-col overflow-hidden transition-colors hover:border-gold/40"
     >
       {cover && (
-        <div className="overflow-hidden border-b border-dark-border bg-black/40">
+        <div className="overflow-hidden border-b border-line bg-paper-2">
           <img
             src={cover.src}
             alt={cover.alt}
             width={1200}
             height={630}
             {...lowPriorityImage}
-            className="w-full h-auto transition-transform duration-500 group-hover:scale-[1.03]"
+            className="h-auto w-full transition-transform duration-500 group-hover:scale-[1.03]"
           />
         </div>
       )}
 
-      <div className="flex flex-col flex-1 p-6">
-        <span className="self-start px-2.5 py-1 rounded-full bg-white/10 text-xs text-gray-300 mb-4">
-          {CATEGORY_LABEL[post.category][locale]}
-        </span>
+      <div className="flex flex-1 flex-col p-6">
+        <span className="badge mb-4 self-start">{CATEGORY_LABEL[post.category][locale]}</span>
 
-        <h3 className="text-lg md:text-xl font-bold leading-snug mb-3 group-hover:text-primary transition-colors">
+        <h3 className="mb-3 text-lg font-semibold leading-snug text-ink transition-colors group-hover:text-gold md:text-xl">
           {content.title}
         </h3>
 
-        <p className="text-sm text-gray-400 leading-relaxed mb-6 line-clamp-3">
+        <p className="mb-6 line-clamp-3 text-sm leading-relaxed text-ink-6">
           {post.teaser?.[locale] ?? content.description}
         </p>
 
-        <div className="mt-auto flex items-center gap-2 text-xs text-gray-500">
+        <div className="mt-auto flex items-center gap-2 text-xs text-ink-5">
           <time dateTime={content.updated}>{formatDate(content.updated, locale)}</time>
           <span aria-hidden="true">·</span>
           <span>{ui.readingTime(readingMinutes(post, locale))}</span>
@@ -251,74 +241,72 @@ export const BlogIndex = () => {
         <script type="application/ld+json">{JSON.stringify(listLd)}</script>
       </Helmet>
 
-      <div className="min-h-screen bg-dark-bg text-white">
+      <div className="min-h-screen bg-paper text-ink-8">
         <Navbar />
 
-        <main className="px-6 pt-32 pb-24">
-          <div className="max-w-4xl mx-auto">
-            {/* Eyebrow + oversized heading: the strongest signal that this is
-                editorial rather than another product page. */}
-            <p className="text-primary text-sm font-semibold tracking-wide mb-4">
-              {ui.indexEyebrow}
-            </p>
-            <h1 className="text-[2.1rem] md:text-5xl font-bold leading-[1.12] tracking-tight mb-5">
-              {ui.indexTitle}
-            </h1>
-            <p className="text-lg text-gray-400 leading-relaxed mb-9 max-w-2xl">{ui.indexSubtitle}</p>
+        <main className="pt-32 pb-24">
+          <div className="container-page">
+            <div className="mx-auto max-w-4xl">
+              {/* Eyebrow + oversized heading: the strongest signal that this is
+                  editorial rather than another product page. */}
+              <p className="eyebrow mb-4">{ui.indexEyebrow}</p>
+              <h1 className="display-2 mb-5 text-ink">{ui.indexTitle}</h1>
+              <p className="mb-9 max-w-2xl text-lg leading-relaxed text-ink-6">{ui.indexSubtitle}</p>
 
-            <div className="flex flex-wrap gap-2 mb-10" role="group" aria-label={ui.indexEyebrow}>
-              <CategoryChip
-                active={active === 'all'}
-                label={ui.allPosts}
-                onClick={() => setActive('all')}
-              />
-              {categories.map((category) => (
+              <div className="mb-10 flex flex-wrap gap-2" role="group" aria-label={ui.indexEyebrow}>
                 <CategoryChip
-                  key={category}
-                  active={active === category}
-                  label={CATEGORY_LABEL[category][locale]}
-                  onClick={() => setActive(category)}
+                  active={active === 'all'}
+                  label={ui.allPosts}
+                  onClick={() => setActive('all')}
                 />
-              ))}
-            </div>
-
-            {visible.length === 0 && (
-              <p className="text-gray-500 py-16 text-center">{ui.emptyCategory}</p>
-            )}
-
-            {featured && (
-              <div className="mb-8">
-                <FeaturedCard post={featured} locale={locale} />
+                {categories.map((category) => (
+                  <CategoryChip
+                    key={category}
+                    active={active === category}
+                    label={CATEGORY_LABEL[category][locale]}
+                    onClick={() => setActive(category)}
+                  />
+                ))}
               </div>
-            )}
 
-            {rest.length > 0 && (
-              <>
-                {featured && (
-                  <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mt-12 mb-4">
-                    {ui.morePosts}
-                  </h2>
-                )}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {rest.map((post) => (
-                    <PostCard key={post.slug} post={post} locale={locale} />
-                  ))}
+              {visible.length === 0 && (
+                <p className="muted py-16 text-center">{ui.emptyCategory}</p>
+              )}
+
+              {featured && (
+                <div className="mb-8">
+                  <FeaturedCard post={featured} locale={locale} />
                 </div>
-              </>
-            )}
+              )}
 
-            <p className="text-xs text-gray-600 mt-12 leading-relaxed">{ui.disclosure}</p>
+              {rest.length > 0 && (
+                <>
+                  {featured && (
+                    <h2 className="index-num mt-12 mb-4 block">{ui.morePosts}</h2>
+                  )}
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {rest.map((post) => (
+                      <PostCard key={post.slug} post={post} locale={locale} />
+                    ))}
+                  </div>
+                </>
+              )}
 
-            <section className="mt-14 rounded-3xl border border-primary/30 bg-gradient-to-b from-primary/10 to-transparent p-8 md:p-10">
-              <h2 className="text-2xl font-bold mb-2">{ui.ctaTitle}</h2>
-              <p className="text-gray-400 text-sm mb-6 leading-relaxed max-w-xl">{ui.ctaBody}</p>
-              <Link
-                to={`/${locale}`}
-                className="cta-button inline-block text-white text-sm font-semibold px-6 py-3 rounded-full"
-              >
-                {t.nav_cta}
-              </Link>
-            </section>
+              <p className="mt-12 text-xs leading-relaxed text-ink-5">{ui.disclosure}</p>
+
+              <section className="ink-band mt-14 rounded-lg p-8 md:p-10">
+                <h2 className="mb-2 text-2xl">{ui.ctaTitle}</h2>
+                <p className="muted mb-6 max-w-xl text-sm leading-relaxed">{ui.ctaBody}</p>
+                <a
+                  href={APP_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-primary"
+                >
+                  {t.nav.cta_primary}
+                </a>
+              </section>
+            </div>
           </div>
         </main>
 

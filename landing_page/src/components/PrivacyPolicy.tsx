@@ -47,16 +47,16 @@ export const PrivacyPolicy = () => {
         <meta name="robots" content="noindex, follow" />
       </Helmet>
 
-      <div className="min-h-screen bg-dark-bg text-white">
-        <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-4 bg-dark-bg/80 backdrop-blur-lg border-b border-dark-border">
-          <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <Link to={`/${lang}`} className="text-2xl font-bold gradient-text">
+      <div className="min-h-screen bg-paper text-ink-8">
+        <nav className="fixed left-0 right-0 top-0 z-50 border-b border-line bg-paper/85 px-6 py-4 backdrop-blur-lg">
+          <div className="mx-auto flex max-w-7xl items-center justify-between">
+            <Link to={`/${lang}`} className="font-display text-2xl font-semibold text-ink">
               MonoSub
             </Link>
             <div className="flex items-center gap-4">
               <Link
                 to={`/${lang}`}
-                className="hidden sm:inline text-gray-400 hover:text-white transition-colors text-sm"
+                className="hidden text-sm text-ink-6 transition-colors hover:text-ink sm:inline"
               >
                 {content.back_home}
               </Link>
@@ -65,68 +65,66 @@ export const PrivacyPolicy = () => {
           </div>
         </nav>
 
-        <main className="max-w-3xl mx-auto px-6 pt-28 pb-16">
-          <p className="text-sm text-gray-500">
-            {content.last_updated_label}: {content.last_updated}
-          </p>
-          <h1 className="text-4xl font-bold mt-2 mb-6">{content.title}</h1>
-          <p className="text-gray-400 mb-12 leading-relaxed">{content.intro}</p>
+        <main className="pt-28 pb-16">
+          <div className="container-page">
+            <div className="mx-auto max-w-3xl">
+              <p className="text-sm text-ink-5">
+                {content.last_updated_label}: {content.last_updated}
+              </p>
+              <h1 className="display-2 mt-2 mb-6 text-ink">{content.title}</h1>
+              <p className="mb-12 leading-relaxed text-ink-6">{content.intro}</p>
 
-          {content.sections.map((section) => (
-            <section key={section.heading} className="mb-10">
-              <h2 className="text-xl font-semibold text-primary mb-3">{section.heading}</h2>
-              {section.paragraphs.map((paragraph) => (
-                <p key={paragraph} className="text-gray-400 leading-relaxed mb-3">
-                  {paragraph}
-                </p>
-              ))}
-              {section.table && (
-                <div className="overflow-x-auto mt-2 mb-4">
-                  <table className="w-full text-left text-sm border-collapse">
-                    <thead>
-                      <tr>
-                        {section.table.headers.map((header) => (
-                          <th
-                            key={header}
-                            className="border border-dark-border px-3 py-2 text-primary font-semibold"
-                          >
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {section.table.rows.map((row) => (
-                        <tr key={row.join('|')}>
-                          {row.map((cell) => (
-                            <td
-                              key={cell}
-                              className="border border-dark-border px-3 py-2 text-gray-400 align-top"
-                            >
-                              {cell}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {section.list && (
-                <ul className="list-disc list-inside text-gray-400 space-y-1.5 leading-relaxed">
-                  {section.list.map((item) => (
-                    <li key={item}>{item}</li>
+              {content.sections.map((section) => (
+                <section key={section.heading} className="mb-10">
+                  <h2 className="mb-3 text-xl font-semibold text-ink">{section.heading}</h2>
+                  {section.paragraphs.map((paragraph) => (
+                    <p key={paragraph} className="mb-3 leading-relaxed text-ink-6">
+                      {paragraph}
+                    </p>
                   ))}
-                </ul>
-              )}
-              {section.afterList &&
-                section.afterList.map((paragraph) => (
-                  <p key={paragraph} className="text-gray-400 leading-relaxed mt-3">
-                    {paragraph}
-                  </p>
-                ))}
-            </section>
-          ))}
+                  {section.table && (
+                    <div className="table-wrap mt-2 mb-4">
+                      <table>
+                        <thead>
+                          <tr>
+                            {section.table.headers.map((header) => (
+                              <th key={header} scope="col">
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {section.table.rows.map((row) => (
+                            <tr key={row.join('|')}>
+                              {row.map((cell, column) => (
+                                <td key={cell} data-label={section.table!.headers[column]}>
+                                  {cell}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {section.list && (
+                    <ul className="list-inside list-disc space-y-1.5 leading-relaxed text-ink-6">
+                      {section.list.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {section.afterList &&
+                    section.afterList.map((paragraph) => (
+                      <p key={paragraph} className="mt-3 leading-relaxed text-ink-6">
+                        {paragraph}
+                      </p>
+                    ))}
+                </section>
+              ))}
+            </div>
+          </div>
         </main>
 
         <Footer />

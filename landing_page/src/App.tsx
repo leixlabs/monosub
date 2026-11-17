@@ -3,14 +3,16 @@ import { Helmet } from 'react-helmet-async';
 import { useLanguage } from './hooks/useLanguage';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
+import { Answer } from './components/Answer';
+import { WhyLocal } from './components/WhyLocal';
+import { HowItWorks } from './components/HowItWorks';
 import { Showcase } from './components/Showcase';
-import { PainPoints } from './components/PainPoints';
 import { Features } from './components/Features';
 import { Pricing } from './components/Pricing';
 import { FAQ } from './components/FAQ';
 import { FinalCTA } from './components/FinalCTA';
 import { Footer } from './components/Footer';
-import { alternateLinks, joinSentence, pageUrl } from './lib/seo';
+import { alternateLinks, pageUrl } from './lib/seo';
 import { buildStructuredData } from './lib/structuredData';
 import { absoluteUrl } from './lib/site';
 
@@ -18,13 +20,12 @@ function App() {
   const { lang, t, isRTL } = useLanguage();
 
   useEffect(() => {
-    // Set HTML lang and dir attributes
     document.documentElement.lang = lang;
     document.documentElement.dir = isRTL ? 'rtl' : 'ltr';
   }, [lang, isRTL]);
 
   const canonical = pageUrl(lang, 'home');
-  const description = joinSentence(t.hero_subtitle_line1, t.hero_subtitle_line2);
+  const description = t.page_description;
   const jsonLd = buildStructuredData(lang, t, `/${lang}/`);
 
   return (
@@ -37,7 +38,7 @@ function App() {
         {/* Canonical */}
         <link rel="canonical" href={canonical} />
 
-        {/* Hreflang tags — only the two shipped locales are advertised */}
+        {/* Hreflang — only the two shipped locales are advertised */}
         {alternateLinks('home').map((link) => (
           <link key={link.hrefLang} rel="alternate" hrefLang={link.hrefLang} href={link.href} />
         ))}
@@ -50,7 +51,7 @@ function App() {
         <meta property="og:image" content={absoluteUrl('/og-image.jpg')} />
         <meta property="og:image:width" content="1200" />
         <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content={t.hero_shot_1} />
+        <meta property="og:image:alt" content={t.og_alt} />
         <meta property="og:site_name" content="MonoSub" />
         <meta property="og:locale" content={lang === 'zh' ? 'zh_CN' : 'en_US'} />
 
@@ -72,15 +73,19 @@ function App() {
         <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>
       </Helmet>
 
-      <div className="min-h-screen bg-dark-bg text-white">
+      <div className="min-h-screen">
         <Navbar />
-        <Hero />
-        <Showcase />
-        <PainPoints />
-        <Features />
-        <Pricing />
-        <FAQ />
-        <FinalCTA />
+        <main>
+          <Hero />
+          <Answer />
+          <WhyLocal />
+          <HowItWorks />
+          <Showcase />
+          <Features />
+          <Pricing />
+          <FAQ />
+          <FinalCTA />
+        </main>
         <Footer />
       </div>
     </>

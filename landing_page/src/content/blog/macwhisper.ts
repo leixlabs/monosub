@@ -41,8 +41,8 @@ export const macwhisper: Post = {
         rows: [
           ['Windows', '✓ 微软商店，签名安装', '✗ 不支持'],
           ['macOS', '✓ Apple Silicon，GitHub Releases', '✓ Intel 与 Apple Silicon'],
-          ['价格', '¥48 / $9.99 买断（Windows）', '€64 买断（Pro）'],
-          ['免费额度', 'macOS 版免费获取', '免费版可用，小模型'],
+          ['价格', '免费 / Pro ¥48 一次性', '€64 买断（Pro）'],
+          ['免费额度', '免费下载；单文件免费', '免费版可用，小模型'],
           ['离线处理', '✓ 全程本地', '✓ 全程本地'],
           ['说话人分离', '✓ 独立模型，队列中逐文件开关', '✓（标注 beta）'],
           ['字幕翻译', '✓ 本地翻译模型，离线', '✓（可接本地或云端模型）'],
@@ -78,7 +78,7 @@ export const macwhisper: Post = {
       { kind: 'h3', text: '4. 价格' },
       {
         kind: 'p',
-        text: 'MonoSub 的 Windows 版 ¥48 / $9.99，MacWhisper Pro €64（约合 $69）。两者都是买断制，没有订阅。价差本身不算决定性，但如果你的需求就是批量出字幕，多付的部分买的是 MonoSub 并不提供的那些功能。',
+        text: 'MonoSub 本体免费下载，单文件转换免费；批量用的 Pro 是一次性购买：Mac App Store 内购 $9.99 / ¥48，直营店离线授权 ¥36 / $8.60，Windows 商店版 ¥48 / $9.99 已含 Pro。MacWhisper Pro €64（约合 $69），同样是买断、没有订阅。价差本身不算决定性，但如果你的需求就是批量出字幕，多付的部分买的是 MonoSub 并不提供的那些功能。',
       },
 
       { kind: 'h2', text: 'MacWhisper 在哪里更合适' },
@@ -141,7 +141,7 @@ export const macwhisper: Post = {
           ['要转写稿推送到 Notion 等', 'MacWhisper'],
           ['要离线翻译且不想配 API', 'MonoSub'],
           ['只用 macOS，且要最全功能', 'MacWhisper（Pro）'],
-          ['预算敏感，只要字幕', 'MonoSub（¥48）'],
+          ['预算敏感，只要字幕', 'MonoSub（免费 / Pro ¥48）'],
         ],
       },
     ],
@@ -170,8 +170,8 @@ export const macwhisper: Post = {
         rows: [
           ['Windows', '✓ Microsoft Store, signed install', '✗ Not supported'],
           ['macOS', '✓ Apple Silicon, GitHub Releases', '✓ Intel and Apple Silicon'],
-          ['Price', '¥48 / $9.99 one-time (Windows)', '€64 one-time (Pro)'],
-          ['Free tier', 'macOS build is free to obtain', 'Free tier, smaller models'],
+          ['Price', 'Free / Pro ¥48 one-time', '€64 one-time (Pro)'],
+          ['Free tier', 'Free download; single file at a time', 'Free tier, smaller models'],
           ['Offline', '✓ Everything local', '✓ Everything local'],
           ['Speaker diarization', '✓ Dedicated model, per-row toggle in the queue', '✓ (labelled beta)'],
           ['Subtitle translation', '✓ Local translation model, offline', '✓ (local or cloud models)'],
@@ -207,7 +207,7 @@ export const macwhisper: Post = {
       { kind: 'h3', text: '4. Price' },
       {
         kind: 'p',
-        text: 'MonoSub for Windows is ¥48 / $9.99; MacWhisper Pro is €64 (roughly $69). Both are one-time purchases with no subscription. The gap is not decisive on its own, but if your need is batch subtitles, the extra buys features MonoSub does not offer.',
+        text: 'MonoSub itself is a free download, and a single file at a time is free; Pro for batch work is a one-time purchase — $9.99 / ¥48 as a Mac App Store in-app purchase, or ¥36 / $8.60 as a direct-store offline licence, with the Windows Store build at ¥48 / $9.99 including Pro. MacWhisper Pro is €64 (roughly $69), also one-time with no subscription. The gap is not decisive on its own, but if your need is batch subtitles, the extra buys features MonoSub does not offer.',
       },
 
       { kind: 'h2', text: 'Where MacWhisper fits better' },
@@ -270,7 +270,7 @@ export const macwhisper: Post = {
           ['You want transcripts pushed into Notion and friends', 'MacWhisper'],
           ['You want offline translation without configuring an API', 'MonoSub'],
           ['macOS only, and you want the fullest feature set', 'MacWhisper (Pro)'],
-          ['Budget matters and you only need subtitles', 'MonoSub (¥48)'],
+          ['Budget matters and you only need subtitles', 'MonoSub (free / Pro ¥48)'],
         ],
       },
     ],

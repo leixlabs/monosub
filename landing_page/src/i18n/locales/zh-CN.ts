@@ -1,155 +1,290 @@
-import { Translation } from '../index';
+import type { Translation } from '../index';
 
 const zhCN: Translation = {
-  page_title: 'MonoSub - 本地 AI 字幕生成 · Windows 与 macOS',
-  mobile_select_language: '选择语言',
+  lang_name: '中文（简体）',
 
-  // Navigation
-  nav_features: '功能',
-  nav_screenshots: '界面',
-  nav_pricing: '价格',
-  nav_faq: 'FAQ',
-  nav_blog: '博客',
-  nav_cta: '获取应用',
+  page_title: 'MonoSub — 本地 AI 字幕生成 · 视频转字幕不上传 · Mac 与 Windows',
+  page_description:
+    '在自己的 Mac 或 PC 上把视频和音频转成字幕：不上传、不需要账号、没有订阅。免费下载，批量转写用一次性 Pro 解锁。',
+  og_alt: 'MonoSub 本地字幕应用在 Mac 上的界面',
 
-  // Hero
-  hero_title_line1: '将视频和音频转换为文本。',
-  hero_title_line2: '本地处理。',
-  hero_title_line3: '一次买断。',
-  hero_subtitle_line1: '100% 本地 AI 转录，无需云服务',
-  hero_subtitle_line2: '一次买断，没有订阅',
-  hero_cta: '前往微软商店',
-  hero_cta_mac: '下载 macOS 版',
-  hero_price_note: '¥48 · 一次买断 · 无需账户',
-  hero_learn_more: '了解更多',
-  hero_trust: '一次买断',
-  hero_platform: 'Windows · macOS',
+  nav: {
+    features: '能做什么',
+    how: '怎么用',
+    pricing: '价格',
+    faq: '问题',
+    blog: '博客',
+    cta_primary: '免费下载',
+    cta_secondary: '获取 Pro',
+  },
 
-  // Hero carousel
-  carousel_prev: '上一张截图',
-  carousel_next: '下一张截图',
-  hero_shot_1: '文件队列，每一行都有自己的说话人分离与翻译开关',
-  hero_shot_2: '批量处理：一个文件在跑，其余等待空闲位置',
-  hero_shot_3: '完成的行同时写出了翻译版本',
-  hero_shot_4: '复制一条受支持的视频链接，应用主动提示导入',
-  hero_shot_5: '浅色与深色主题',
+  hero: {
+    eyebrow: '本地优先的字幕工具',
+    title: '把视频变成字幕。',
+    title_accent: '不上传，就在本机。',
+    subtitle:
+      'MonoSub 的语音识别与翻译完全在你的 Mac 或 PC 上运行。素材从不上传——不需要账号，没有订阅，也没有按分钟计费。',
+    cta_primary: '免费下载（Mac）',
+    cta_secondary: '查看所有下载方式',
+    note: '免费开始使用；批量转写用一次性 Pro 授权解锁。',
+    trust: ['100% 本机运行', '免费下载', '一次性 Pro，永不订阅'],
+    shot_caption: '队列，以及每一行独立的说话人与翻译开关。',
+  },
 
-  // Screenshot showcase
-  showcase_title: '直接看界面',
-  showcase_subtitle: '下面每一张都是 MonoSub 的真实截图，不是效果图。',
-  showcase_tab_queue: '队列与批量',
-  showcase_tab_translate: '字幕翻译',
-  showcase_tab_speakers: '说话人与模型',
-  showcase_tab_url: '链接导入',
-  showcase_queue_desc: '想拖入多少文件都可以。每一行都有独立的说话人分离与翻译开关，队列按你设定的并发数依次处理，每个步骤都有各自的进度。',
-  showcase_translate_desc: '本地翻译模型把完成后的字幕改写为第二种语言，并单独写成一个文件——识别出的原始字幕不会被改动，所以翻译失败也不会弄丢你的成果。',
-  showcase_speakers_desc: '说话人分离逐条字幕标注"谁在何时说话"。选模型时只需回答四个问题：语种场景、是否分离说话人、是否需要词级时间戳、显存预算。',
-  showcase_url_desc: '粘贴一条受支持的视频链接，视频自带字幕时直接取用平台字幕；没有字幕时则下载音频在本地转写，走的仍是与本地文件完全相同的流程。',
-  shot_queue: '队列，以及每一行的独立开关',
-  shot_batch: '批量运行中',
-  shot_rowstates: '跳过、等待空位、已翻译与部分未翻译的行',
-  shot_translated: '翻译后的字幕与原始字幕并存',
-  shot_translate_settings: '翻译设置与模型下载',
-  shot_models: '模型选择与实时方案预览',
-  shot_catalogue: '模型列表——按需下载与删除',
-  shot_url_rows: '链接导入：下载中、已获取、需要登录、网络错误',
-  shot_url_dialog: '「从链接导入」面板',
-  shot_clipboard: '剪贴板里有链接时的一键导入',
+  answer: {
+    eyebrow: '先说结论',
+    title: '可以——不上传文件，也能生成字幕。',
+    body: 'MonoSub 是一个在你本机完成转录和翻译的桌面应用。拖入文件、选好模型，就能拿到 SRT、VTT、TXT、Markdown 或 JSON。语音引擎和翻译模型都在你自己的硬件上运行，所以文件不上传，模型下载完成后也无需联网。',
+    stats: [
+      { value: '0', label: '上传字节——文件始终留在你的磁盘上' },
+      { value: '5', label: '种导出格式：SRT、VTT、TXT、MD、JSON' },
+      { value: '1×', label: '一次性 Pro 解锁，没有月度账单' },
+    ],
+  },
 
-  // Pain Points
-  pain_title: '厌倦了云服务?',
-  pain_subtitle: '把私人内容上传到云端，既贵又慢',
-  pain_cloud_title: '❌ 云端订阅服务',
-  pain_cloud_1: '视频要上传到第三方服务器',
-  pain_cloud_2: '敏感内容存在隐私风险',
-  pain_cloud_3: '依赖网络，处理速度受网速限制',
-  pain_cloud_4: '每月都要付，永远付不完',
-  pain_local_title: '✅ MonoSub 解决方案',
-  pain_local_1: '100% 本地处理，数据绝不离开你的电脑',
-  pain_local_2: '完全离线可用，硬件加速极速处理',
-  pain_local_3: '一次付费，没有订阅，没有按分钟计费',
-  pain_local_4: '专业功能全部包含，不做二次收费',
+  why: {
+    eyebrow: '01 — 为什么本地',
+    q: '为什么不直接用云端转写服务？',
+    a: '云端工具在文件不重要时很方便；但一旦它重要起来——未公开的视频、客户访谈、内部会议——上传就意味着它离开你的电脑，停在别人的服务器上，而按分钟计费也会悄悄变成订阅。MonoSub 去掉了上传和计时器：活干在文件本来就在的地方。',
+    cloud_title: '云端转写',
+    local_title: 'MonoSub',
+    cloud: [
+      '文件要上传到第三方服务器',
+      '按分钟计费，或一份你忘了的月付套餐',
+      '依赖网络，还要排在别人后面',
+      '无法确认上传的文件何时被删除',
+    ],
+    local: [
+      '文件只在你磁盘上读取，绝不上传',
+      '单文件免费；Pro 是一次性解锁',
+      '模型下载完成后完全离线可用',
+      'Apple Silicon 与 NVIDIA GPU 硬件加速',
+    ],
+  },
 
-  // Features
-  features_title: '强大的功能,简单的工作流',
-  features_subtitle: '拖入一个文件，得到一份字幕，就这样',
-  feature_1_title: '🏠 100% 本地处理',
-  feature_1_desc: '语音识别与字幕翻译全部在本机完成，数据绝不离开你的电脑，隐私完全由你掌控。',
-  feature_2_title: '🌍 字幕本地翻译',
-  feature_2_desc: '内置本地翻译模型，一键将字幕翻译为中文、英文等多语言，全程离线、无需额外付费。',
-  feature_3_title: '🗣️ 说话人识别',
-  feature_3_desc: '自动区分不同说话人，标注"谁在何时说话"，适合访谈、会议、播客等多人场景。',
-  feature_4_title: '⚡ 硬件加速',
-  feature_4_desc: 'Apple Silicon 上走 Metal，Windows 上是同一套推理引擎，本地转写与翻译速度更快。',
-  feature_5_title: '📝 多格式输出',
-  feature_5_desc: '导出 SRT、VTT、TXT、MD、JSON 五种字幕格式，兼容主流视频编辑软件与播放器。',
-  feature_6_title: '🎯 批量处理',
-  feature_6_desc: '多文件队列批量转写，一次拖入多个视频或音频自动排队处理，适合大批量素材。',
-  feature_7_title: '🔗 链接导入',
-  feature_7_desc: '粘贴受支持的视频链接即可取用平台字幕；没有字幕时，MonoSub 会下载音频并在本地转写。',
-  feature_8_title: '⏱️ 词级时间戳',
-  feature_8_desc: '按词对齐生成字幕时间轴，并额外写出词/静音文件，可以直接按文字剪视频。',
+  how: {
+    eyebrow: '02 — 怎么用',
+    title: '三步，没有一步需要上传。',
+    subtitle: 'macOS 和 Windows 走同一套流程：识别、可选翻译、导出，全部在本机完成。',
+    steps: [
+      {
+        title: '下载安装',
+        desc: '从 App Store 或微软商店获取，也可以直接用免费直装版。它就是普通桌面应用——不需要账号，不用登录。',
+      },
+      {
+        title: '把文件拖进来',
+        desc: '拖入一个视频，或一整个文件夹。免费版一次处理一个文件；Pro 解除这个限制，让队列并行跑完。',
+      },
+      {
+        title: '把字幕导出去',
+        desc: '导出 SRT、VTT、TXT、Markdown 或 JSON 词级文件——可选翻译成第二种语言，并与原文件并排写出。',
+      },
+    ],
+    note: '首次运行会从「设置 → 模型」下载一个你选定的语音模型（约 250 MB）。之后转录完全离线。',
+  },
 
-  // Pricing
-  pricing_title: '一个价格。没有订阅。',
-  pricing_subtitle: 'Windows 上买一次，之后一直用。macOS 版从 GitHub Releases 获取。',
-  pricing_windows_platform: 'Windows 10 / 11 (x64)',
-  pricing_windows_price: '¥48',
-  pricing_windows_price_note: '中国区价格 · 一次买断 · 微软商店',
-  pricing_windows_cta: '前往微软商店',
-  pricing_mac_platform: 'macOS 11+ (Apple Silicon)',
-  pricing_mac_price: 'GitHub',
-  pricing_mac_price_note: '从 Releases 获取当前版本',
-  pricing_mac_cta: '打开 Releases',
-  pricing_table_title: '两个版本跑的是同一个程序',
-  pricing_col_feature: '包含内容',
-  pricing_col_store: '微软商店',
-  pricing_col_mac: 'macOS · Releases',
-  pricing_row_transcription: '语音转录',
-  pricing_row_export: '导出 SRT、TXT、VTT、MD',
-  pricing_row_batch: '批量处理',
-  pricing_row_translate: '字幕翻译',
-  pricing_row_speakers: '说话人分离',
-  pricing_row_words: '词级时间戳',
-  pricing_row_signed: '平台签名验证',
-  pricing_row_updates: '自动更新',
-  pricing_row_setup: '安装成本',
-  pricing_setup_store: '一键',
-  pricing_setup_mac: '拖一下',
-  pricing_footnote: 'macOS 版是 ad-hoc 签名，首次启动需要执行 README 里那行 xattr 命令。',
-  pricing_note_title: '¥48 到底买的是什么',
-  pricing_note_body: '微软的签名、一键安装，以及不用你操心的自动更新。买的不是功能——上表里的每一项能力，两个版本都有。没有授权码、没有账号，也不存在"付费前功能关着"这回事。',
-  pricing_source_note: '源码以源码可见许可公开，所以自行编译始终是一个选项——不需要授权码、不需要账号、没有功能门禁。',
+  showcase: {
+    eyebrow: '03 — 看界面',
+    title: '直接看真实的界面。',
+    subtitle: '下面每一张都是 MonoSub 的真实截图，不是效果图。',
+    tours: [
+      {
+        id: 'queue',
+        label: '队列与批量',
+        desc: '想拖入多少文件都可以。每一行都有独立的说话人分离与翻译开关，队列按你设定的并发数依次处理，每个步骤都有各自的进度。',
+        shots: [
+          '队列，以及每一行的独立开关',
+          '批量运行中',
+          '跳过、等待空位、已翻译与部分未翻译的行',
+        ],
+      },
+      {
+        id: 'translate',
+        label: '字幕翻译',
+        desc: '本地翻译模型把完成后的字幕改写为第二种语言，并单独写成一个文件——识别出的原始字幕不会被改动，所以翻译失败也不会弄丢你的成果。',
+        shots: ['翻译后的字幕与原始字幕并存', '翻译设置与模型下载'],
+      },
+      {
+        id: 'speakers',
+        label: '说话人与模型',
+        desc: '说话人分离逐条字幕标注「谁在何时说话」。选模型时只需回答四个问题：语种场景、是否分离说话人、是否需要词级时间戳、显存预算。',
+        shots: ['模型选择与实时方案预览', '模型列表——按需下载与删除'],
+      },
+      {
+        id: 'url',
+        label: '链接导入',
+        desc: '粘贴一条受支持的视频链接，视频自带字幕时直接取用平台字幕；没有字幕时则下载音频在本地转写，走的仍是与本地文件完全相同的流程。',
+        shots: ['链接导入：下载中、已获取、需要登录、网络错误', '「从链接导入」面板', '剪贴板里有链接时的一键导入'],
+      },
+    ],
+  },
 
-  // FAQ
-  faq_title: '常见问题',
-  faq_subtitle: '快速解答你的疑问',
-  faq_1_q: '支持哪些操作系统?',
-  faq_1_a: 'Windows 10 / 11 (x64) 通过微软商店安装，macOS 11+ (Apple Silicon) 通过 GitHub Releases 获取。Linux 版本正在开发中。',
-  faq_2_q: '多少钱?',
-  faq_2_a: 'Windows 版通过微软商店一次买断 ¥48（$9.99）。付一次即可，没有订阅，也没有内购——商店不会再来找你要第二笔钱。macOS 版从 GitHub Releases 获取。',
-  faq_3_q: '与云端服务相比有什么优势?',
-  faq_3_a: '主要优势包括: 1. 隐私: 数据不出本机, 完全掌控; 2. 速度: 本地硬件加速, 处理更快; 3. 自由: 离线可用, 不按分钟计费; 4. 成本: 一次付费, 而不是每月账单。',
-  faq_4_q: '支持哪些视频格式?',
-  faq_4_a: 'MonoSub 支持几乎所有主流视频格式,包括:MP4, MOV, AVI, MKV, FLV, WMV 等。只要包含音频轨道的视频文件都可以生成字幕。',
-  faq_5_q: '需要联网才能使用吗?',
-  faq_5_a: '转录不需要。安装完成后 MonoSub 完全离线工作——所有 AI 模型与处理引擎都在本地运行。只有下载模型（以及从商店安装本身）需要联网。',
-  faq_6_q: '有退款政策吗?',
-  faq_6_a: '微软商店的购买由微软按其自身退款政策处理——MonoSub 不经手付款，退款请向商店申请。',
+  features: {
+    eyebrow: '04 — 能做什么',
+    title: '能力，没有小字条件。',
+    subtitle: '下面每一项功能都在免费下载里。Pro 只改变你一次能处理几个文件。',
+    items: [
+      {
+        title: '100% 本地处理',
+        desc: '语音识别与字幕翻译全部在本机完成，数据绝不离开你的电脑，隐私完全由你掌控。',
+      },
+      {
+        title: '字幕本地翻译',
+        desc: '内置本地翻译模型，一键把字幕翻译为中文、英文等多语言，全程离线、无需额外付费。',
+      },
+      {
+        title: '说话人分离',
+        desc: '逐条字幕自动区分「谁在何时说话」，适合访谈、会议、播客等多人场景。',
+      },
+      {
+        title: '硬件加速',
+        desc: 'Apple Silicon 上走 Metal，Windows 上是同一套推理引擎，本地转写与翻译速度更快。',
+      },
+      {
+        title: '链接导入',
+        desc: '粘贴受支持的视频链接即可取用平台字幕；没有字幕时，会下载音频并在本地转写。',
+      },
+      {
+        title: '词级时间戳',
+        desc: '按词对齐生成字幕时间轴，并额外写出词/静音文件，可以直接按文字剪视频。',
+      },
+      {
+        title: '全部导出格式',
+        desc: '导出 SRT、VTT、TXT、MD、JSON，兼容主流视频编辑软件、播放器与 LLM 流程。',
+      },
+      {
+        title: '批量处理',
+        desc: '把整个素材库排进队列一次跑完。免费版一次一个文件；Pro 让它们并行处理。',
+      },
+    ],
+  },
 
-  // Final CTA
-  final_title: '准备好提升你的字幕工作流?',
-  final_subtitle: '把视频变成文本，全程本地。付一次，永久拥有。',
-  final_cta: '前往微软商店',
-  final_trust_1: '一次买断',
-  final_trust_2: '无需订阅',
-  final_trust_3: 'Windows 与 macOS',
+  pricing: {
+    eyebrow: '05 — 价格',
+    title: '下载免费，只有批量时才需要 Pro。',
+    subtitle: '没有订阅、没有按分钟计费、不需要账号。需要同时处理多个文件时，一次性购买 Pro。',
+    plans: [
+      {
+        id: 'free',
+        name: '免费版',
+        badge: '永久免费',
+        price: '¥0',
+        priceNote: '不用绑卡、不用账号',
+        summary: '一次一个文件。',
+        features: [
+          '完整的转录与翻译引擎',
+          '全部导出格式：SRT、VTT、TXT、MD、JSON',
+          '说话人分离与词级时间戳',
+          '队列中同时只处理一个文件',
+        ],
+        cta: '免费下载',
+      },
+      {
+        id: 'pro',
+        name: 'MonoSub Pro',
+        badge: '一次性解锁',
+        price: '¥48',
+        priceNote: 'App Store 内购 ¥48 / $9.99 · 或直营店 ¥36 / $8.60',
+        summary: '一次一个文件夹。',
+        features: ['免费版的全部功能', '队列不限文件数量', '整个素材库并行批量处理', '免费的小版本更新'],
+        cta: '解锁 Pro',
+      },
+    ],
+    proNoteTitle: 'Pro 到底解锁了什么',
+    proNote:
+      '只有一件事：单文件限制。所有能力——说话人分离、词级时间戳、翻译、全部导出格式——免费版都有。Pro 是给「处理一整个文件夹」的人，而不是「处理一个文件」的人。',
+    channelsTitle: '在哪儿获取',
+    channelsNote:
+      '价格以美元标示，App Store 与微软商店会按你所在地区结算。App Store 版已在美国及多数地区上架，中国大陆区仍在备案中。',
+    columns: { platform: '平台', price: '价格', pro: 'Pro 怎么算' },
+    channels: [
+      {
+        id: 'appstore',
+        platform: 'macOS · App Store',
+        price: '免费',
+        pro: '内购 · ¥48 / $9.99',
+        note: '中国区备案中',
+      },
+      {
+        id: 'direct',
+        platform: 'macOS / Windows · 直营店',
+        price: '免费直装',
+        pro: '离线授权 · ¥36 / $8.60',
+        note: '授权不绑设备，两平台通用',
+      },
+      {
+        id: 'windows',
+        platform: 'Windows · 微软商店',
+        price: '免费',
+        pro: '内购 · ¥48 / $9.99',
+        note: '签名、一键安装、自动更新',
+      },
+      {
+        id: 'source',
+        platform: '任意平台 · 源码构建',
+        price: '免费',
+        pro: '—',
+        note: '源码可见许可',
+      },
+    ],
+  },
 
-  // Footer
-  footer_copyright: '© 2025 MonoSub. Built by Matrix Agent.',
-  footer_terms: '服务条款',
-  footer_privacy: '隐私政策',
-  footer_contact: '联系我们'
+  faq: {
+    eyebrow: '问题',
+    title: '大家真正会问的问题。',
+    subtitle: '简短回答。没覆盖到的，博客里有更深的对比。',
+    items: [
+      {
+        q: 'MonoSub 会上传我的文件吗？',
+        a: '不会。语音识别与翻译都在你自己的机器上运行，音视频从不离开电脑。唯一的网络流量是你主动下载的模型文件，以及你粘贴的视频链接。',
+      },
+      {
+        q: '真的免费吗？',
+        a: '是。完整引擎免费下载、免费使用，一次一个文件——转录、翻译、说话人分离和全部导出格式都包含。Pro 是一次性购买，只用来解除单文件限制。',
+      },
+      {
+        q: 'Pro 多少钱，是订阅吗？',
+        a: 'Pro 是一次性购买：App Store 内购 ¥48 / $9.99，或直营店 checkout.leix.dev 的离线授权 ¥36 / $8.60。没有订阅，也没有按分钟计费。',
+      },
+      {
+        q: '支持哪些平台？',
+        a: 'macOS 12+（Apple Silicon）通过 App Store；Windows 10/11（x64）通过微软商店；macOS 另有一份免费构建在 GitHub Releases。',
+      },
+      {
+        q: '需要联网吗？',
+        a: '转录不需要。从「设置 → 模型」下载一次语音模型（约 250 MB），之后应用完全离线工作。',
+      },
+      {
+        q: '支持哪些语言和文件格式？',
+        a: '中文（普通话）、英文等，自动识别。视频音频都行——MP4、MOV、MKV、AVI、MP3、WAV、M4A、FLAC 等。导出 SRT、VTT、TXT、Markdown 或 JSON。',
+      },
+      {
+        q: '能一次跑一整个文件夹吗？',
+        a: '可以，用 Pro。免费版一次处理一个文件；Pro 解除限制，按你设定的并发数并行跑队列。批量处理是 Pro 唯一改变的东西。',
+      },
+      {
+        q: 'App Store 版在中国能下载吗？',
+        a: 'macOS 版已在美国及多数地区上架，中国大陆区仍在备案中。在此之前，直营店 checkout.leix.dev 的离线授权在中国可用，Windows 版在微软商店。',
+      },
+    ],
+  },
+
+  final: {
+    title: '视频本来就在你电脑上，文本也留在那儿。',
+    subtitle: '免费下载，几分钟就能转出第一份字幕。需要批量时再解锁 Pro。',
+    cta_primary: '免费下载（Mac）',
+    cta_secondary: '购买 Pro · ¥36 / $8.60',
+    trust: ['免费下载', '无需账号', '一次性 Pro'],
+  },
+
+  footer: {
+    tagline: '本地 AI 字幕，文件始终属于你。',
+    blog: '博客',
+    privacy: '隐私政策',
+    contact: '联系我们',
+    terms: '服务条款',
+    copyright: '© 2026 MonoSub',
+  },
 };
 
 export default zhCN;

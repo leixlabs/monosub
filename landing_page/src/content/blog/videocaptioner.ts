@@ -22,10 +22,10 @@ export const videocaptioner: Post = {
     en: 'It is free, open source and genuinely capable — so this post is about where the free part costs you.',
   },
   zh: {
-    title: 'MonoSub 与 VideoCaptioner（卡卡字幕助手）对比：免费开源与买断桌面版',
+    title: 'MonoSub 与 VideoCaptioner（卡卡字幕助手）对比：免费开源与 Pro 买断',
     metaTitle: 'MonoSub vs VideoCaptioner：免费开源字幕工具够用吗（2026）',
     description:
-      'VideoCaptioner 免费开源、功能惊人地全；MonoSub 是买断的桌面应用。两者都能本地出字幕，差别在配置成本、依赖边界和稳定性由谁负责。逐项对比。',
+      'VideoCaptioner 免费开源、功能惊人地全；MonoSub 免费下载、Pro 一次性买断的桌面应用。两者都能本地出字幕，差别在配置成本、依赖边界和稳定性由谁负责。逐项对比。',
     updated: '2026-10-27',
     intro:
       '这是最难写的一篇对比，因为 VideoCaptioner 是一个很强的免费工具：它把语音识别、语义断句、LLM 润色、翻译、字幕烧录串成一条完整流水线，GPL-3.0 开源，GitHub 上万级 star。如果你的第一诉求是"零成本"，它就是答案，本文也不会绕弯子。这篇真正要讨论的是：当它免费的时候，代价落在哪里。',
@@ -40,7 +40,7 @@ export const videocaptioner: Post = {
         kind: 'table',
         headers: ['', 'MonoSub', 'VideoCaptioner'],
         rows: [
-          ['价格', '¥48 / $9.99 买断（Windows）', '免费'],
+          ['价格', '免费 / Pro ¥48 一次性', '免费'],
           ['许可', '源码可见（PolyForm Small Business）', 'GPL-3.0 开源'],
           ['形态', '原生桌面应用（Tauri）', 'Python 应用，含 GUI 与 CLI'],
           ['运行环境', '无需 Python，内置推理引擎', '需要 Python 环境（或用打包安装包）'],
@@ -102,7 +102,7 @@ export const videocaptioner: Post = {
       { kind: 'h3', text: '3. 签名安装与自动更新' },
       {
         kind: 'p',
-        text: 'Windows 版通过微软商店分发：商店签名、一键安装、后台自动更新，不需要处理 SmartScreen 警告，也不需要每次手动下载新版本。这条路本身就是 ¥48 里的一部分。',
+        text: 'Windows 版通过微软商店分发：商店签名、一键安装、后台自动更新，不需要处理 SmartScreen 警告，也不需要每次手动下载新版本。这条路本身就是 Windows 商店版 ¥48 里的一部分。',
       },
       { kind: 'h3', text: '4. 队列是为一件事设计的' },
       {
@@ -117,7 +117,7 @@ export const videocaptioner: Post = {
       },
       {
         kind: 'p',
-        text: '另一侧的成本是 API：如果每月用 LLM 翻译十万字，按主流价格算是几元到几十元不等，取决于模型与用量。这个数字 Monthly 都会发生，而 MonoSub 的 ¥48 只发生一次。处理量越大，本地翻译模型的价值越明显——前提是你能接受它在质量上不如大模型。',
+        text: '另一侧的成本是 API：如果每月用 LLM 翻译十万字，按主流价格算是几元到几十元不等，取决于模型与用量。这个数字 Monthly 都会发生，而 MonoSub 的 Pro 一次性 ¥48 只发生一次。处理量越大，本地翻译模型的价值越明显——前提是你能接受它在质量上不如大模型。',
       },
 
       { kind: 'h2', text: '怎么选' },
@@ -137,14 +137,14 @@ export const videocaptioner: Post = {
       },
     ],
     verdict:
-      'VideoCaptioner 是一个值得尊重的项目，免费、开源、能力密度高，很多人的正确答案就是它。MonoSub 的 ¥48 买的不是更多功能，而是"不用配置、不用维护、不用管依赖，且翻译不产生持续账单"。愿意动手就用前者，愿意付钱省事就用后者——两者都不是错的。',
+      'VideoCaptioner 是一个值得尊重的项目，免费、开源、能力密度高，很多人的正确答案就是它。MonoSub 的 Pro 一次性 ¥48 买的不是更多功能，而是"不用配置、不用维护、不用管依赖，且翻译不产生持续账单"。愿意动手就用前者，愿意付钱省事就用后者——两者都不是错的。',
   },
 
   en: {
-    title: 'MonoSub vs VideoCaptioner: free and open source, or a paid desktop app',
+    title: 'MonoSub vs VideoCaptioner: free and open source, or a free app with a one-time Pro',
     metaTitle: 'MonoSub vs VideoCaptioner: is the free open-source tool enough? (2026)',
     description:
-      'VideoCaptioner is free, open source and remarkably complete; MonoSub is a paid desktop app. Both make local subtitles — the difference is who owns setup.',
+      'VideoCaptioner is free, open source and remarkably complete; MonoSub is a free download with a one-time Pro upgrade. Both make local subtitles — the difference is who owns setup.',
     updated: '2026-10-27',
     intro:
       'This is the hardest comparison on the site to write honestly, because VideoCaptioner is a genuinely strong free tool: speech recognition, semantic segmentation, LLM cleanup, translation and subtitle burn-in in one pipeline, GPL-3.0, tens of thousands of GitHub stars. If your first requirement is "costs nothing", it is the answer, and this page will not dance around that. What is worth discussing is where the cost lands when the software is free.',
@@ -159,7 +159,7 @@ export const videocaptioner: Post = {
         kind: 'table',
         headers: ['', 'MonoSub', 'VideoCaptioner'],
         rows: [
-          ['Price', '¥48 / $9.99 one-time (Windows)', 'Free'],
+          ['Price', 'Free / Pro ¥48 one-time', 'Free'],
           ['Licence', 'Source-available (PolyForm Small Business)', 'GPL-3.0 open source'],
           ['Form', 'Native desktop app (Tauri)', 'Python application, GUI and CLI'],
           ['Runtime', 'No Python; inference engines bundled', 'Python environment (or a packaged installer)'],
@@ -221,7 +221,7 @@ export const videocaptioner: Post = {
       { kind: 'h3', text: '3. Signed install and automatic updates' },
       {
         kind: 'p',
-        text: 'The Windows build ships through the Microsoft Store: signed, one-click, updated in the background. No SmartScreen warnings to talk a user through, no manual re-download each release. That distribution path is part of what the ¥48 buys.',
+        text: 'The Windows build ships through the Microsoft Store: signed, one-click, updated in the background. No SmartScreen warnings to talk a user through, no manual re-download each release. That distribution path is part of what the Windows Store ¥48 buys.',
       },
       { kind: 'h3', text: '4. The queue is designed for exactly one job' },
       {
@@ -236,7 +236,7 @@ export const videocaptioner: Post = {
       },
       {
         kind: 'p',
-        text: 'The other side is API spend: translating a hundred thousand characters a month through an LLM costs somewhere between a few and a few dozen yuan depending on model and volume. That recurs monthly; MonoSub’s ¥48 happens once. The heavier your throughput, the more the local translation model is worth — assuming you accept it is not as good as a large model.',
+        text: 'The other side is API spend: translating a hundred thousand characters a month through an LLM costs somewhere between a few and a few dozen yuan depending on model and volume. That recurs monthly; MonoSub’s one-time Pro ¥48 happens once. The heavier your throughput, the more the local translation model is worth — assuming you accept it is not as good as a large model.',
       },
 
       { kind: 'h2', text: 'How to choose' },
@@ -256,6 +256,6 @@ export const videocaptioner: Post = {
       },
     ],
     verdict:
-      'VideoCaptioner is a project worth respecting: free, open source, dense with capability, and for many people the correct answer. MonoSub’s ¥48 does not buy more features — it buys not having to configure, maintain or babysit dependencies, plus translation that generates no recurring bill. Tinker and use the former; pay to skip it and use the latter. Neither is wrong.',
+      'VideoCaptioner is a project worth respecting: free, open source, dense with capability, and for many people the correct answer. MonoSub’s one-time Pro ¥48 does not buy more features — it buys not having to configure, maintain or babysit dependencies, plus translation that generates no recurring bill. Tinker and use the former; pay to skip it and use the latter. Neither is wrong.',
   },
 };

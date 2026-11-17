@@ -1,99 +1,135 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
 import { LanguageSwitcher } from './LanguageSwitcher';
-import { STORE_URL } from '../lib/links';
+import { APP_STORE_URL } from '../lib/links';
 import { BLOG_PATH, pagePath } from '../lib/seo';
 
+/**
+ * One navigation at every size. Wide: inline links in the header. Narrow: the
+ * same links inside a native `popover`, opened by a menu button — no custom
+ * focus trap, Escape and light-dismiss come from the platform.
+ */
 export const Navbar = () => {
   const { t, lang } = useLanguage();
   const { pathname } = useLocation();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 50);
-    };
-
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  /**
-   * The section links are in-page anchors, so they only mean anything on the
-   * landing page. On `/blog` they have to point back at the home page's anchors
-   * — a bare `#pricing` from a blog post would go nowhere.
-   */
   const home = pagePath(lang);
   const isHome = pathname === home || pathname === `${home}/`;
   const sectionLink = (hash: string) => (isHome ? `#${hash}` : `${home}#${hash}`);
+  const blogHref = BLOG_PATH[lang === 'zh' ? 'zh' : 'en'];
+
+  const links = [
+    { href: sectionLink('features'), label: t.nav.features },
+    { href: sectionLink('how'), label: t.nav.how },
+    { href: sectionLink('pricing'), label: t.nav.pricing },
+    { href: sectionLink('faq'), label: t.nav.faq },
+  ];
 
   return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 px-6 py-4 transition-all ${
-        scrolled ? 'bg-dark-bg/80 backdrop-blur-lg border-b border-dark-border' : 'bg-transparent'
+    <header
+      className={`sticky top-0 z-50 border-b transition-colors duration-200 ${
+        scrolled ? 'bg-paper/90 backdrop-blur-md border-line' : 'bg-paper/0 border-transparent'
       }`}
     >
-      <div className="max-w-7xl mx-auto flex items-center justify-between">
-        <Link to={home} className="text-2xl font-bold gradient-text">
-          MonoSub
+      <div className="container-page flex items-center justify-between gap-4 min-h-[64px]">
+        <Link
+          to={home}
+          className="font-display text-[1.35rem] font-semibold tracking-tight text-ink no-underline"
+        >
+          MonoSub<span className="text-gold">.</span>
         </Link>
 
-        {/* Desktop Navigation */}
-        <div className="hidden lg:flex items-center gap-6 xl:gap-8">
-          <a href={sectionLink('features')} className="text-gray-300 hover:text-white transition-colors">
-            {t.nav_features}
-          </a>
-          <a href={sectionLink('screenshots')} className="text-gray-300 hover:text-white transition-colors">
-            {t.nav_screenshots}
-          </a>
-          <a href={sectionLink('pricing')} className="text-gray-300 hover:text-white transition-colors">
-            {t.nav_pricing}
-          </a>
-          <a href={sectionLink('faq')} className="text-gray-300 hover:text-white transition-colors">
-            {t.nav_faq}
-          </a>
+        {/* Wide */}
+        <nav className="hidden lg:flex items-center gap-0.5" aria-label="Primary">
+          {links.map((link) => (
+            <a
+              key={link.href}
+              href={link.href}
+              className="px-3 py-2 text-sm text-ink-7 no-underline rounded hover:text-gold transition-colors"
+            >
+              {link.label}
+            </a>
+          ))}
           <Link
-            to={BLOG_PATH[lang === 'zh' ? 'zh' : 'en']}
-            className={`transition-colors ${
-              pathname.includes('/blog') ? 'text-primary' : 'text-gray-300 hover:text-white'
+            to={blogHref}
+            className={`px-3 py-2 text-sm no-underline rounded transition-colors ${
+              pathname.includes('/blog') ? 'text-gold' : 'text-ink-7 hover:text-gold'
             }`}
           >
-            {t.nav_blog}
+            {t.nav.blog}
           </Link>
+        </nav>
+
+        <div className="hidden lg:flex items-center gap-3">
+          <LanguageSwitcher />
           <a
-            href={STORE_URL}
+            href={APP_STORE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="cta-button text-white text-sm font-semibold px-4 py-2 rounded-lg whitespace-nowrap transition-all"
+            className="btn btn-primary text-sm"
           >
-            {t.nav_cta}
+            {t.nav.cta_primary}
           </a>
-          <LanguageSwitcher />
         </div>
 
-        {/* Below lg there is no room for the section links, but the way to buy
-            and the comparison series must stay reachable on a phone. */}
+        {/* Narrow */}
         <div className="lg:hidden flex items-center gap-2">
-          <Link
-            to={BLOG_PATH[lang === 'zh' ? 'zh' : 'en']}
-            className={`text-sm px-2 ${
-              pathname.includes('/blog') ? 'text-primary' : 'text-gray-300'
-            }`}
-          >
-            {t.nav_blog}
-          </Link>
           <a
-            href={STORE_URL}
+            href={APP_STORE_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="cta-button text-white text-sm font-semibold px-3 py-2 rounded-lg whitespace-nowrap"
+            className="btn btn-primary text-sm min-h-[2.4rem] px-3 py-2"
           >
-            {t.nav_cta}
+            {t.nav.cta_primary}
           </a>
-          <LanguageSwitcher />
+          <button
+            type="button"
+            {...({ popovertarget: 'mobile-nav', popovertargetaction: 'toggle' } as unknown as React.ButtonHTMLAttributes<HTMLButtonElement>)}
+            aria-label="Menu"
+            className="grid place-items-center w-10 h-10 rounded border border-line text-ink bg-paper"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M3 6h18M3 12h18M3 18h18" />
+            </svg>
+          </button>
+
+          <nav id="mobile-nav" {...({ popover: 'auto' } as unknown as React.HTMLAttributes<HTMLElement>)} className="mobile-nav" aria-label="Primary">
+            <ul>
+              {links.map((link) => (
+                <li key={link.href}>
+                  <a href={link.href} onClick={() => (document.getElementById('mobile-nav') as HTMLElement & { hidePopover?: () => void })?.hidePopover?.()}>
+                    {link.label}
+                  </a>
+                </li>
+              ))}
+              <li>
+                <Link to={blogHref} onClick={() => (document.getElementById('mobile-nav') as HTMLElement & { hidePopover?: () => void })?.hidePopover?.()}>
+                  {t.nav.blog}
+                </Link>
+              </li>
+            </ul>
+            <div className="mobile-nav__foot">
+              <a
+                href={APP_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-primary btn-block"
+              >
+                {t.nav.cta_primary}
+              </a>
+            </div>
+          </nav>
         </div>
       </div>
-    </nav>
+    </header>
   );
 };

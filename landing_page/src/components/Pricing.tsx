@@ -1,143 +1,121 @@
 import { useLanguage } from '../hooks/useLanguage';
-import { STORE_URL, RELEASES_URL } from '../lib/links';
+import {
+  APP_STORE_URL,
+  CHECKOUT_URL,
+  MS_STORE_URL,
+  REPO_URL,
+} from '../lib/links';
+import type { ChannelId } from '../i18n';
 
-/**
- * Two purchase cards side by side, then the capability table underneath. The
- * table is deliberately identical on both sides except for signing and updates:
- * the point of the section is that the money buys packaging, not features.
- */
+const CHANNEL_HREF: Record<ChannelId, string> = {
+  appstore: APP_STORE_URL,
+  direct: CHECKOUT_URL,
+  windows: MS_STORE_URL,
+  source: REPO_URL,
+};
+
 export const Pricing = () => {
   const { t } = useLanguage();
-
-  const rows = [
-    { label: t.pricing_row_transcription, store: true, mac: true },
-    { label: t.pricing_row_export, store: true, mac: true },
-    { label: t.pricing_row_batch, store: true, mac: true },
-    { label: t.pricing_row_translate, store: true, mac: true },
-    { label: t.pricing_row_speakers, store: true, mac: true },
-    { label: t.pricing_row_words, store: true, mac: true },
-    // The macOS build is ad-hoc signed; Gatekeeper still needs the xattr step
-    // documented in the README, so it cannot claim platform verification.
-    { label: t.pricing_row_signed, store: true, mac: false },
-    { label: t.pricing_row_updates, store: true, mac: false },
-    { label: t.pricing_row_setup, store: t.pricing_setup_store, mac: t.pricing_setup_mac }
-  ];
+  const plans = t.pricing.plans;
 
   return (
-    <section id="pricing" className="py-16 px-6 scroll-mt-24">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-12 fade-in">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4">{t.pricing_title}</h2>
-          <p className="text-xl text-gray-400 max-w-2xl mx-auto">{t.pricing_subtitle}</p>
+    <section id="pricing" className="section scroll-mt-24 border-t border-line bg-paper-2">
+      <div className="container-page">
+        <div className="section-head section-head--center">
+          <p className="eyebrow">{t.pricing.eyebrow}</p>
+          <h2 className="display-2 mt-5">{t.pricing.title}</h2>
+          <p className="lede mt-5 mx-auto" style={{ maxWidth: '50ch' }}>{t.pricing.subtitle}</p>
         </div>
 
-        {/* The two purchase options */}
-        <div className="grid md:grid-cols-2 gap-6 mb-10">
-          <div className="card p-8 rounded-3xl fade-in border-primary/40 bg-gradient-to-b from-primary/10 to-dark-card flex flex-col">
-            <p className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              {t.pricing_windows_platform}
-            </p>
-            <div className="flex items-baseline gap-2 mb-1">
-              <span className="text-5xl font-bold">{t.pricing_windows_price}</span>
-            </div>
-            <p className="text-sm text-gray-400 mb-6">{t.pricing_windows_price_note}</p>
-            <a
-              href={STORE_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-auto inline-block text-center cta-button text-white font-semibold px-8 py-4 rounded-xl transition-all"
-            >
-              {t.pricing_windows_cta}
-            </a>
-          </div>
-
-          <div className="card p-8 rounded-3xl fade-in flex flex-col">
-            <p className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
-              {t.pricing_mac_platform}
-            </p>
-            <div className="flex items-baseline gap-2 mb-1">
-              <span className="text-5xl font-bold">{t.pricing_mac_price}</span>
-            </div>
-            <p className="text-sm text-gray-400 mb-6">{t.pricing_mac_price_note}</p>
-            <a
-              href={RELEASES_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-auto inline-block text-center px-8 py-4 rounded-xl border border-dark-border text-white font-semibold hover:border-primary hover:text-primary transition-colors"
-            >
-              {t.pricing_mac_cta}
-            </a>
-          </div>
-        </div>
-
-        {/* Capability table — a real table on wide screens, stacked rows on phones */}
-        <div className="card rounded-3xl overflow-hidden fade-in">
-          <div className="px-6 md:px-8 py-5 border-b border-dark-border">
-            <h3 className="text-xl font-bold">{t.pricing_table_title}</h3>
-          </div>
-
-          {/* md and up: three columns */}
-          <table className="hidden md:table w-full text-left">
-            <thead>
-              <tr className="text-sm text-gray-400 border-b border-dark-border">
-                <th className="px-8 py-3 font-semibold">{t.pricing_col_feature}</th>
-                <th className="px-4 py-3 font-semibold text-center">{t.pricing_col_store}</th>
-                <th className="px-8 py-3 font-semibold text-center">{t.pricing_col_mac}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, idx) => (
-                <tr key={idx} className="border-b border-dark-border/60 last:border-0">
-                  <td className="px-8 py-3 text-gray-300">{row.label}</td>
-                  <td className="px-4 py-3 text-center">{renderCell(row.store)}</td>
-                  <td className="px-8 py-3 text-center">{renderCell(row.mac)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Phones: each row becomes a label plus the two verdicts */}
-          <ul className="md:hidden">
-            <li className="grid grid-cols-[1fr_auto_auto] gap-3 px-5 py-2.5 border-b border-dark-border text-xs text-gray-500 font-semibold">
-              <span />
-              <span className="text-center">{t.pricing_col_store}</span>
-              <span className="text-center">{t.pricing_col_mac}</span>
-            </li>
-            {rows.map((row, idx) => (
-              <li
-                key={idx}
-                className="grid grid-cols-[1fr_auto_auto] gap-3 items-center px-5 py-3 border-b border-dark-border/60 last:border-0"
+        {/* Plans */}
+        <div className="mt-12 grid md:grid-cols-2 gap-5 lg:gap-6 max-w-4xl mx-auto">
+          {plans.map((plan) => {
+            const featured = plan.id === 'pro';
+            return (
+              <div
+                key={plan.id}
+                className={`card p-7 md:p-8 flex flex-col ${featured ? 'border-gold/60 shadow-[0_20px_60px_-30px_rgba(150,89,0,0.5)]' : ''}`}
               >
-                <span className="text-sm text-gray-300">{row.label}</span>
-                <span className="text-center min-w-[4.5rem]">{renderCell(row.store)}</span>
-                <span className="text-center min-w-[4.5rem]">{renderCell(row.mac)}</span>
-              </li>
-            ))}
-          </ul>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-display text-xl">{plan.name}</h3>
+                  {plan.badge && (
+                    <span className={`badge ${featured ? 'badge--gold' : ''}`}>{plan.badge}</span>
+                  )}
+                </div>
+                <p className="mt-4 text-sm text-ink-6">{plan.summary}</p>
+                <p className="mt-5 flex items-baseline gap-2">
+                  <span className="font-display text-4xl text-ink">{plan.price}</span>
+                </p>
+                <p className="mt-1 text-xs text-ink-6 min-h-[2.5em]">{plan.priceNote}</p>
 
-          <p className="px-6 md:px-8 py-4 border-t border-dark-border text-xs text-gray-500">
-            {t.pricing_footnote}
-          </p>
+                <ul className="mt-6 mb-7 list-none p-0 m-0 grid gap-2.5 flex-1">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2.5 text-sm text-ink-8">
+                      <svg className="tick mt-0.5" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.9" aria-hidden="true">
+                        <path d="M2.5 8.5l3.5 3.5 7.5-8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+
+                <a
+                  href={featured ? CHECKOUT_URL : APP_STORE_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`btn btn-block ${featured ? 'btn-primary' : 'btn-secondary'}`}
+                >
+                  {plan.cta}
+                </a>
+              </div>
+            );
+          })}
         </div>
 
-        {/* What the money buys, stated plainly */}
-        <div className="grid md:grid-cols-2 gap-6 mt-6">
-          <div className="card p-6 md:p-8 rounded-3xl fade-in">
-            <h3 className="font-bold text-lg mb-2">{t.pricing_note_title}</h3>
-            <p className="text-gray-400 leading-relaxed">{t.pricing_note_body}</p>
+        {/* What Pro buys */}
+        <div className="mt-10 max-w-4xl mx-auto rounded border-l-2 border-gold bg-gold-200/60 px-6 py-5">
+          <h3 className="font-display text-lg text-ink">{t.pricing.proNoteTitle}</h3>
+          <p className="mt-2 text-ink-7 leading-relaxed text-sm">{t.pricing.proNote}</p>
+        </div>
+
+        {/* Channels */}
+        <div className="mt-14 max-w-4xl mx-auto">
+          <h3 className="font-display text-2xl text-ink">{t.pricing.channelsTitle}</h3>
+
+          <div className="table-wrap mt-5">
+            <table>
+              <caption className="sr-only">{t.pricing.channelsTitle}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{t.pricing.columns.platform}</th>
+                  <th scope="col">{t.pricing.columns.price}</th>
+                  <th scope="col">{t.pricing.columns.pro}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {t.pricing.channels.map((channel) => (
+                  <tr key={channel.id}>
+                    <th scope="row">
+                      <a
+                        href={CHANNEL_HREF[channel.id]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="link-gold"
+                      >
+                        {channel.platform}
+                      </a>
+                      <span className="mt-1 block text-xs font-normal text-ink-6">{channel.note}</span>
+                    </th>
+                    <td data-label={t.pricing.columns.price}>{channel.price}</td>
+                    <td data-label={t.pricing.columns.pro}>{channel.pro}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div className="card p-6 md:p-8 rounded-3xl fade-in flex items-center">
-            <p className="text-gray-400 leading-relaxed">{t.pricing_source_note}</p>
-          </div>
+          <p className="mt-4 text-xs leading-relaxed text-ink-6">{t.pricing.channelsNote}</p>
         </div>
       </div>
     </section>
   );
 };
-
-/** A check is enough for boolean rows; the setup row needs its own wording. */
-function renderCell(value: boolean | string) {
-  if (value === true) return <span className="text-green-500">✓</span>;
-  if (value === false) return <span className="text-gray-600">—</span>;
-  return <span className="text-gray-300 text-sm">{value}</span>;
-}

@@ -59,16 +59,16 @@ export const cloudServices: Post = {
         kind: 'table',
         headers: ['每月处理量', '云端（估算，超出免费额度部分）', 'MonoSub', '说明'],
         rows: [
-          ['≤ 2 小时', '通常落在免费额度内', '¥48 一次', '云端更划算，除非内容敏感'],
-          ['5 小时', '约 ¥15–30 / 月', '¥48 一次', '三个月内基本打平'],
-          ['13 小时（800 分钟）', '约 ¥64–96 / 月', '¥48 一次', '第一个月就已超过买断价'],
-          ['40 小时', '约 ¥190–290 / 月', '¥48 一次', '差距随时间线性拉大'],
+          ['≤ 2 小时', '通常落在免费额度内', '免费（单文件）', '单文件可免费用，除非要批量'],
+          ['5 小时', '约 ¥15–30 / 月', 'Pro ¥48 一次性', '三个月内基本打平'],
+          ['13 小时（800 分钟）', '约 ¥64–96 / 月', 'Pro ¥48 一次性', '第一个月就已超过一次性价'],
+          ['40 小时', '约 ¥190–290 / 月', 'Pro ¥48 一次性', '差距随时间线性拉大'],
         ],
         note: '估算基于公开单价的量级，未计入各家套餐折扣与活动。真实成本请按你的实际用量和当期官网价格计算。',
       },
       {
         kind: 'p',
-        text: '这张表解释了一个反直觉的现象：¥48 的买断价看起来比"免费额度"贵，但对每周都做视频的人来说，它其实比免费额度更便宜——因为你要用的部分正好在免费额度之外。',
+        text: '这张表解释了一个反直觉的现象：Pro 的一次性 ¥48 看起来比"免费额度"贵，但对每周都做视频的人来说，它其实比云端按月计费更便宜——因为你要用的量正好落在免费额度之外。单文件处理本身是免费的，Pro 买的是批量与队列。',
       },
 
       { kind: 'h2', text: 'Cloud 更强的地方，也得说清楚' },
@@ -123,7 +123,7 @@ export const cloudServices: Post = {
       { kind: 'h2', text: '还有一种情况值得单独说' },
       {
         kind: 'p',
-        text: '如果你每月处理量不大，但偶尔会遇到"这个绝对不能上传"的素材，那么最合理的方案往往不是二选一，而是两个都用：日常用免费额度，敏感素材用本地工具。¥48 在这种组合里买到的是一份保险，而不是替代品。',
+        text: '如果你每月处理量不大，但偶尔会遇到"这个绝对不能上传"的素材，那么最合理的方案往往不是二选一，而是两个都用：日常用免费额度，敏感素材用本地工具。Pro 的一次性 ¥48 在这种组合里买到的是一份保险，而不是替代品。',
       },
 
       { kind: 'h2', text: '怎么选' },
@@ -142,7 +142,7 @@ export const cloudServices: Post = {
       },
     ],
     verdict:
-      '云端转写不是"落后的方案"，它在需要 AI 总结、团队协作和弱设备时明显更好。但如果你每周都在批量处理视频，按分钟计费会在第一个月就超过 ¥48；如果你的素材不能外传，上传这条路直接不成立。这两种情况之外，免费额度是真的够用，不必买。',
+      '云端转写不是"落后的方案"，它在需要 AI 总结、团队协作和弱设备时明显更好。但如果你每周都在批量处理视频，按分钟计费会在第一个月就超过 Pro 的一次性 ¥48；如果你的素材不能外传，上传这条路直接不成立。这两种情况之外，免费额度是真的够用，不必买。',
   },
 
   en: {
@@ -184,16 +184,16 @@ export const cloudServices: Post = {
         kind: 'table',
         headers: ['Monthly volume', 'Cloud (estimate, beyond free tier)', 'MonoSub', 'Note'],
         rows: [
-          ['≤ 2 hours', 'Usually inside the free tier', '¥48 once', 'Cloud wins unless the content is sensitive'],
-          ['5 hours', 'About ¥15–30/month', '¥48 once', 'Roughly breaks even within three months'],
-          ['13 hours (800 min)', 'About ¥64–96/month', '¥48 once', 'Exceeds the purchase price in month one'],
-          ['40 hours', 'About ¥190–290/month', '¥48 once', 'The gap widens linearly'],
+          ['≤ 2 hours', 'Usually inside the free tier', 'Free (single file)', 'Single-file free; only batch needs Pro'],
+          ['5 hours', 'About ¥15–30/month', 'Pro ¥48 one-time', 'Roughly breaks even within three months'],
+          ['13 hours (800 min)', 'About ¥64–96/month', 'Pro ¥48 one-time', 'Exceeds the one-time price in month one'],
+          ['40 hours', 'About ¥190–290/month', 'Pro ¥48 one-time', 'The gap widens linearly'],
         ],
         note: 'Estimates from published unit prices at order-of-magnitude precision; package discounts and promotions are excluded. Work out your real cost from your own volume and the vendor’s current pricing.',
       },
       {
         kind: 'p',
-        text: 'This table explains a counter-intuitive result: ¥48 looks more expensive than "free tier", but for someone making videos every week it is cheaper than free — because the volume they need sits exactly beyond the free allowance.',
+        text: 'This table explains a counter-intuitive result: the one-time Pro ¥48 looks more expensive than a "free tier", but for someone making videos every week it is cheaper than paying per minute — because the volume they need sits exactly beyond the free allowance. Processing one file at a time is itself free; Pro is what buys batch and queueing.',
       },
 
       { kind: 'h2', text: 'Where the cloud is genuinely better' },
@@ -248,7 +248,7 @@ export const cloudServices: Post = {
       { kind: 'h2', text: 'One situation worth calling out' },
       {
         kind: 'p',
-        text: 'If your monthly volume is small but you occasionally encounter material that absolutely cannot be uploaded, the sensible arrangement is usually not either/or: use the free allowance day to day, and a local tool for the sensitive items. In that combination the ¥48 buys insurance, not a replacement.',
+        text: 'If your monthly volume is small but you occasionally encounter material that absolutely cannot be uploaded, the sensible arrangement is usually not either/or: use the free allowance day to day, and a local tool for the sensitive items. In that combination the one-time Pro ¥48 buys insurance, not a replacement.',
       },
 
       { kind: 'h2', text: 'How to choose' },
@@ -267,6 +267,6 @@ export const cloudServices: Post = {
       },
     ],
     verdict:
-      'Cloud transcription is not the backward option — it is clearly better when you need AI summaries, team collaboration, or weak hardware. But if you batch video every week, per-minute billing passes ¥48 in the first month; and if the material cannot leave the machine, the upload path does not exist at all. Outside those two cases, the free tiers really are enough, and there is nothing to buy.',
+      'Cloud transcription is not the backward option — it is clearly better when you need AI summaries, team collaboration, or weak hardware. But if you batch video every week, per-minute billing passes the one-time Pro ¥48 in the first month; and if the material cannot leave the machine, the upload path does not exist at all. Outside those two cases, the free tiers really are enough, and there is nothing to buy.',
   },
 };

@@ -1,51 +1,34 @@
-import { useState } from 'react';
 import { useLanguage } from '../hooks/useLanguage';
-import { faqPairs } from '../lib/faq';
 
+/**
+ * Native `<details>` accordion: no JavaScript, works before hydration, and the
+ * closed answers stay findable by the browser's find-in-page (which `display:none`
+ * would break). Items are independent — the platform accordion guide warns that
+ * exclusive groups cause content to jump out of view for screen-magnifier users.
+ */
 export const FAQ = () => {
   const { t } = useLanguage();
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
-
-  const faqs = faqPairs(t);
 
   return (
-    <section id="faq" className="py-16 px-6 scroll-mt-24">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-12 fade-in">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4">{t.faq_title}</h2>
-          <p className="text-xl text-gray-400">{t.faq_subtitle}</p>
-        </div>
+    <section id="faq" className="section scroll-mt-24">
+      <div className="container-page">
+        <div className="grid lg:grid-cols-12 gap-8 lg:gap-14">
+          <div className="lg:col-span-4">
+            <p className="eyebrow">{t.faq.eyebrow}</p>
+            <h2 className="display-2 mt-5">{t.faq.title}</h2>
+            <p className="mt-4 text-ink-6 max-w-[30ch]">{t.faq.subtitle}</p>
+          </div>
 
-        <div className="grid md:grid-cols-2 gap-6 items-start">
-          {faqs.map((faq, idx) => (
-            <div key={idx} className="card rounded-3xl overflow-hidden fade-in">
-              <button
-                onClick={() => setOpenIndex(openIndex === idx ? null : idx)}
-                className="w-full p-6 text-left flex items-center justify-between hover:bg-dark-card/50 transition-colors"
-                aria-expanded={openIndex === idx}
-              >
-                <span className="font-bold text-lg pr-4">{faq.q}</span>
-                <svg
-                  className={`w-6 h-6 flex-shrink-0 transition-transform ${openIndex === idx ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-
-              <div
-                className={`overflow-hidden transition-all duration-300 ${
-                  openIndex === idx ? 'max-h-96' : 'max-h-0'
-                }`}
-              >
-                <div className="p-6 pt-0 text-gray-400">
-                  {faq.a}
-                </div>
-              </div>
+          <div className="lg:col-span-8">
+            <div className="faq-list">
+              {t.faq.items.map((item) => (
+                <details key={item.q} className="faq-item">
+                  <summary>{item.q}</summary>
+                  <div className="faq-answer">{item.a}</div>
+                </details>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       </div>
     </section>

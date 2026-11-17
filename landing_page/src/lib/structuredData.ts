@@ -1,31 +1,26 @@
 /**
  * JSON-LD for the landing page.
  *
- * Two graphs, one script tag:
+ * Four graphs, one script tag, all generated from the same translation objects
+ * the components render — so a copy change can never leave the markup describing
+ * a stale product:
  *
- * - `SoftwareApplication` — the thing being sold. Without it a search engine has
- *   to infer that this page is a product page; with it, the price, the platforms
- *   and the category are explicit and can surface as a rich result.
- * - `FAQPage` — the questions already rendered on the page. Google only treats
- *   FAQ markup as valid when the same Q&A is visible to the visitor, which is
- *   exactly the case here: both graphs are generated from the same translation
- *   strings the components render.
+ * - `SoftwareApplication` — what the page sells. Now that the app is free with a
+ *   one-time Pro in-app purchase, the offers list the $0 download *and* the Pro
+ *   unlock, instead of a single paid SKU.
+ * - `FAQPage` — the exact Q&A rendered in the FAQ section.
+ * - `HowTo` — the three local steps rendered in "How it works".
+ * - `WebSite` — the site itself, for sitelinks.
  *
- * Both are built from `t`, so a copy change in `locales/*.ts` cannot leave the
- * markup describing a stale product.
+ * FAQ and HowTo markup are only valid when the same content is visible to the
+ * visitor; both are, because the components read the same arrays.
  */
 
 import type { Translation } from '../i18n';
-import { faqPairs } from './faq';
 import { absoluteUrl } from './site';
+import { APP_STORE_URL, MS_STORE_URL, CHECKOUT_URL, REPO_URL } from './links';
 
 type JsonLd = Record<string, unknown>;
-
-/** The Windows price is the paid one; macOS ships from GitHub Releases for free. */
-const PRICE = {
-  usd: '9.99',
-  cny: '48',
-} as const;
 
 export const buildStructuredData = (
   lang: string,
@@ -34,7 +29,6 @@ export const buildStructuredData = (
 ): JsonLd => {
   const isZh = lang === 'zh';
   const pageUrl = absoluteUrl(pagePath);
-  const description = `${t.hero_subtitle_line1} ${t.hero_subtitle_line2}`.trim();
 
   const app: JsonLd = {
     '@type': 'SoftwareApplication',
@@ -42,55 +36,75 @@ export const buildStructuredData = (
     name: 'MonoSub',
     applicationCategory: 'MultimediaApplication',
     applicationSubCategory: isZh ? '字幕生成 / 语音转写' : 'Subtitle generation / speech transcription',
-    operatingSystem: 'Windows 10, Windows 11, macOS 11+',
-    description,
+    operatingSystem: 'macOS 12+, Windows 10, Windows 11',
+    description: t.page_description,
     url: pageUrl,
+    downloadUrl: APP_STORE_URL,
+    installUrl: APP_STORE_URL,
     inLanguage: isZh ? 'zh-CN' : 'en',
     image: absoluteUrl('/og-image.jpg'),
     softwareHelp: absoluteUrl(isZh ? '/zh' : '/en'),
-    featureList: [
-      t.feature_1_title,
-      t.feature_2_title,
-      t.feature_3_title,
-      t.feature_4_title,
-      t.feature_5_title,
-      t.feature_6_title,
-      t.feature_7_title,
-      t.feature_8_title,
-    ]
-      // The titles carry an emoji prefix for the UI; strip it for machine data.
-      .map((feature) => feature.replace(/^[^\p{L}\p{N}]+/u, '').trim()),
+    featureList: t.features.items.map((item) => item.title),
     offers: [
       {
         '@type': 'Offer',
-        price: PRICE.usd,
+        price: '0',
         priceCurrency: 'USD',
-        name: 'MonoSub for Windows (Microsoft Store)',
-        url: 'https://apps.microsoft.com/detail/9P6WTCCRQTVW',
+        name: isZh ? 'MonoSub 免费版' : 'MonoSub Free',
+        url: APP_STORE_URL,
         availability: 'https://schema.org/InStock',
-        priceValidUntil: '2027-12-31',
       },
       {
         '@type': 'Offer',
-        price: PRICE.cny,
-        priceCurrency: 'CNY',
-        name: isZh ? 'MonoSub Windows 版（微软商店）' : 'MonoSub for Windows (Microsoft Store)',
-        url: 'https://apps.microsoft.com/detail/9P6WTCCRQTVW',
+        price: '9.99',
+        priceCurrency: 'USD',
+        name: isZh ? 'MonoSub Pro（App Store 内购，一次性）' : 'MonoSub Pro (App Store in-app purchase, one-time)',
+        url: APP_STORE_URL,
         availability: 'https://schema.org/InStock',
-        priceValidUntil: '2027-12-31',
+      },
+      {
+        '@type': 'Offer',
+        price: '48',
+        priceCurrency: 'CNY',
+        name: isZh ? 'MonoSub Pro（App Store 内购，一次性）' : 'MonoSub Pro (App Store in-app purchase, one-time)',
+        url: APP_STORE_URL,
+        availability: 'https://schema.org/InStock',
+      },
+      {
+        '@type': 'Offer',
+        price: '8.60',
+        priceCurrency: 'USD',
+        name: isZh ? 'MonoSub Pro 离线授权（直营店）' : 'MonoSub Pro offline license (direct)',
+        url: CHECKOUT_URL,
+        availability: 'https://schema.org/InStock',
       },
     ],
-    sameAs: ['https://github.com/leixlabs/monosub'],
+    sameAs: [APP_STORE_URL, MS_STORE_URL, REPO_URL],
   };
 
   const faq: JsonLd = {
     '@type': 'FAQPage',
     '@id': `${pageUrl}#faq`,
     inLanguage: isZh ? 'zh-CN' : 'en',
-    mainEntity: faqPairs(t).map(({ q, a }) => ({
+    mainEntity: t.faq.items.map(({ q, a }) => ({
       '@type': 'Question',
       name: q,
       acceptedAnswer: { '@type': 'Answer', text: a },
+    })),
+  };
+
+  const howTo: JsonLd = {
+    '@type': 'HowTo',
+    '@id': `${pageUrl}#howto`,
+    name: t.how.title,
+    description: t.how.subtitle,
+    inLanguage: isZh ? 'zh-CN' : 'en',
+    totalTime: 'PT5M',
+    step: t.how.steps.map((step, index) => ({
+      '@type': 'HowToStep',
+      position: index + 1,
+      name: step.title,
+      text: step.desc,
     })),
   };
 
@@ -104,6 +118,6 @@ export const buildStructuredData = (
 
   return {
     '@context': 'https://schema.org',
-    '@graph': [app, faq, website],
+    '@graph': [app, faq, howTo, website],
   };
 };

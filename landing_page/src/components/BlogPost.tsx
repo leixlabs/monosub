@@ -14,7 +14,7 @@ import {
 import { POSTS } from '../content/blog';
 import { absoluteUrl } from '../lib/site';
 import { blogIndexUrl, blogPostPath, blogPostUrl } from '../lib/seo';
-import { STORE_URL, RELEASES_URL } from '../lib/links';
+import { APP_STORE_URL, CHECKOUT_URL } from '../lib/links';
 import { formatDate, readingMinutes } from '../lib/blogMeta';
 import { highPriorityImage } from '../lib/imagePriority';
 
@@ -22,21 +22,21 @@ const renderBlock = (block: Block, index: number) => {
   switch (block.kind) {
     case 'h2':
       return (
-        <h2 key={index} className="text-2xl md:text-3xl font-bold mt-14 mb-5 scroll-mt-24 text-white">
+        <h2 key={index} className="scroll-mt-24 text-2xl font-semibold text-ink mt-14 mb-5 md:text-3xl">
           {block.text}
         </h2>
       );
 
     case 'h3':
       return (
-        <h3 key={index} className="text-lg md:text-xl font-semibold mt-8 mb-3 text-white">
+        <h3 key={index} className="mt-8 mb-3 text-lg font-semibold text-ink md:text-xl">
           {block.text}
         </h3>
       );
 
     case 'p':
       return (
-        <p key={index} className="text-gray-300 leading-[1.85] mb-5 text-[15px] md:text-base">
+        <p key={index} className="mb-5 text-[15px] leading-[1.85] text-ink-7 md:text-base">
           {block.text}
         </p>
       );
@@ -47,7 +47,7 @@ const renderBlock = (block: Block, index: number) => {
           {block.items.map((item) => (
             <li
               key={item}
-              className="text-gray-300 leading-relaxed text-[15px] md:text-base pl-5 relative before:content-[''] before:absolute before:left-0 before:top-[0.65em] before:w-1.5 before:h-1.5 before:rounded-full before:bg-primary/70"
+              className="relative pl-5 text-[15px] leading-relaxed text-ink-7 before:absolute before:left-0 before:top-[0.65em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-gold/70 before:content-[''] md:text-base"
             >
               {item}
             </li>
@@ -57,33 +57,27 @@ const renderBlock = (block: Block, index: number) => {
 
     case 'callout':
       return (
-        <aside key={index} className="my-8 rounded-2xl border border-primary/30 bg-primary/5 px-6 py-5">
+        <aside key={index} className="card--paper my-8 rounded-lg px-6 py-5">
           {block.title && (
-            <p className="font-semibold text-primary mb-2 text-sm uppercase tracking-wide">
+            <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-gold">
               {block.title}
             </p>
           )}
-          <p className="text-gray-300 leading-relaxed text-[15px] md:text-base m-0">{block.text}</p>
+          <p className="m-0 text-[15px] leading-relaxed text-ink-7 md:text-base">{block.text}</p>
         </aside>
       );
 
     case 'table':
       return (
         <figure key={index} className="my-8">
-          {/* Horizontal scroll rather than a cramped table: comparison rows are
-              wide, and squeezing them breaks the one thing they exist for. */}
-          <div className="overflow-x-auto rounded-2xl border border-dark-border">
-            <table className="w-full text-left text-sm border-collapse min-w-[560px]">
+          {/* .table-wrap handles the responsive stacking (container query); each
+              cell carries data-label so the stacked rows keep their headings. */}
+          <div className="table-wrap">
+            <table>
               <thead>
-                <tr className="bg-dark-card">
+                <tr>
                   {block.headers.map((header, column) => (
-                    <th
-                      key={column}
-                      scope="col"
-                      className={`px-4 py-3 font-semibold text-white/90 border-b border-dark-border whitespace-nowrap ${
-                        column === 0 ? 'text-gray-400 font-medium' : ''
-                      }`}
-                    >
+                    <th key={column} scope="col">
                       {header}
                     </th>
                   ))}
@@ -91,14 +85,9 @@ const renderBlock = (block: Block, index: number) => {
               </thead>
               <tbody>
                 {block.rows.map((row, rowIndex) => (
-                  <tr key={rowIndex} className="border-b border-dark-border/60 last:border-0">
+                  <tr key={rowIndex}>
                     {row.map((cell, column) => (
-                      <td
-                        key={column}
-                        className={`px-4 py-3 align-top leading-relaxed ${
-                          column === 0 ? 'text-gray-400' : 'text-gray-300'
-                        }`}
-                      >
+                      <td key={column} data-label={block.headers[column]}>
                         {cell}
                       </td>
                     ))}
@@ -108,7 +97,7 @@ const renderBlock = (block: Block, index: number) => {
             </table>
           </div>
           {block.note && (
-            <figcaption className="text-xs text-gray-500 leading-relaxed mt-3 px-1">
+            <figcaption className="mt-3 px-1 text-xs leading-relaxed text-ink-5">
               {block.note}
             </figcaption>
           )}
@@ -125,15 +114,13 @@ const RelatedCard = ({ post, locale }: { post: Post; locale: Locale }) => {
   return (
     <Link
       to={blogPostPath(locale, post.slug)}
-      className="group flex flex-col rounded-2xl border border-dark-border bg-white/[0.02] p-5 transition-colors hover:border-primary/50 hover:bg-white/[0.04]"
+      className="group card card--flat flex flex-col p-5 transition-colors hover:border-gold/40"
     >
-      <span className="self-start px-2 py-0.5 rounded-full bg-white/10 text-[11px] text-gray-300 mb-3">
-        {CATEGORY_LABEL[post.category][locale]}
-      </span>
-      <p className="text-white font-semibold leading-snug mb-2 group-hover:text-primary transition-colors">
+      <span className="badge mb-3 self-start">{CATEGORY_LABEL[post.category][locale]}</span>
+      <p className="mb-2 font-semibold leading-snug text-ink transition-colors group-hover:text-gold">
         {content.title}
       </p>
-      <p className="text-xs text-gray-500 mt-auto pt-3">
+      <p className="mt-auto pt-3 text-xs text-ink-5">
         {formatDate(content.updated, locale)} · {ui.readingTime(readingMinutes(post, locale))}
       </p>
     </Link>
@@ -214,130 +201,133 @@ export const BlogPost = () => {
         <script type="application/ld+json">{JSON.stringify(articleLd)}</script>
       </Helmet>
 
-      <div className="min-h-screen bg-dark-bg text-white">
+      <div className="min-h-screen bg-paper text-ink-8">
         <Navbar />
 
-        <main className="px-6 pt-28 pb-20">
-          <article className="max-w-3xl mx-auto">
-            {/* Breadcrumb — the index is the only way back into the blog. */}
-            <nav className="mb-8 flex items-center gap-2 text-sm text-gray-500">
-              <Link to={`/${locale}`} className="hover:text-primary transition-colors">
-                MonoSub
-              </Link>
-              <span aria-hidden="true">/</span>
-              <Link to={blogIndexUrl(locale).replace(/^https?:\/\/[^/]+/, '')} className="hover:text-primary transition-colors">
-                {ui.indexEyebrow}
-              </Link>
-            </nav>
-
-            <header>
-              {post.cover && (
-                <img
-                  src={post.cover[locale].src}
-                  alt={post.cover[locale].alt}
-                  width={1200}
-                  height={630}
-                  {...highPriorityImage}
-                  className="w-full h-auto rounded-2xl border border-dark-border mb-8"
-                />
-              )}
-              <p className="text-primary text-sm font-semibold tracking-wide mb-3">
-                {CATEGORY_LABEL[post.category][locale]} · {post.competitor}
-              </p>
-              <h1 className="text-3xl md:text-[2.6rem] font-bold leading-tight mb-6">
-                {content.title}
-              </h1>
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-500 pb-8 border-b border-dark-border">
-                <time dateTime={content.updated}>
-                  {ui.updated} {formatDate(content.updated, locale)}
-                </time>
-                <span aria-hidden="true">·</span>
-                <span>{ui.readingTime(minutes)}</span>
-              </div>
-            </header>
-
-            <p className="text-lg text-gray-200 leading-[1.85] mt-8 mb-2">{content.intro}</p>
-
-            {content.blocks.map(renderBlock)}
-
-            {/* The verdict is the part an AI answer engine is most likely to
-                quote, so it gets a heading and its own container rather than
-                being the last unstyled paragraph. */}
-            <section className="mt-14 rounded-2xl border border-dark-border bg-dark-card p-7">
-              <h2 className="text-sm font-semibold text-primary uppercase tracking-wide mb-3">
-                {ui.verdict}
-              </h2>
-              <p className="text-gray-200 leading-[1.8] m-0">{content.verdict}</p>
-            </section>
-
-            {/* Tags, then the author box: the two things a reader checks before
-                deciding whether to trust and share an article. */}
-            <div className="mt-10 flex flex-wrap gap-2">
-              {tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="px-3 py-1 rounded-full border border-dark-border text-xs text-gray-400"
+        <main className="pt-28 pb-20">
+          <div className="container-page">
+            <article className="mx-auto max-w-3xl">
+              {/* Breadcrumb — the index is the only way back into the blog. */}
+              <nav className="mb-8 flex items-center gap-2 text-sm text-ink-5">
+                <Link to={`/${locale}`} className="transition-colors hover:text-gold">
+                  MonoSub
+                </Link>
+                <span aria-hidden="true">/</span>
+                <Link
+                  to={blogIndexUrl(locale).replace(/^https?:\/\/[^/]+/, '')}
+                  className="transition-colors hover:text-gold"
                 >
-                  #{tag}
-                </span>
-              ))}
-            </div>
+                  {ui.indexEyebrow}
+                </Link>
+              </nav>
 
-            <div className="mt-8 flex items-start gap-4 rounded-2xl border border-dark-border bg-white/[0.02] p-6">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center font-bold text-white shrink-0">
-                M
+              <header>
+                {post.cover && (
+                  <img
+                    src={post.cover[locale].src}
+                    alt={post.cover[locale].alt}
+                    width={1200}
+                    height={630}
+                    {...highPriorityImage}
+                    className="mb-8 h-auto w-full rounded-lg border border-line"
+                  />
+                )}
+                <p className="eyebrow mb-3">
+                  {CATEGORY_LABEL[post.category][locale]} · {post.competitor}
+                </p>
+                <h1 className="display-2 mb-6 text-ink">{content.title}</h1>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line pb-8 text-sm text-ink-5">
+                  <time dateTime={content.updated}>
+                    {ui.updated} {formatDate(content.updated, locale)}
+                  </time>
+                  <span aria-hidden="true">·</span>
+                  <span>{ui.readingTime(minutes)}</span>
+                </div>
+              </header>
+
+              <p className="mt-8 mb-2 text-lg leading-[1.85] text-ink-7">{content.intro}</p>
+
+              {content.blocks.map(renderBlock)}
+
+              {/* The verdict is the part an AI answer engine is most likely to
+                  quote, so it gets a heading and its own container rather than
+                  being the last unstyled paragraph. */}
+              <section className="card--paper mt-14 rounded-lg p-7">
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gold">
+                  {ui.verdict}
+                </h2>
+                <p className="m-0 leading-[1.8] text-ink-8">{content.verdict}</p>
+              </section>
+
+              {/* Tags, then the author box: the two things a reader checks before
+                  deciding whether to trust and share an article. */}
+              <div className="mt-10 flex flex-wrap gap-2">
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-line px-3 py-1 text-xs text-ink-6"
+                  >
+                    #{tag}
+                  </span>
+                ))}
               </div>
-              <div>
-                <p className="font-semibold text-white mb-1">{ui.authorName}</p>
-                <p className="text-sm text-gray-400 leading-relaxed m-0">{ui.authorBio}</p>
+
+              <div className="card card--flat mt-8 flex items-start gap-4 p-6">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-ink font-display font-semibold text-paper">
+                  M
+                </div>
+                <div>
+                  <p className="mb-1 font-semibold text-ink">{ui.authorName}</p>
+                  <p className="m-0 text-sm leading-relaxed text-ink-6">{ui.authorBio}</p>
+                </div>
               </div>
-            </div>
 
-            <p className="text-xs text-gray-600 mt-6 leading-relaxed">{ui.disclosure}</p>
+              <p className="mt-6 text-xs leading-relaxed text-ink-5">{ui.disclosure}</p>
 
-            <section className="mt-12 rounded-2xl border border-primary/30 bg-gradient-to-b from-primary/10 to-transparent p-7">
-              <h2 className="text-xl font-bold mb-2">{ui.ctaTitle}</h2>
-              <p className="text-gray-400 text-sm mb-5 leading-relaxed">{ui.ctaBody}</p>
-              <div className="flex flex-wrap gap-3">
-                <a
-                  href={STORE_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="cta-button text-white text-sm font-semibold px-5 py-2.5 rounded-full"
-                >
-                  {t.nav_cta}
-                </a>
-                <a
-                  href={RELEASES_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-semibold px-5 py-2.5 rounded-full border border-dark-border hover:border-primary transition-colors"
-                >
-                  {t.hero_cta_mac}
-                </a>
-              </div>
-            </section>
-
-            {others.length > 0 && (
-              <section className="mt-14">
-                <h2 className="text-xl font-bold mb-5">{ui.related}</h2>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {others.map((other) => (
-                    <RelatedCard key={other.slug} post={other} locale={locale} />
-                  ))}
+              <section className="card--paper mt-12 rounded-lg p-7">
+                <h2 className="mb-2 text-xl font-semibold text-ink">{ui.ctaTitle}</h2>
+                <p className="mb-5 text-sm leading-relaxed text-ink-6">{ui.ctaBody}</p>
+                <div className="flex flex-wrap gap-3">
+                  <a
+                    href={APP_STORE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-primary"
+                  >
+                    {t.nav.cta_primary}
+                  </a>
+                  <a
+                    href={CHECKOUT_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-secondary"
+                  >
+                    {t.nav.cta_secondary}
+                  </a>
                 </div>
               </section>
-            )}
 
-            <nav className="mt-10">
-              <Link
-                to={blogIndexUrl(locale).replace(/^https?:\/\/[^/]+/, '')}
-                className="text-sm text-gray-400 hover:text-primary transition-colors"
-              >
-                ← {ui.backToIndex}
-              </Link>
-            </nav>
-          </article>
+              {others.length > 0 && (
+                <section className="mt-14">
+                  <h2 className="mb-5 text-xl font-semibold text-ink">{ui.related}</h2>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {others.map((other) => (
+                      <RelatedCard key={other.slug} post={other} locale={locale} />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <nav className="mt-10">
+                <Link
+                  to={blogIndexUrl(locale).replace(/^https?:\/\/[^/]+/, '')}
+                  className="text-sm text-ink-6 transition-colors hover:text-gold"
+                >
+                  ← {ui.backToIndex}
+                </Link>
+              </nav>
+            </article>
+          </div>
         </main>
 
         <Footer />

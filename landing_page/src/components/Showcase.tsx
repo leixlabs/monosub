@@ -2,48 +2,13 @@ import { useRef, useState } from 'react';
 import { useLanguage } from '../hooks/useLanguage';
 import { shot, shotSize, type ShotName } from '../lib/screenshots';
 
-type TabId = 'queue' | 'translate' | 'speakers' | 'url';
-
-/**
- * The product tour: real screenshots of the running app, grouped by what the
- * visitor is trying to find out. Every image is a capture of the app itself —
- * nothing here is a mock-up.
- */
-const TOURS: {
-  id: TabId;
-  shots: { name: ShotName; caption: string }[];
-}[] = [
-  {
-    id: 'queue',
-    shots: [
-      { name: 'queue', caption: 'shot_queue' },
-      { name: 'batchRunning', caption: 'shot_batch' },
-      { name: 'rowStates', caption: 'shot_rowstates' },
-    ],
-  },
-  {
-    id: 'translate',
-    shots: [
-      { name: 'translated', caption: 'shot_translated' },
-      { name: 'translationSettings', caption: 'shot_translate_settings' },
-    ],
-  },
-  {
-    id: 'speakers',
-    shots: [
-      { name: 'models', caption: 'shot_models' },
-      { name: 'modelCatalogue', caption: 'shot_catalogue' },
-    ],
-  },
-  {
-    id: 'url',
-    shots: [
-      { name: 'urlImportRows', caption: 'shot_url_rows' },
-      { name: 'urlDialog', caption: 'shot_url_dialog' },
-      { name: 'clipboardPill', caption: 'shot_clipboard' },
-    ],
-  },
-];
+/** Shot names per tour, index-aligned with the captions in `t.showcase.tours`. */
+const TOUR_SHOTS: Record<string, ShotName[]> = {
+  queue: ['queue', 'batchRunning', 'rowStates'],
+  translate: ['translated', 'translationSettings'],
+  speakers: ['models', 'modelCatalogue'],
+  url: ['urlImportRows', 'urlDialog', 'clipboardPill'],
+};
 
 export const Showcase = () => {
   const { t, lang } = useLanguage();
@@ -51,71 +16,66 @@ export const Showcase = () => {
   const [shotIndex, setShotIndex] = useState(0);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  const tour = TOURS[tab];
-  // A tab with fewer shots than the one before it must not leave the selection
-  // pointing past its end.
-  const activeIndex = Math.min(shotIndex, tour.shots.length - 1);
-  const active = tour.shots[activeIndex];
-  const activeSize = shotSize(active.name);
+  const tours = t.showcase.tours;
+  const tour = tours[tab];
+  const names = TOUR_SHOTS[tour.id];
+  const activeIndex = Math.min(shotIndex, names.length - 1);
+  const activeName = names[activeIndex];
+  const activeSize = shotSize(activeName);
 
   const selectTab = (idx: number) => {
     setTab(idx);
     setShotIndex(0);
   };
 
-  // Arrow keys move between tabs, as the tablist pattern requires.
   const onTabKeyDown = (event: React.KeyboardEvent, idx: number) => {
-    const last = TOURS.length - 1;
+    const last = tours.length - 1;
     let next: number | null = null;
     if (event.key === 'ArrowRight') next = idx === last ? 0 : idx + 1;
     if (event.key === 'ArrowLeft') next = idx === 0 ? last : idx - 1;
     if (event.key === 'Home') next = 0;
     if (event.key === 'End') next = last;
     if (next === null) return;
-
     event.preventDefault();
     selectTab(next);
     tabRefs.current[next]?.focus();
   };
 
   return (
-    <section id="screenshots" className="py-16 px-6 scroll-mt-24">
-      <div className="max-w-7xl mx-auto">
-        <div className="text-center mb-10 fade-in">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4">{t.showcase_title}</h2>
-          <p className="text-xl text-gray-400 max-w-2xl mx-auto">{t.showcase_subtitle}</p>
+    <section id="screenshots" className="section scroll-mt-24">
+      <div className="container-page">
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+          <div className="section-head">
+            <p className="eyebrow">{t.showcase.eyebrow}</p>
+            <h2 className="display-2 mt-5">{t.showcase.title}</h2>
+          </div>
+          <p className="text-ink-6 max-w-[34ch] md:text-right">{t.showcase.subtitle}</p>
         </div>
 
-        {/* Tabs — one scrollable row on a phone, centred wrap on a wide screen */}
-        <div className="mb-8 -mx-6 px-6 overflow-x-auto md:overflow-visible [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div
-            className="flex items-center gap-2 md:gap-3 w-max md:w-auto md:justify-center md:flex-wrap mx-auto"
-            role="tablist"
-            aria-label={t.showcase_title}
-          >
-            {TOURS.map((item, idx) => {
+        {/* Tabs */}
+        <div className="mt-9 -mx-1 px-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex items-center gap-6 md:gap-8 w-max border-b border-line" role="tablist" aria-label={t.showcase.title}>
+            {tours.map((item, idx) => {
               const selected = idx === tab;
               return (
                 <button
                   key={item.id}
-                  ref={(el) => {
-                    tabRefs.current[idx] = el;
-                  }}
+                  ref={(el) => { tabRefs.current[idx] = el; }}
                   type="button"
                   role="tab"
-                  id={`showcase-tab-${item.id}`}
+                  id={`tour-tab-${item.id}`}
                   aria-selected={selected}
-                  aria-controls="showcase-panel"
+                  aria-controls="tour-panel"
                   tabIndex={selected ? 0 : -1}
                   onClick={() => selectTab(idx)}
                   onKeyDown={(event) => onTabKeyDown(event, idx)}
-                  className={`shrink-0 px-5 py-2.5 rounded-full border text-sm font-semibold transition-colors ${
+                  className={`shrink-0 -mb-px bg-transparent border-0 border-b-2 pb-3 pt-1 text-sm font-semibold transition-colors ${
                     selected
-                      ? 'bg-primary/10 border-primary text-primary'
-                      : 'bg-dark-card border-dark-border text-gray-400 hover:text-white hover:border-gray-500'
+                      ? 'border-gold text-ink'
+                      : 'border-transparent text-ink-6 hover:text-ink'
                   }`}
                 >
-                  {t[`showcase_tab_${item.id}` as const]}
+                  {item.label}
                 </button>
               );
             })}
@@ -123,60 +83,51 @@ export const Showcase = () => {
         </div>
 
         <div
-          id="showcase-panel"
+          id="tour-panel"
           role="tabpanel"
-          aria-labelledby={`showcase-tab-${tour.id}`}
-          className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start"
+          aria-labelledby={`tour-tab-${tour.id}`}
+          className="mt-8 grid lg:grid-cols-12 gap-8 items-start"
         >
-          {/* The selected screenshot — the largest thing in the section */}
-          <div className="lg:col-span-2 card p-3 md:p-4 rounded-3xl border-primary/40 bg-gradient-to-b from-dark-card to-dark-bg fade-in">
-            <div className="rounded-2xl overflow-hidden border border-dark-border bg-black">
+          <div className="lg:col-span-8">
+            <div className="shot-frame">
               <img
-                key={active.name}
-                src={shot(active.name, lang)}
-                alt={t[active.caption as keyof typeof t]}
+                key={activeName}
+                src={shot(activeName, lang)}
+                alt={tour.shots[activeIndex]}
                 width={activeSize.width}
                 height={activeSize.height}
-                className="w-full h-auto block"
                 loading="lazy"
                 decoding="async"
               />
             </div>
-            <p className="px-2 pt-3 pb-1 text-sm text-gray-400 text-center">
-              {t[active.caption as keyof typeof t]}
-            </p>
+            <p className="mt-3 text-xs text-ink-6 text-center">{tour.shots[activeIndex]}</p>
           </div>
 
-          {/* What this tab is about, plus the other shots in it */}
-          <div className="card p-6 md:p-7 rounded-3xl fade-in">
-            <h3 className="text-xl font-bold mb-3">{t[`showcase_tab_${tour.id}` as const]}</h3>
-            <p className="text-gray-400 leading-relaxed mb-6">
-              {t[`showcase_${tour.id}_desc` as const]}
-            </p>
+          <div className="lg:col-span-4">
+            <h3 className="font-display text-xl">{tour.label}</h3>
+            <p className="mt-3 text-ink-7 leading-relaxed">{tour.desc}</p>
 
             {tour.shots.length > 1 && (
-              <div className="grid grid-cols-2 gap-3">
-                {tour.shots.map((item, idx) => (
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                {names.map((name, idx) => (
                   <button
-                    key={item.name}
+                    key={name}
                     type="button"
                     onClick={() => setShotIndex(idx)}
-                    aria-label={t[item.caption as keyof typeof t]}
+                    aria-label={tour.shots[idx]}
                     aria-pressed={idx === activeIndex}
-                    className={`rounded-xl overflow-hidden border transition-colors ${
-                      idx === activeIndex
-                        ? 'border-primary'
-                        : 'border-dark-border hover:border-gray-500'
+                    className={`rounded overflow-hidden border bg-paper p-0.5 transition-colors ${
+                      idx === activeIndex ? 'border-gold' : 'border-line hover:border-ink-5'
                     }`}
                   >
                     <img
-                      src={shot(item.name, lang)}
-                      alt={t[item.caption as keyof typeof t]}
-                      width={shotSize(item.name).width}
-                      height={shotSize(item.name).height}
-                      className="w-full h-auto block"
+                      src={shot(name, lang)}
+                      alt={tour.shots[idx]}
+                      width={shotSize(name).width}
+                      height={shotSize(name).height}
                       loading="lazy"
                       decoding="async"
+                      className="block w-full h-auto rounded-sm"
                     />
                   </button>
                 ))}

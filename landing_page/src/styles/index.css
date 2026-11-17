@@ -1,120 +1,508 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+/* ============================================================================
+   MonoSub landing — lei-brand · 方案 A「金墨宣」
+   注册色：墨 #13100D / 金 #965900 / 宣纸白 #F7F2E9
+   规则：只用这三个颜色派生的暖中性 + 单一金；金色是标识不是底色（<15% 面积）；
+        第二色相一律不进；状态必须配图标或文字。字体走系统栈，不依赖外网。
+   ========================================================================= */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+/* ── 设计 tokens ─────────────────────────────────────────────────────────── */
+:root {
+  /* 底 / 结构 */
+  --paper: #f7f2e9;
+  --paper-2: #ede5d6;
+  --surface: #fffdf8;
+  --ink: #13100d;
+  --ink-8: #2d2925;
+  --ink-7: #4d4843;
+  --ink-6: #6f6963;
+  --ink-5: #938d86;
+  --line: #d5cec7;
+  --line-soft: #e8e2db;
+
+  /* 金（只有一个金色：700） */
+  --gold: #965900;
+  --gold-hover: #774600;
+  --gold-soft: #f9e4cb;
+  --gold-highlight: #efcea6;
+  --gold-mid: #cc9140;
+
+  /* 状态（只做功能） */
+  --success: #25855b;
+  --danger: #8d1c11;
+
+  /* 字族：系统栈 */
+  --font-display: ui-serif, "Source Serif 4", "Songti SC", "STSong",
+    "Noto Serif CJK SC", "SimSun", Georgia, "Times New Roman", serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", Inter, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, monospace;
+
+  /* 节奏 */
+  --page: 1120px;
+  --radius: 8px;
+  --radius-sm: 4px;
+  --shadow-card: 0 1px 2px rgb(19 16 13 / 0.04), 0 12px 32px -18px rgb(19 16 13 / 0.22);
+  --shadow-float: 0 2px 6px rgb(19 16 13 / 0.06), 0 24px 60px -28px rgb(19 16 13 / 0.32);
+
+  color-scheme: light;
+}
+
+/* ── 基础 ────────────────────────────────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }
 
 body {
-  @apply bg-dark-bg text-white;
-  transition: all 0.3s ease;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink-8);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* 极淡的暖色纸纹，几乎看不出，但让大面积宣纸白不像纯白屏幕 */
+  background-image: radial-gradient(
+      circle at 18% 0%,
+      rgb(150 89 0 / 0.035),
+      transparent 42%
+    );
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1.14;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
 }
 
-::-webkit-scrollbar-track {
-  @apply bg-dark-card;
+p { text-wrap: pretty; }
+
+a { color: inherit; }
+
+::selection {
+  background: var(--gold-highlight);
+  color: var(--ink);
 }
 
-::-webkit-scrollbar-thumb {
-  @apply bg-dark-border rounded;
+/* 可见焦点环：金 700，键盘可达 */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: 2px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-primary;
+/* ── 布局 ────────────────────────────────────────────────────────────────── */
+.container-page {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: clamp(1.15rem, 5vw, 2.5rem);
 }
 
-/* Gradient text */
-.gradient-text {
-  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.section {
+  padding-block: clamp(3.5rem, 8vw, 6.5rem);
+}
+.section--tight { padding-block: clamp(2.5rem, 5vw, 4rem); }
+
+.section-head { max-width: 44rem; }
+.section-head--center { margin-inline: auto; text-align: center; }
+
+/* 细线与三金点 */
+.rule {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 0;
+}
+.dot-rule {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: var(--gold);
+  letter-spacing: 0.35em;
+  font-size: 0.7rem;
+}
+.dot-rule::before,
+.dot-rule::after {
+  content: "";
+  inline-size: 1.6rem;
+  block-size: 1px;
+  background: var(--line);
 }
 
-/* CTA Button glow effect */
-.cta-button {
-  background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
-  box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
-  transition: all 0.3s ease;
+/* ── 眉标 / 编号 ─────────────────────────────────────────────────────────── */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.eyebrow::before {
+  content: "";
+  inline-size: 0.42rem;
+  block-size: 0.42rem;
+  background: var(--gold);
+  transform: rotate(45deg);
 }
 
-.cta-button:hover {
-  box-shadow: 0 6px 25px rgba(245, 158, 11, 0.6);
-  transform: translateY(-2px);
+.index-num {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  color: var(--gold);
 }
 
-.cta-button:active {
-  transform: scale(0.98);
+/* ── 字号层级（clamp：随视口缩放，最大不超过最小 2.5 倍） ─────────────────── */
+.display-1 {
+  font-size: clamp(2.4rem, 1.35rem + 4.6vw, 4.35rem);
+  line-height: 1.06;
+  letter-spacing: -0.02em;
 }
+.display-2 {
+  font-size: clamp(1.9rem, 1.3rem + 2.6vw, 3rem);
+  line-height: 1.12;
+}
+.display-3 {
+  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.75rem);
+  line-height: 1.22;
+}
+.lede {
+  font-size: clamp(1.05rem, 0.98rem + 0.45vw, 1.28rem);
+  line-height: 1.62;
+  color: var(--ink-7);
+  max-width: 40ch;
+}
+.muted { color: var(--ink-6); }
+.prose p + p { margin-block-start: 1.1em; }
+.prose { max-width: 68ch; }
 
-/* Card styles */
+/* ── 按钮 ────────────────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-block-size: 2.85rem;
+  padding: 0.6rem 1.35rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-decoration: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background-color 0.18s var(--ease, ease), color 0.18s ease,
+    border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+.btn:active { transform: translateY(1px); }
+
+/* 主 CTA：金 700 底 + 宣纸白字（5.05:1，AA）。全页金色只有这里和编号/眉标。 */
+.btn-primary {
+  background: var(--gold);
+  color: var(--paper);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.18) inset, 0 10px 24px -16px rgb(150 89 0 / 0.9);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--gold-hover);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.18) inset, 0 14px 30px -16px rgb(150 89 0 / 1);
+}
+/* 次 CTA：墨线描边 */
+.btn-secondary {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--ink-5);
+}
+.btn-secondary:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: rgb(19 16 13 / 0.04);
+}
+.btn-quiet {
+  background: transparent;
+  color: var(--ink-7);
+  padding-inline: 0.4rem;
+  min-block-size: auto;
+}
+.btn-quiet:hover { color: var(--gold); }
+.btn-block { inline-size: 100%; }
+.btn--lg { min-block-size: 3.25rem; padding-inline: 1.7rem; font-size: 1rem; }
+
+.link-gold {
+  color: var(--gold);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  padding-block-end: 1px;
+}
+.link-gold:hover { border-bottom-color: var(--gold); }
+
+/* ── 卡片 / 面 ───────────────────────────────────────────────────────────── */
 .card {
-  @apply bg-dark-card border border-dark-border;
-  transition: all 0.3s ease;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+}
+.card--flat {
+  background: transparent;
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+.card--paper {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+}
+.card--ink {
+  background: var(--ink);
+  color: #f0e9de;
+  border: 1px solid #332c24;
+}
+.card--ink h1, .card--ink h2, .card--ink h3 { color: #f7f2e9; }
+.card--ink .muted { color: #a39a8f; }
+
+/* 深墨通栏 */
+.ink-band {
+  background: var(--ink);
+  color: #f0e9de;
+}
+.ink-band h1, .ink-band h2, .ink-band h3 { color: #f7f2e9; }
+.ink-band .muted { color: #a39a8f; }
+.ink-band .btn-secondary { color: #f0e9de; border-color: #574b3c; }
+.ink-band .btn-secondary:hover { border-color: var(--gold-mid); background: rgb(255 255 255 / 0.05); }
+
+/* 小标签 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-7);
+}
+.badge--gold {
+  border-color: color-mix(in srgb, var(--gold) 35%, transparent);
+  background: var(--gold-soft);
+  color: var(--gold-hover);
+}
+.badge--ink {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
 }
 
-.card:hover {
-  @apply border-primary;
-  transform: translateY(-5px);
+/* 勾 / 叉必须配图标文字，不靠颜色单独表达 */
+.tick { color: var(--success); flex-shrink: 0; }
+.cross { color: var(--danger); flex-shrink: 0; }
+
+/* ── 截图框 ──────────────────────────────────────────────────────────────── */
+.shot-frame {
+  position: relative;
+  border-radius: 10px;
+  padding: 8px;
+  background: linear-gradient(180deg, #fffdf8, #efe7d8);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-float);
+}
+.shot-frame img {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  border-radius: 6px;
+  border: 1px solid rgb(19 16 13 / 0.12);
 }
 
-/* Fade in animation */
-.fade-in {
-  opacity: 0;
-  transform: translateY(30px);
-  animation: fadeIn 0.6s ease forwards;
+/* ── 表格（容器查询，窄时堆叠） ───────────────────────────────────────────── */
+.table-wrap {
+  container-type: inline-size;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.table-wrap table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 0.93rem;
+}
+.table-wrap th,
+.table-wrap td {
+  text-align: start;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.table-wrap thead th {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-6);
+  font-weight: 600;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.table-wrap tbody tr:last-child td { border-bottom: 0; }
+.table-wrap tbody th {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.table-wrap td { color: var(--ink-8); }
+.table-wrap .center { text-align: center; }
+
+@container (width < 640px) {
+  .table-wrap thead { display: none; }
+  .table-wrap table,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap th,
+  .table-wrap td { display: block; }
+  .table-wrap tr {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .table-wrap tr:last-child { border-bottom: 0; }
+  .table-wrap td,
+  .table-wrap tbody th {
+    border: 0;
+    padding: 0.28rem 1rem;
+    white-space: normal;
+  }
+  .table-wrap td::before {
+    content: attr(data-label) ": ";
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-6);
+  }
+  .table-wrap td:first-of-type::before { content: none; }
 }
 
-@keyframes fadeIn {
-  to {
-    opacity: 1;
-    transform: translateY(0);
+/* ── FAQ：原生 details/summary（无需 JS，可被 find-in-page 找到） ─────────── */
+.faq-list { border-top: 1px solid var(--line); }
+.faq-item {
+  border-bottom: 1px solid var(--line);
+}
+.faq-item > summary {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.2rem;
+  padding: 1.15rem 0.25rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.02rem, 0.96rem + 0.3vw, 1.16rem);
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.faq-item > summary::-webkit-details-marker { display: none; }
+.faq-item > summary::after {
+  content: "";
+  flex: 0 0 auto;
+  inline-size: 0.85rem;
+  block-size: 0.85rem;
+  margin-block-start: 0.35rem;
+  background: var(--gold);
+  clip-path: polygon(50% 100%, 0 45%, 18% 30%, 50% 68%, 82% 30%, 100% 45%);
+  transition: rotate 0.2s ease;
+}
+.faq-item[open] > summary::after { rotate: 180deg; }
+.faq-item > summary:hover { color: var(--gold-hover); }
+.faq-answer {
+  padding: 0 0.25rem 1.3rem;
+  color: var(--ink-7);
+  max-width: 62ch;
+}
+
+/* ── 滚动淡入：默认可见；仅在支持的浏览器 + 未要求减弱动效时启用 ───────────── */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 35%;
+    }
   }
 }
-
-/* Comparison grid */
-.comparison-bad {
-  border-left: 3px solid #ef4444;
+@keyframes reveal-in {
+  from { opacity: 0; translate: 0 14px; }
+  to { opacity: 1; translate: 0 0; }
 }
 
-.comparison-good {
-  border-left: 3px solid #22c55e;
+/* ── 跨文档视图过渡（渐进增强） ──────────────────────────────────────────── */
+@view-transition { navigation: auto; }
+
+/* ── 工具 ────────────────────────────────────────────────────────────────── */
+.stack > * + * { margin-block-start: var(--gap, 1rem); }
+.hairline-t { border-top: 1px solid var(--line); }
+.text-balance { text-wrap: balance; }
+.no-underline { text-decoration: none; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-/* Hero image tilt */
-.hero-image {
-  transform: perspective(1000px) rotateY(-5deg) rotateX(2deg);
-  transition: transform 0.3s ease;
-}
+/* 深墨通栏里的金色换成 500（金 700 在墨底上会糊） */
+.ink-band .eyebrow,
+.ink-band .index-num { color: var(--gold-mid); }
+.ink-band .eyebrow::before { background: var(--gold-mid); }
 
-.hero-image:hover {
-  transform: perspective(1000px) rotateY(0deg) rotateX(0deg);
+/* ── 移动端导航：原生 popover ─────────────────────────────────────────────── */
+.mobile-nav[popover] {
+  position: fixed;
+  inset: 4.25rem 1rem auto 1rem;
+  margin: 0;
+  max-block-size: calc(100dvh - 6rem);
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-float);
+  padding: 0.5rem;
 }
-
-/* Smooth scroll */
-html {
-  scroll-behavior: smooth;
+.mobile-nav::backdrop {
+  background: rgb(19 16 13 / 0.28);
 }
-
-/* RTL Support */
-[dir="rtl"] .gradient-text,
-[dir="rtl"] h1,
-[dir="rtl"] h2,
-[dir="rtl"] h3 {
-  text-align: right;
+.mobile-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
 }
-
-[dir="rtl"] .hero-image {
-  transform: perspective(1000px) rotateY(5deg) rotateX(2deg);
+.mobile-nav ul a {
+  display: block;
+  padding: 0.8rem 0.75rem;
+  border-radius: 6px;
+  text-decoration: none;
+  color: var(--ink-7);
+  font-size: 0.98rem;
 }
-
-[dir="rtl"] .hero-image:hover {
-  transform: perspective(1000px) rotateY(0deg) rotateX(0deg);
+.mobile-nav ul a:hover { background: var(--paper-2); color: var(--gold); }
+.mobile-nav__foot {
+  padding: 0.6rem 0.25rem 0.25rem;
+  margin-block-start: 0.4rem;
+  border-block-start: 1px solid var(--line);
 }
