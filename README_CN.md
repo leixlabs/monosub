@@ -2,9 +2,11 @@
 
 # MonoSub
 
-**将视频和音频转换为文本。本地运行。不依赖云端。**
+**把视频和音频变成字幕。在你自己电脑上，不上传云端。**
 
-[English](README.md) · [微软商店](https://apps.microsoft.com/detail/9P6WTCCRQTVW) · [下载](#-下载) · [常见问题](#-常见问题)
+[English](README.md) · [下载](#-下载) · [定价](#-定价) · [常见问题](#-常见问题)
+
+本地转录与翻译 · macOS 与 Windows · 免费开始使用
 
 </div>
 
@@ -14,31 +16,35 @@
 
 你有大量的视频内容。播客、访谈、讲座、会议。但 LLM 无法观看视频或收听音频——它们只理解文本。
 
-所以你需要转录稿。但现有的解决方案要么：
-- 强迫你将私人内容上传到云端
-- 对本该简单的功能收取月费
+所以你需要转录稿。但现有的工具要么：
+
+- 强迫你把私人内容上传到云端
+- 为本该简单的功能收月费、甚至按分钟计费
 - 因为要先上传，速度慢得要命
 
-**MonoSub 解决了这些问题。** 在你的电脑上运行，本地处理文件，快速获得文本。
+**MonoSub 解决了这些问题。** 在你的电脑上运行，本地处理文件，快速拿到文本。而且它免费就能开始：只有当你需要一次处理一整个文件夹时，才需要一次性付费。
 
 ---
 
 ## MonoSub 能做什么
 
-拖入视频或音频文件。获得转录稿。就这么简单。
+拖入视频或音频文件。得到转录稿，或者直接可用的字幕文件。就这么简单。
 
-- **100% 本地** — 你的文件永远不会离开电脑
-- **完全离线** — 安装后无需网络
-- **多种格式** — MP4、MOV、MP3、WAV 等
-- **导出 SRT、VTT、TXT** — 可与任何 LLM 或视频编辑器配合使用
-- **速度快** — Apple Silicon 和 NVIDIA GPU 硬件加速
+- **100% 本地** — 文件永远不离开你的电脑，什么都不上传
+- **完全离线** — 一次性下载模型后，无需网络
+- **转录 + 翻译** — 本地语音识别 + 本地翻译模型，没有按分钟计费的账单
+- **不只是文本，是字幕** — 说话人分离、词级时间戳，导出 SRT、VTT、TXT、MD、JSON
+- **链接导入** — 粘贴一条受支持的视频链接，取用平台字幕或在本地转写音频
+- **速度快** — Apple Silicon 与 NVIDIA GPU 硬件加速
+- **需要时才批量** — 免费版一次处理一个文件；Pro 解除限制，让整个素材库并行跑完
 
 ### 适合谁用
 
-- **内容创作者** — 将网络视频转为博客文章
+- **内容创作者** — 将网络视频转为博客文章或字幕
 - **研究人员** — 转录访谈用于分析
 - **学生** — 将课堂录音转为可搜索的笔记
 - **开发者** — 将视频内容喂给 LLM 处理
+- **手里有敏感素材的人** — 客户访谈、内部会议、未公开作品——这些绝不能上传
 
 ---
 
@@ -46,32 +52,41 @@
 
 | 平台 | 获取方式 |
 |---|---|
-| **Windows** 10 / 11 (x64) | [**微软商店**](https://apps.microsoft.com/detail/9P6WTCCRQTVW) —— **¥48 / $9.99，一次买断** |
-| **macOS** 11.0+ (Apple Silicon) | [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest) |
+| **macOS** 12+ (Apple Silicon) | [**Mac App Store**](https://apps.apple.com/us/app/monosub/id6829689694) —— **免费下载**，Pro 为一次性内购 |
+| **Windows** 10 / 11 (x64) | [**微软商店**](https://apps.microsoft.com/detail/9P6WTCCRQTVW) —— **免费下载**，Pro 为一次性内购 |
+| **macOS / Windows · 直营店** | [**checkout.leix.dev/p/monosub-pro**](https://checkout.leix.dev/p/monosub-pro) —— Pro 离线授权 **¥36 / $8.60**；免费构建见 [Releases](https://github.com/leixlabs/monosub/releases/latest) |
 | **Linux** | 即将推出 |
 
+<a href="https://apps.apple.com/us/app/monosub/id6829689694">
+  <img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/zh-cn?size=250x83" alt="从 Mac App Store 下载" height="52" />
+</a>
+&nbsp;
 <a href="https://apps.microsoft.com/detail/9P6WTCCRQTVW">
   <img src="https://get.microsoft.com/images/zh-cn%20dark.svg" alt="从微软商店获取" height="52" />
 </a>
 
-**Windows 版是付费应用：¥48 / $9.99 一次买断**，没有订阅，也没有内购。商店版由微软签名
-与校验，一键安装、自动更新。你付的钱买的是打包与维护，不是功能——同一个程序也可以从本
-仓库源码自行编译（见[定价](#-定价)）。
+**MonoSub 免费下载、一次一个文件免费用**——转录、翻译、说话人分离和全部导出格式都包含在内。一次性 **Pro** 授权只解除单文件限制，让你批量处理整个文件夹。没有订阅，也没有按分钟计费，永远没有。
 
-**macOS 版**通过 [GitHub Releases](https://github.com/leixlabs/monosub/releases/latest) 分发。
+- **Mac App Store**：免费下载 + Pro 一次性内购（$9.99 / ¥48）。已在美国及多数地区上架，**中国大陆区仍在备案中**。
+- **Windows / 微软商店**：免费下载 + Pro 一次性内购（¥48 / $9.99）——微软签名、一键安装、自动更新。
+- **直营店**：在 [checkout.leix.dev](https://checkout.leix.dev/p/monosub-pro) 购买 **Pro 离线授权**，¥36 / $8.60。授权不绑设备，macOS 与 Windows 通用；免费构建本身在 [Releases](https://github.com/leixlabs/monosub/releases/latest)。
+- **自行编译**：源码以源码可见许可公开（见下文），自己构建永远免费。
 
 ---
 
 ## 🚀 快速开始
 
-1. **获取** MonoSub —— Windows 从[微软商店](https://apps.microsoft.com/detail/9P6WTCCRQTVW)
-   安装（¥48 / $9.99），macOS 从 [Releases](https://github.com/leixlabs/monosub/releases/latest) 下载
+1. **获取** MonoSub —— [Mac App Store](https://apps.apple.com/us/app/monosub/id6829689694)（免费）、[微软商店](https://apps.microsoft.com/detail/9P6WTCCRQTVW)（Windows），或从 [Releases](https://github.com/leixlabs/monosub/releases/latest) 下载直装版
 2. 打开**设置 → 模型**，下载语音模型（约 250 MB，只需一次）
 3. 将视频/音频文件**拖入**应用
 4. **点击** "开始"
-5. **获得**你的转录稿
+5. **拿到**你的转录稿——导出 SRT、VTT、TXT、MD 或 JSON
 
-就这么简单。无需账号。无需订阅。模型下载完成后无需网络。
+就这么简单。无需账号。无需订阅。模型下载完成后无需网络。免费版一次处理一个文件；Pro 解锁队列。
+
+> **v2.0 说明：** 语音识别已改用随包的 [audio.cpp](https://github.com/0xShug0/audio.cpp)  
+> 引擎，不再依赖 Python + PyTorch。应用更小、内存占用低得多，但识别模型不再随安装包分发——  
+> 在「设置 → 模型」里下载一次即可。详见发布说明。
 
 ---
 
@@ -99,27 +114,32 @@ monosub-cli *.mp4 --json
 
 ## 💎 定价
 
-**Windows 版：¥48 / $9.99，微软商店一次买断。** 没有订阅、没有内购、没有二次收费，
-付完就结束了。
+**免费下载，一次一个文件免费用。Pro 是一次性解锁批量——永远不是订阅。**
 
-| | 微软商店（Windows） | macOS · GitHub Releases | 自行编译 |
-| --- | --- | --- | --- |
-| 价格 | **¥48 / $9.99，买断** | 见 Releases | 免费 |
-| 语音转录 | ✅ 无限制 | ✅ 无限制 | ✅ 无限制 |
-| 导出 SRT、TXT、VTT、MD | ✅ | ✅ | ✅ |
-| 批量处理 | ✅ | ✅ | ✅ |
-| 字幕翻译 | ✅ | ✅ | ✅ |
-| 说话人分离（识别谁说了什么） | ✅ | ✅ | ✅ |
-| 词级时间戳 | ✅ | ✅ | ✅ |
-| 平台签名验证 | ✅ 微软 | ❌（需 xattr 处理，见常见问题） | ❌ |
-| 自动更新 | **✅** | **❌** | **❌** |
-| 安装成本 | 一键 | 拖一下 | 装工具链 + 一次编译 |
+| | 免费版 | Pro |
+| --- | --- | --- |
+| 价格 | **¥0** | **¥48 / $9.99**（App Store 内购）—— 或直营店 **¥36 / $8.60** |
+| 转录与翻译 | ✅ | ✅ |
+| 导出 SRT、VTT、TXT、MD、JSON | ✅ | ✅ |
+| 说话人分离与词级时间戳 | ✅ | ✅ |
+| 队列中同时处理的文件数 | **一个** | **不限** |
+| 整个素材库并行批量 | — | ✅ |
+| 订阅 / 按分钟计费 | 永不 | 永不 |
 
-**¥48 买到什么。** 微软的签名、一键安装，以及不用你操心的自动更新。买的不是功能——
-上面列的每一项功能，免费的源码版里都有。
+### 在哪儿获取
 
-**不付钱也完全可行。** MonoSub 源码以源码可见许可公开（见下文）。克隆下来自己编译，
-得到的是完全相同的程序：没有授权码、没有账号、没有功能阉割、没有埋点。商店版卖的是省事。
+| 平台 | 下载 | 价格 / Pro 怎么算 |
+| --- | --- | --- |
+| **macOS · App Store** | 免费 | Pro 内购 **¥48 / $9.99** · 中国区备案中 |
+| **macOS / Windows · 直营店** | 免费构建 | Pro 离线授权 **¥36 / $8.60**——不绑设备，两平台通用 |
+| **Windows · 微软商店** | 免费 | Pro 内购 **¥48 / $9.99** |
+| **任意平台 · 源码构建** | 免费 | — |
+
+价格以美元标示；App Store 与微软商店会按你所在地区结算。
+
+**Pro 到底解锁了什么。** 只有一件事：单文件限制。所有能力——说话人分离、词级时间戳、翻译、全部导出格式——免费版都有。Pro 是给「处理一整个文件夹」的人，而不是「处理一个文件」的人。
+
+**自行编译始终免费。** MonoSub 源码以源码可见许可公开（见下文）。克隆下来自己构建，得到的是完全相同的程序：没有授权码、没有账号、没有功能门禁、没有埋点。
 
 ---
 
@@ -144,7 +164,7 @@ monosub-cli *.mp4 --json
 
 ### macOS 提示 "MonoSub 已损坏，无法打开"
 
-这是 Apple 的 Gatekeeper 过度保护。在终端运行：
+这只影响 **GitHub Releases** 的直装版（ad-hoc 签名）。Mac App Store 版由 Apple 签名与公证，可正常打开。若用的是 Releases 版，在终端运行：
 
 ```bash
 xattr -cr /Applications/MonoSub.app
@@ -152,9 +172,21 @@ xattr -cr /Applications/MonoSub.app
 
 然后重新打开应用。
 
+### MonoSub 真的免费吗？
+
+是。完整引擎免费下载、一次一个文件免费用——转录、翻译、说话人分离和全部导出格式都包含。Pro 是一次性购买，只解除单文件限制。
+
+### Pro 多少钱，是订阅吗？
+
+不是订阅。Pro 是一次性购买：Mac App Store 内购 **¥48 / $9.99**，或直营店 [checkout.leix.dev](https://checkout.leix.dev/p/monosub-pro) 的离线授权 **¥36 / $8.60**。Windows 微软商店版同样是免费下载，Pro 为一次性 **¥48 / $9.99** 内购。自行编译在任何平台都免费。
+
+### Mac App Store 版在中国能下载吗？
+
+macOS 版已在美国及多数地区上架，**中国大陆区仍在备案中**。在此之前，直营店 [checkout.leix.dev](https://checkout.leix.dev/p/monosub-pro) 的离线授权在中国可用，Windows 版在微软商店。
+
 ### 需要联网才能使用吗？
 
-**不需要。** 初次下载和设置后，MonoSub 完全离线工作。
+**转录不需要。** 初次使用时，在「设置 → 模型」下载语音模型（约 250 MB，只需一次）。之后 MonoSub 完全离线工作。
 
 ### 支持哪些文件格式？
 
@@ -166,27 +198,20 @@ xattr -cr /Applications/MonoSub.app
 
 目前支持中文（普通话）、英文，更多语言正在添加中。AI 会自动检测语言。
 
-### 多少钱？
-
-Windows 版通过微软商店 **¥48 / $9.99 一次买断**——没有订阅、没有内购。macOS 版见
-[Releases](https://github.com/leixlabs/monosub/releases/latest)。两个平台都可以自行编译，不花钱。
-
 ### 有退款政策吗？
 
-微软商店的购买由微软按其[退款政策](https://support.microsoft.com/help/2884681)处理——
-MonoSub 不经手付款，退款请向商店申请。
+退款按购买渠道处理：Mac App Store 由 Apple、微软商店由微软分别按其自身政策处理；直营店授权请在你的订单页联系支持：[checkout.leix.dev](https://checkout.leix.dev/p/monosub-pro)。
 
-### 付费版功能更多吗？
+### Pro 功能更多吗？
 
-没有。同一个引擎、同一批模型、同样的功能、同样的输出格式。商店版多出来的是微软的签名、
-一键安装与自动更新。
+没有。同一个引擎、同一批模型、同样的功能、同样的输出格式。Pro 只解除单文件队列限制，让你能批量处理。Windows 与 macOS 完全一样：免费一次一个文件，Pro 用于批量。
 
 ---
 
 <div align="center">
 
-为那些只想把视频转成文本的人而做。
+为那些只想把视频转成文本、又不想上传的人而做。
 
-[**Windows 版 · 微软商店**](https://apps.microsoft.com/detail/9P6WTCCRQTVW) · [macOS 版 · 下载](https://github.com/leixlabs/monosub/releases/latest)
+[**下载 Mac 版**](https://apps.apple.com/us/app/monosub/id6829689694) · [**获取 Windows 版**](https://apps.microsoft.com/detail/9P6WTCCRQTVW) · [**直营店购买 Pro**](https://checkout.leix.dev/p/monosub-pro)
 
 </div>
