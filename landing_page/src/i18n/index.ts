@@ -40,14 +40,6 @@ export interface FeatureItem {
   desc: string;
 }
 
-export interface ShowcaseTour {
-  id: 'main' | 'process' | 'settings';
-  label: string;
-  desc: string;
-  /** Captions aligned, index for index, with the shot names in Showcase.tsx. */
-  shots: string[];
-}
-
 export interface Plan {
   id: 'free' | 'pro';
   name: string;
@@ -124,12 +116,6 @@ export interface Translation {
     note: string;
   };
 
-  showcase: {
-    eyebrow: string;
-    title: string;
-    subtitle: string;
-    tours: ShowcaseTour[];
-  };
 
   features: {
     eyebrow: string;

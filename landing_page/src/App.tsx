@@ -6,7 +6,6 @@ import { Hero } from './components/Hero';
 import { Answer } from './components/Answer';
 import { WhyLocal } from './components/WhyLocal';
 import { HowItWorks } from './components/HowItWorks';
-import { Showcase } from './components/Showcase';
 import { Features } from './components/Features';
 import { Pricing } from './components/Pricing';
 import { FAQ } from './components/FAQ';
@@ -80,7 +79,6 @@ function App() {
           <Answer />
           <WhyLocal />
           <HowItWorks />
-          <Showcase />
           <Features />
           <Pricing />
           <FAQ />

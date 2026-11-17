@@ -83,34 +83,9 @@ const zhCN: Translation = {
     note: '首次运行会从「设置 → 模型」下载一个你选定的语音模型（约 250 MB）。之后转录完全离线。',
   },
 
-  showcase: {
-    eyebrow: '03 — 看界面',
-    title: '直接看真实的界面。',
-    subtitle: '下面每一张都是 MonoSub 的真实截图，不是效果图。',
-    tours: [
-      {
-        id: 'main',
-        label: '主界面',
-        desc: '拖入文件，或粘贴一条链接。你看到的一切都在本机运行——不上传、不需要账号、没有订阅。',
-        shots: ['浅色', '深色'],
-      },
-      {
-        id: 'process',
-        label: '处理队列',
-        desc: '拖入一整个文件夹。每一行都有自己的说话人分离与翻译开关；Pro 让队列并行处理。',
-        shots: ['浅色', '深色'],
-      },
-      {
-        id: 'settings',
-        label: '设置',
-        desc: '文件与格式、模型、翻译、链接导入都在一处。只下载你真正需要的语音与翻译模型。',
-        shots: ['浅色', '深色'],
-      },
-    ],
-  },
 
   features: {
-    eyebrow: '04 — 能做什么',
+    eyebrow: '03 — 能做什么',
     title: '能力，没有小字条件。',
     subtitle: '下面每一项功能都在免费下载里。Pro 只改变你一次能处理几个文件。',
     items: [
@@ -150,7 +125,7 @@ const zhCN: Translation = {
   },
 
   pricing: {
-    eyebrow: '05 — 价格',
+    eyebrow: '04 — 价格',
     title: '下载免费，只有批量时才需要 Pro。',
     subtitle: '没有订阅、没有按分钟计费、不需要账号。需要同时处理多个文件时，一次性购买 Pro。',
     plans: [

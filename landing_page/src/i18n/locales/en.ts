@@ -84,34 +84,9 @@ const en: Translation = {
     note: 'The first run downloads a speech model of your choice (~250 MB) from Settings → Models. After that, transcription is fully offline.',
   },
 
-  showcase: {
-    eyebrow: '03 — The app',
-    title: 'Look at the actual app.',
-    subtitle: 'Every image below is a real screenshot of MonoSub, not a mock-up.',
-    tours: [
-      {
-        id: 'main',
-        label: 'The window',
-        desc: 'Drag in a file or paste a link. Everything you see runs locally — no upload, no account, no subscription.',
-        shots: ['Light theme', 'Dark theme'],
-      },
-      {
-        id: 'process',
-        label: 'Processing',
-        desc: 'Drop in a folder. Each row carries its own speaker-separation and translation switches; with Pro the queue runs your files in parallel.',
-        shots: ['Light theme', 'Dark theme'],
-      },
-      {
-        id: 'settings',
-        label: 'Settings',
-        desc: 'Files & format, models, translation and URL import live in one place. Download only the speech and translation models you actually use.',
-        shots: ['Light theme', 'Dark theme'],
-      },
-    ],
-  },
 
   features: {
-    eyebrow: '04 — What it does',
+    eyebrow: '03 — What it does',
     title: 'Capability without the asterisks.',
     subtitle:
       'Every feature below is in the free download. Pro only changes how many files you can run at once.',
@@ -152,7 +127,7 @@ const en: Translation = {
   },
 
   pricing: {
-    eyebrow: '05 — Pricing',
+    eyebrow: '04 — Pricing',
     title: 'Free to download. Pro only when you batch.',
     subtitle:
       'No subscription, no per-minute meter, no account. Pay once for Pro if you need to run more than one file at a time.',
