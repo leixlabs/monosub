@@ -1,10 +1,15 @@
 import { useLanguage } from '../hooks/useLanguage';
-import { APP_STORE_URL } from '../lib/links';
+import { downloadUrlFor } from '../lib/links';
+import { usePlatform } from '../hooks/usePlatform';
 import { shot, shotSize, heroShot } from '../lib/screenshots';
 import { highPriorityImage } from '../lib/imagePriority';
 
 export const Hero = () => {
   const { t, lang } = useLanguage();
+  const platform = usePlatform();
+  const downloadUrl = downloadUrlFor(platform);
+  const ctaLabel =
+    platform === 'windows' ? t.cta.windows : platform === 'mac' ? t.cta.mac : t.cta.generic;
   const name = heroShot(lang);
   const size = shotSize(name);
 
@@ -23,12 +28,12 @@ export const Hero = () => {
 
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <a
-                href={APP_STORE_URL}
+                href={downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-primary btn--lg"
               >
-                {t.hero.cta_primary}
+                {ctaLabel}
               </a>
               <a href="#pricing" className="btn btn-secondary btn--lg">
                 {t.hero.cta_secondary}

@@ -29,6 +29,13 @@ export const shotSize = (name: ShotName): { width: number; height: number } => (
   height: SHOTS[name].height,
 });
 
-/** Hero screenshot matched to the page locale (light theme). */
+/**
+ * Hero screenshot matched to the page locale (light theme).
+ *
+ * The captures are of the macOS window, so a Windows visitor would be shown
+ * traffic-light buttons they will never see. There is no Windows capture yet, so
+ * `platform` is accepted for that case and currently ignored — the honest fix is
+ * a Windows capture, not a cropped Mac one.
+ */
 export const heroShot = (lang: string): ShotName =>
   lang.startsWith('zh') ? 'main-zh-light' : 'main-en-light';

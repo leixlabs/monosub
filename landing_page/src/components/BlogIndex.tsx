@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link, useParams } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
+import { usePlatform } from '../hooks/usePlatform';
 import { Navbar } from './Navbar';
 import { Footer } from './Footer';
 import { POSTS } from '../content/blog';
@@ -17,7 +18,7 @@ import { blogIndexUrl, blogPostPath } from '../lib/seo';
 import { absoluteUrl } from '../lib/site';
 import { formatDate, readingMinutes } from '../lib/blogMeta';
 import { highPriorityImage, lowPriorityImage } from '../lib/imagePriority';
-import { APP_STORE_URL } from '../lib/links';
+import { downloadUrlFor } from '../lib/links';
 
 /**
  * The index follows the shape a reader actually arrives with: a statement of what
@@ -159,6 +160,9 @@ export const BlogIndex = () => {
   const locale: Locale = lang === 'zh' ? 'zh' : 'en';
   const ui = BLOG_UI[locale];
   const { t } = useLanguage();
+  const platform = usePlatform();
+  const ctaLabel =
+    platform === 'windows' ? t.cta.windows : platform === 'mac' ? t.cta.mac : t.cta.generic;
 
   /**
    * The filter is component state, not a route: it is a view of one list, and a
@@ -298,12 +302,12 @@ export const BlogIndex = () => {
                 <h2 className="mb-2 text-2xl">{ui.ctaTitle}</h2>
                 <p className="muted mb-6 max-w-xl text-sm leading-relaxed">{ui.ctaBody}</p>
                 <a
-                  href={APP_STORE_URL}
+                  href={downloadUrlFor(platform)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="btn btn-primary"
                 >
-                  {t.nav.cta_primary}
+                  {ctaLabel}
                 </a>
               </section>
             </div>

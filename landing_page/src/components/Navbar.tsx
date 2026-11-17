@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
 import { LanguageSwitcher } from './LanguageSwitcher';
-import { APP_STORE_URL } from '../lib/links';
+import { downloadUrlFor } from '../lib/links';
+import { usePlatform } from '../hooks/usePlatform';
 import { BLOG_PATH, pagePath } from '../lib/seo';
 
 /**
@@ -12,6 +13,10 @@ import { BLOG_PATH, pagePath } from '../lib/seo';
  */
 export const Navbar = () => {
   const { t, lang } = useLanguage();
+  const platform = usePlatform();
+  const downloadUrl = downloadUrlFor(platform);
+  const ctaLabel =
+    platform === 'windows' ? t.cta.windows : platform === 'mac' ? t.cta.mac : t.cta.generic;
   const { pathname } = useLocation();
   const [scrolled, setScrolled] = useState(false);
 
@@ -72,24 +77,24 @@ export const Navbar = () => {
         <div className="hidden lg:flex items-center gap-3">
           <LanguageSwitcher />
           <a
-            href={APP_STORE_URL}
+            href={downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-primary text-sm"
           >
-            {t.nav.cta_primary}
+            {ctaLabel}
           </a>
         </div>
 
         {/* Narrow */}
         <div className="lg:hidden flex items-center gap-2">
           <a
-            href={APP_STORE_URL}
+            href={downloadUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="btn btn-primary text-sm min-h-[2.4rem] px-3 py-2"
           >
-            {t.nav.cta_primary}
+            {ctaLabel}
           </a>
           <button
             type="button"
@@ -123,12 +128,12 @@ export const Navbar = () => {
                 <LanguageSwitcher />
               </div>
               <a
-                href={APP_STORE_URL}
+                href={downloadUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn btn-primary btn-block"
               >
-                {t.nav.cta_primary}
+                {ctaLabel}
               </a>
             </div>
           </nav>

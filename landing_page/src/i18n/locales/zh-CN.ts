@@ -3,6 +3,12 @@ import type { Translation } from '../index';
 const zhCN: Translation = {
   lang_name: '中文（简体）',
 
+  cta: {
+    mac: '免费下载（Mac）',
+    windows: '前往微软商店',
+    generic: '免费下载',
+  },
+
   page_title: 'MonoSub — 本地 AI 字幕生成 · 视频转字幕不上传 · Mac 与 Windows',
   page_description:
     '在自己的 Mac 或 PC 上把视频和音频转成字幕：不上传、不需要账号、没有订阅。免费下载，批量转写用一次性 Pro 解锁。',
@@ -14,7 +20,6 @@ const zhCN: Translation = {
     pricing: '价格',
     faq: '问题',
     blog: '博客',
-    cta_primary: '免费下载',
     cta_secondary: '获取 Pro',
   },
 
@@ -24,7 +29,6 @@ const zhCN: Translation = {
     title_accent: '不上传，就在本机。',
     subtitle:
       'MonoSub 的语音识别与翻译完全在你的 Mac 或 PC 上运行。素材从不上传——不需要账号，没有订阅，也没有按分钟计费。',
-    cta_primary: '免费下载（Mac）',
     cta_secondary: '查看所有下载方式',
     note: '免费开始使用；批量转写用一次性 Pro 授权解锁。',
     trust: ['100% 本机运行', '免费下载', '一次性 Pro，永不订阅'],
@@ -237,7 +241,6 @@ const zhCN: Translation = {
   final: {
     title: '视频本来就在你电脑上，文本也留在那儿。',
     subtitle: '免费下载，几分钟就能转出第一份字幕。需要批量时再解锁 Pro。',
-    cta_primary: '免费下载（Mac）',
     cta_secondary: '购买 Pro · ¥36 / $8.60',
     trust: ['免费下载', '无需账号', '一次性 Pro'],
   },

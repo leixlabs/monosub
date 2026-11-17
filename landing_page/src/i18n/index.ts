@@ -75,8 +75,17 @@ export interface Translation {
     pricing: string;
     faq: string;
     blog: string;
-    cta_primary: string;
     cta_secondary: string;
+  };
+
+  /** Primary CTA labels, resolved by the visitor's platform. */
+  cta: {
+    /** macOS (and the fallback for an unidentified platform). */
+    mac: string;
+    /** Windows. */
+    windows: string;
+    /** Shown while the platform is still unknown (server HTML + first paint). */
+    generic: string;
   };
 
   hero: {
@@ -84,7 +93,6 @@ export interface Translation {
     title: string;
     title_accent: string;
     subtitle: string;
-    cta_primary: string;
     cta_secondary: string;
     note: string;
     trust: string[];
@@ -147,7 +155,6 @@ export interface Translation {
   final: {
     title: string;
     subtitle: string;
-    cta_primary: string;
     cta_secondary: string;
     trust: string[];
   };

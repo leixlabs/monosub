@@ -1,8 +1,13 @@
 import { useLanguage } from '../hooks/useLanguage';
-import { APP_STORE_URL, CHECKOUT_URL } from '../lib/links';
+import { CHECKOUT_URL, downloadUrlFor } from '../lib/links';
+import { usePlatform } from '../hooks/usePlatform';
 
 export const FinalCTA = () => {
   const { t } = useLanguage();
+  const platform = usePlatform();
+  const downloadUrl = downloadUrlFor(platform);
+  const ctaLabel =
+    platform === 'windows' ? t.cta.windows : platform === 'mac' ? t.cta.mac : t.cta.generic;
 
   return (
     <section id="cta" className="ink-band" aria-labelledby="cta-title">
@@ -16,12 +21,12 @@ export const FinalCTA = () => {
           </p>
           <div className="mt-8 flex flex-wrap items-center gap-3">
             <a
-              href={APP_STORE_URL}
+              href={downloadUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-primary btn--lg"
             >
-              {t.final.cta_primary}
+              {ctaLabel}
             </a>
             <a
               href={CHECKOUT_URL}

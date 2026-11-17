@@ -1,7 +1,9 @@
 import { useLanguage } from '../hooks/useLanguage';
+import { usePlatform } from '../hooks/usePlatform';
 import {
   APP_STORE_URL,
   CHECKOUT_URL,
+  downloadUrlFor,
   MS_STORE_URL,
   REPO_URL,
 } from '../lib/links';
@@ -16,6 +18,7 @@ const CHANNEL_HREF: Record<ChannelId, string> = {
 
 export const Pricing = () => {
   const { t } = useLanguage();
+  const platform = usePlatform();
   const plans = t.pricing.plans;
 
   return (
@@ -60,7 +63,7 @@ export const Pricing = () => {
                 </ul>
 
                 <a
-                  href={featured ? CHECKOUT_URL : APP_STORE_URL}
+                  href={featured ? CHECKOUT_URL : downloadUrlFor(platform)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={`btn btn-block ${featured ? 'btn-primary' : 'btn-secondary'}`}

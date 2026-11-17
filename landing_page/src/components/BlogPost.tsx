@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link, useParams } from 'react-router-dom';
 import { useLanguage } from '../hooks/useLanguage';
+import { usePlatform } from '../hooks/usePlatform';
 import { Navbar } from './Navbar';
 import { Footer } from './Footer';
 import {
@@ -14,7 +15,7 @@ import {
 import { POSTS } from '../content/blog';
 import { absoluteUrl } from '../lib/site';
 import { blogIndexUrl, blogPostPath, blogPostUrl } from '../lib/seo';
-import { APP_STORE_URL, CHECKOUT_URL } from '../lib/links';
+import { CHECKOUT_URL, downloadUrlFor } from '../lib/links';
 import { formatDate, readingMinutes } from '../lib/blogMeta';
 import { highPriorityImage } from '../lib/imagePriority';
 
@@ -130,6 +131,9 @@ const RelatedCard = ({ post, locale }: { post: Post; locale: Locale }) => {
 export const BlogPost = () => {
   const { lang = 'en', slug = '' } = useParams<{ lang: Locale; slug: string }>();
   const { t } = useLanguage();
+  const platform = usePlatform();
+  const ctaLabel =
+    platform === 'windows' ? t.cta.windows : platform === 'mac' ? t.cta.mac : t.cta.generic;
   const post = POSTS.find((candidate) => candidate.slug === slug);
   const locale: Locale = lang === 'zh' ? 'zh' : 'en';
   const ui = BLOG_UI[locale];
@@ -289,12 +293,12 @@ export const BlogPost = () => {
                 <p className="mb-5 text-sm leading-relaxed text-ink-6">{ui.ctaBody}</p>
                 <div className="flex flex-wrap gap-3">
                   <a
-                    href={APP_STORE_URL}
+                    href={downloadUrlFor(platform)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn btn-primary"
                   >
-                    {t.nav.cta_primary}
+                    {ctaLabel}
                   </a>
                   <a
                     href={CHECKOUT_URL}

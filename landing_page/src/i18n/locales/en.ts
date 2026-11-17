@@ -3,6 +3,12 @@ import type { Translation } from '../index';
 const en: Translation = {
   lang_name: 'English',
 
+  cta: {
+    mac: 'Download free for Mac',
+    windows: 'Get it on Microsoft Store',
+    generic: 'Download free',
+  },
+
   page_title: 'MonoSub — Local AI Subtitle Generator for Mac & Windows',
   page_description:
     'Turn video and audio into subtitles on your own Mac or PC. No cloud, no account, no subscription — download free, unlock unlimited batch once with Pro.',
@@ -14,7 +20,6 @@ const en: Translation = {
     pricing: 'Pricing',
     faq: 'Questions',
     blog: 'Blog',
-    cta_primary: 'Download free',
     cta_secondary: 'Get Pro',
   },
 
@@ -24,7 +29,6 @@ const en: Translation = {
     title_accent: 'On your machine, not the cloud.',
     subtitle:
       'MonoSub runs speech recognition and translation entirely on your Mac or PC. Your recordings are never uploaded — no account, no subscription, no per-minute meter.',
-    cta_primary: 'Download free for Mac',
     cta_secondary: 'All download options',
     note: 'Free to start. Unlimited batch unlocks with a one-time Pro license.',
     trust: ['100% on-device', 'Free to download', 'One-time Pro — never a subscription'],
@@ -245,7 +249,6 @@ const en: Translation = {
   final: {
     title: 'Your videos are already on your machine. Keep the text there too.',
     subtitle: 'Download free and transcribe your first file in minutes. Unlock Pro only if you batch.',
-    cta_primary: 'Download free for Mac',
     cta_secondary: 'Buy Pro — ¥36 / $8.60',
     trust: ['Free download', 'No account', 'One-time Pro'],
   },

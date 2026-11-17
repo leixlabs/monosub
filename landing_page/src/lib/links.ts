@@ -30,3 +30,18 @@ export const REPO_URL = 'https://github.com/leixlabs/monosub';
  * every channel for people on Windows or who want the direct license.
  */
 export const PRIMARY_DOWNLOAD_URL = APP_STORE_URL;
+
+/**
+ * The primary download destination for a platform.
+ *
+ * - `windows` → Microsoft Store (the only Windows channel).
+ * - `mac`     → Mac App Store (free download + Pro in-app purchase).
+ * - `unknown` → the in-page pricing table, which lists every channel. Sending a
+ *   Linux or unidentified visitor straight to the Mac App Store would be a lie
+ *   about what they can install, and there is no Linux build to offer instead.
+ */
+export const downloadUrlFor = (platform: 'mac' | 'windows' | 'unknown'): string => {
+  if (platform === 'windows') return MS_STORE_URL;
+  if (platform === 'mac') return APP_STORE_URL;
+  return '#pricing';
+};
