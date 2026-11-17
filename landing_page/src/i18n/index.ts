@@ -41,7 +41,7 @@ export interface FeatureItem {
 }
 
 export interface ShowcaseTour {
-  id: 'queue' | 'translate' | 'speakers' | 'url';
+  id: 'main' | 'process' | 'settings';
   label: string;
   desc: string;
   /** Captions aligned, index for index, with the shot names in Showcase.tsx. */

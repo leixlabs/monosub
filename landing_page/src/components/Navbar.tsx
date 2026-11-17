@@ -118,6 +118,10 @@ export const Navbar = () => {
               </li>
             </ul>
             <div className="mobile-nav__foot">
+              <div className="flex items-center justify-between gap-3 px-1 pb-2">
+                <span className="text-xs text-ink-6">{t.lang_name}</span>
+                <LanguageSwitcher />
+              </div>
               <a
                 href={APP_STORE_URL}
                 target="_blank"

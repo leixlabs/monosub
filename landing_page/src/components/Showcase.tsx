@@ -2,23 +2,22 @@ import { useRef, useState } from 'react';
 import { useLanguage } from '../hooks/useLanguage';
 import { shot, shotSize, type ShotName } from '../lib/screenshots';
 
-/** Shot names per tour, index-aligned with the captions in `t.showcase.tours`. */
+/** Image pair per tour, index-aligned with the captions in `t.showcase.tours`. */
 const TOUR_SHOTS: Record<string, ShotName[]> = {
-  queue: ['queue', 'batchRunning', 'rowStates'],
-  translate: ['translated', 'translationSettings'],
-  speakers: ['models', 'modelCatalogue'],
-  url: ['urlImportRows', 'urlDialog', 'clipboardPill'],
+  main: ['main-light', 'main-dark'],
+  process: ['working-light', 'working-dark'],
+  settings: ['setting-light', 'setting-dark'],
 };
 
 export const Showcase = () => {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const [tab, setTab] = useState(0);
   const [shotIndex, setShotIndex] = useState(0);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const tours = t.showcase.tours;
   const tour = tours[tab];
-  const names = TOUR_SHOTS[tour.id];
+  const names = TOUR_SHOTS[tour.id] ?? [];
   const activeIndex = Math.min(shotIndex, names.length - 1);
   const activeName = names[activeIndex];
   const activeSize = shotSize(activeName);
@@ -92,7 +91,7 @@ export const Showcase = () => {
             <div className="shot-frame">
               <img
                 key={activeName}
-                src={shot(activeName, lang)}
+                src={shot(activeName)}
                 alt={tour.shots[activeIndex]}
                 width={activeSize.width}
                 height={activeSize.height}
@@ -107,7 +106,7 @@ export const Showcase = () => {
             <h3 className="font-display text-xl">{tour.label}</h3>
             <p className="mt-3 text-ink-7 leading-relaxed">{tour.desc}</p>
 
-            {tour.shots.length > 1 && (
+            {names.length > 1 && (
               <div className="mt-6 grid grid-cols-2 gap-3">
                 {names.map((name, idx) => (
                   <button
@@ -121,7 +120,7 @@ export const Showcase = () => {
                     }`}
                   >
                     <img
-                      src={shot(name, lang)}
+                      src={shot(name)}
                       alt={tour.shots[idx]}
                       width={shotSize(name).width}
                       height={shotSize(name).height}

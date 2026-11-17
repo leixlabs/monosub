@@ -28,7 +28,7 @@ const en: Translation = {
     cta_secondary: 'All download options',
     note: 'Free to start. Unlimited batch unlocks with a one-time Pro license.',
     trust: ['100% on-device', 'Free to download', 'One-time Pro — never a subscription'],
-    shot_caption: 'The queue, with per-file speaker and translation switches.',
+    shot_caption: 'The main window — drag in files or paste a link.',
   },
 
   answer: {
@@ -90,42 +90,22 @@ const en: Translation = {
     subtitle: 'Every image below is a real screenshot of MonoSub, not a mock-up.',
     tours: [
       {
-        id: 'queue',
-        label: 'Queue & batch',
-        desc: 'Drop in as many files as you like. Each row carries its own speaker-separation and translation switches, the queue runs them up to your concurrency limit, and every step reports its own progress.',
-        shots: [
-          'The queue, with per-file switches',
-          'A batch in flight',
-          'Skipped, waiting, translated and partly untranslated rows',
-        ],
+        id: 'main',
+        label: 'The window',
+        desc: 'Drag in a file or paste a link. Everything you see runs locally — no upload, no account, no subscription.',
+        shots: ['Light theme', 'Dark theme'],
       },
       {
-        id: 'translate',
-        label: 'Translation',
-        desc: 'A local translation model rewrites the finished subtitles into a second language. It writes a separate file next to the original — the recognised subtitles are never touched, so a failed translation cannot lose your work.',
-        shots: [
-          'A translated subtitle written alongside the original',
-          'Translation settings and model downloads',
-        ],
+        id: 'process',
+        label: 'Processing',
+        desc: 'Drop in a folder. Each row carries its own speaker-separation and translation switches; with Pro the queue runs your files in parallel.',
+        shots: ['Light theme', 'Dark theme'],
       },
       {
-        id: 'speakers',
-        label: 'Speakers & models',
-        desc: 'Speaker separation labels who said what, cue by cue. The model picker answers four questions instead of making you choose a checkpoint: language scenario, speaker separation, word-level timing and memory budget.',
-        shots: [
-          'Model selection and the live plan preview',
-          'The model catalogue — install and remove on demand',
-        ],
-      },
-      {
-        id: 'url',
-        label: 'Import from a link',
-        desc: 'Paste a supported video link and MonoSub takes the platform subtitle if there is one. If not, it downloads the audio and transcribes it locally — the same pipeline as a file you dragged in.',
-        shots: [
-          'URL imports: downloading, fetched, needs a login, failed',
-          'The import-from-a-link panel',
-          'One-click import when a link is on the clipboard',
-        ],
+        id: 'settings',
+        label: 'Settings',
+        desc: 'Files & format, models, translation and URL import live in one place. Download only the speech and translation models you actually use.',
+        shots: ['Light theme', 'Dark theme'],
       },
     ],
   },

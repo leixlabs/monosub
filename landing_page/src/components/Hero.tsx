@@ -4,8 +4,8 @@ import { shot, shotSize } from '../lib/screenshots';
 import { highPriorityImage } from '../lib/imagePriority';
 
 export const Hero = () => {
-  const { t, lang } = useLanguage();
-  const size = shotSize('queue');
+  const { t } = useLanguage();
+  const size = shotSize('main-light');
 
   return (
     <section className="pt-14 pb-10 md:pt-20">
@@ -49,7 +49,7 @@ export const Hero = () => {
           <div className="lg:col-span-5">
             <div className="shot-frame">
               <img
-                src={shot('queue', lang)}
+                src={shot('main-light')}
                 alt={t.hero.shot_caption}
                 width={size.width}
                 height={size.height}
