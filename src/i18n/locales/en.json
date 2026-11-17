@@ -168,9 +168,7 @@
       "cliCopyFailed": "Could not copy the command"
     },
     "urlImport": {
-      "title": "URL Import",
-      "beta": "Beta",
-      "betaHint": "This feature is still in testing: supported sites, subtitles and sign-in behaviour may change."
+      "title": "URL Import"
     }
   },
   "models": {

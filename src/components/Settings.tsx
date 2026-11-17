@@ -33,7 +33,6 @@ import { ModelLicensePrompt } from '@/components/ModelLicensePrompt';
 import { getVersion } from '@tauri-apps/api/app';
 import { listen } from '@tauri-apps/api/event';
 import { SETTINGS_OPEN_CATEGORY_STORAGE_KEY } from '@/lib/license';
-import { cn } from '@/lib/utils';
 import { getLogDirectory, openLogsDirectory, reportFrontendError } from '@/lib/logging';
 import {
   cliInstallCommand,
@@ -44,7 +43,7 @@ import {
   type CliInfo,
 } from '@/lib/config';
 import { GlassButton } from '@/components/ui/glass-button';
-import { GlassBadge, glassBadgeVariants } from '@/components/ui/glass-badge';
+import { GlassBadge } from '@/components/ui/glass-badge';
 import { GlassSwitch } from '@/components/ui/glass-switch';
 import {
   MODEL_DOWNLOAD_COMPLETE_EVENT,
@@ -73,34 +72,10 @@ import { authorizeDir, modelsDirDeniedPath } from '@/lib/grants';
  * * `models`    — recognition plan + model management
  * * `translate` — local translation switch, target language, model
  * * `urlImport` — imported-subtitle directory, cookie source (browser or
- *   exported `cookies.txt`), prefer-local. Carries a Beta marker.
+ *   exported `cookies.txt`), prefer-local.
  * * `system`    — notifications + about/updates
  */
 type SettingsCategory = 'files' | 'models' | 'translate' | 'urlImport' | 'system';
-
-/**
- * "Beta" marker for a whole settings group. Deliberately quieter than a status
- * badge: it sits beside a label, so amber-on-transparent at the same text scale,
- * and the label itself comes from i18n (`settings.urlImport.beta`).
- *
- * Rendered as a `<span>` rather than `GlassBadge` because one of its two homes
- * is inside the category button, whose content must stay phrasing content.
- */
-function BetaBadge({ className }: { className?: string }) {
-  const { t } = useTranslation();
-  return (
-    <span
-      className={cn(
-        glassBadgeVariants({ variant: 'warning', size: 'sm' }),
-        'uppercase tracking-wide',
-        className,
-      )}
-      data-testid="settings-beta-badge"
-    >
-      {t('settings.urlImport.beta')}
-    </span>
-  );
-}
 
 /** How long the CLI card's copy button keeps its "copied" label. */
 const COPIED_RESET_MS = 2000;
@@ -778,7 +753,6 @@ export function Settings() {
                   >
                     <Icon className="w-4 h-4 shrink-0" />
                     <span className="font-medium truncate">{item.label}</span>
-                    {item.id === 'urlImport' && <BetaBadge className="ml-auto shrink-0" />}
                   </GlassButton>
                 );
               })}
@@ -799,13 +773,7 @@ export function Settings() {
                     }[activeCategory]
                   }
                 </h3>
-                {activeCategory === 'urlImport' && <BetaBadge />}
               </div>
-              {activeCategory === 'urlImport' && (
-                <p className="mt-1 text-xs text-text-tertiary dark:text-gray-500 leading-relaxed">
-                  {t('settings.urlImport.betaHint')}
-                </p>
-              )}
             </div>
 
             <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden px-8 py-6 bg-bg-secondary/60 dark:bg-zinc-900/50">

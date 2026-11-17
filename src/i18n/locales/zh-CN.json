@@ -168,9 +168,7 @@
       "cliCopyFailed": "复制命令失败"
     },
     "urlImport": {
-      "title": "链接导入",
-      "beta": "Beta",
-      "betaHint": "该功能仍在测试中：支持的站点、字幕与登录行为可能随时调整。"
+      "title": "链接导入"
     }
   },
   "notification": {

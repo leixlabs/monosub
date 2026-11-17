@@ -1761,6 +1761,71 @@ fn is_cache_fresh(cache_path: &Path, source_path: &Path) -> bool {
     cache_mtime >= source_mtime
 }
 
+/// Sibling temp path ffmpeg writes into before the atomic rename.
+///
+/// Same directory as `final_path` (so the rename stays on one filesystem and is
+/// therefore atomic), a `.wav` extension (ffmpeg picks its WAV muxer from the
+/// extension; a bare `.part` would fail with "unable to find a suitable output
+/// format"), a leading dot, and a UUID so a second extraction of the same media
+/// can never collide with, or mistake, a partial file for a finished cache.
+fn part_path_for(final_path: &Path) -> PathBuf {
+    let stem = final_path
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("audio");
+    let name = format!(".{}.{}.part.wav", stem, uuid::Uuid::new_v4());
+    match final_path.parent() {
+        Some(dir) => dir.join(name),
+        None => PathBuf::from(name),
+    }
+}
+
+/// Promote a fully written `.part` file to the real cache with one rename.
+///
+/// Atomic on every platform we ship: the part is in the cache's own directory
+/// (same filesystem), and Rust's `fs::rename` replaces an existing destination
+/// on Windows as well as Unix. `cache` is therefore either the previous valid
+/// file or the new complete one — never a partial write.
+fn finalize_extracted(part: &Path, cache: &Path) -> Result<(), EngineError> {
+    std::fs::rename(part, cache).map_err(|e| {
+        EngineError::Io(format!(
+            "could not move the extracted audio into place ({} -> {}): {}",
+            part.display(),
+            cache.display(),
+            e
+        ))
+    })
+}
+
+/// Removes a half-written `.part` file when the extraction is abandoned.
+///
+/// Cancelling a task aborts its future *while it awaits ffmpeg*, so the code
+/// after that await never runs. A `Drop` guard created before the await is the
+/// only thing that runs then; it points only at the `.part` file, never the real
+/// cache, so it cannot delete a good cache even if dropped late.
+struct PartGuard {
+    path: Option<PathBuf>,
+}
+
+impl PartGuard {
+    fn new(path: PathBuf) -> Self {
+        Self { path: Some(path) }
+    }
+
+    /// Stop owning the temp file once its rename has made the cache authoritative.
+    fn disarm(&mut self) {
+        self.path = None;
+    }
+}
+
+impl Drop for PartGuard {
+    fn drop(&mut self) {
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 async fn extract_wav(
     paths: &crate::paths::AppPaths,
     input: &Path,
@@ -1791,8 +1856,24 @@ async fn extract_wav(
     }
 
     let ffmpeg = crate::commands::video::get_ffmpeg_path(paths);
-    match run_ffmpeg(&ffmpeg, input, &cache, Some(AUDIO_FILTER_CHAIN), &mut *progress).await {
+
+    // ffmpeg writes into a sibling `.part` file, never straight onto `cache`.
+    // The cache is created only by an atomic rename of a fully written file, so
+    // an interrupted extraction (user cancel → task aborted → `kill_on_drop`
+    // kills ffmpeg mid-write) can never leave a half-written WAV where
+    // `is_cache_fresh` would later mistake it for a valid one. That failure is
+    // exactly what a killed ffmpeg leaves behind: `RIFF`/`data` sizes stuck at
+    // `0xFFFFFFFF` with a truncated body, which audiocpp_cli then rejects with
+    // `failed to read WAV data chunk`.
+    let part = part_path_for(&cache);
+    // Created before the await so a cancel (which drops this future) still
+    // removes the partial file. Disarmed once the rename makes `cache` canonical.
+    let mut guard = PartGuard::new(part.clone());
+
+    match run_ffmpeg(&ffmpeg, input, &part, Some(AUDIO_FILTER_CHAIN), &mut *progress).await {
         Ok(()) => {
+            finalize_extracted(&part, &cache)?;
+            guard.disarm();
             tracing::info!(
                 source = %input.display(),
                 wav = %cache.display(),
@@ -1808,8 +1889,11 @@ async fn extract_wav(
                 error = %filtered,
                 "filtered extraction failed; retrying without filters"
             );
-            let _ = std::fs::remove_file(&cache);
-            run_ffmpeg(&ffmpeg, input, &cache, None, &mut *progress).await?;
+            // Drop the partial filtered attempt before reusing the same path.
+            let _ = std::fs::remove_file(&part);
+            run_ffmpeg(&ffmpeg, input, &part, None, &mut *progress).await?;
+            finalize_extracted(&part, &cache)?;
+            guard.disarm();
         }
     }
 
@@ -3195,6 +3279,80 @@ mod tests {
         assert!(!is_cache_fresh(&dir.join("absent_audio.wav"), &source));
         assert!(!is_cache_fresh(&cache, &dir.join("absent.mov")));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn part_path_is_a_sibling_hidden_wav_that_never_collides() {
+        let final_path = Path::new("/media/clip_audio.wav");
+        let a = part_path_for(final_path);
+        let b = part_path_for(final_path);
+
+        assert_eq!(a.parent(), final_path.parent(), "part must sit beside the cache");
+        assert_eq!(
+            a.extension().and_then(|ext| ext.to_str()),
+            Some("wav"),
+            "ffmpeg needs a .wav extension to pick the WAV muxer"
+        );
+        assert_ne!(a, final_path, "part must differ from the cache");
+        assert_ne!(a, b, "each extraction gets a unique part path");
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        assert!(name.starts_with('.'), "part should be hidden: {name}");
+        assert!(name.contains(".part.wav"), "part should be recognisable: {name}");
+    }
+
+    #[test]
+    fn a_leftover_part_file_is_never_treated_as_the_cache() {
+        let dir = scratch_dir("part-not-cache");
+        let source = dir.join("clip.mov");
+        std::fs::write(&source, b"source").unwrap();
+        let cache = dir.join("clip_audio.wav");
+        // A partial write from an interrupted run: newer than the source, but
+        // not the cache path. It must not satisfy the freshness check.
+        let part = dir.join(".clip_audio.deadbeef.part.wav");
+        std::fs::write(&part, b"half").unwrap();
+        touch(&source, -100);
+        touch(&part, -50);
+
+        assert!(
+            !is_cache_fresh(&cache, &source),
+            "a .part file must never stand in for the cache"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn finalize_replaces_the_cache_and_part_guard_cleans_up() {
+        let dir = scratch_dir("finalize");
+        let cache = dir.join("clip_audio.wav");
+        std::fs::write(&cache, b"old").unwrap();
+
+        // A complete part replaces the previous cache in one rename.
+        let part = part_path_for(&cache);
+        std::fs::write(&part, b"new-complete").unwrap();
+        finalize_extracted(&part, &cache).expect("rename onto the cache");
+        assert_eq!(std::fs::read(&cache).unwrap(), b"new-complete");
+        assert!(!part.exists(), "the part file is consumed by the rename");
+
+        // An abandoned extraction drops the guard, which removes its part file.
+        let orphan = part_path_for(&cache);
+        std::fs::write(&orphan, b"partial").unwrap();
+        {
+            let _guard = PartGuard::new(orphan.clone());
+        }
+        assert!(!orphan.exists(), "dropping the guard removes the partial file");
+
+        // A disarmed guard leaves the file it no longer owns untouched.
+        let kept = part_path_for(&cache);
+        std::fs::write(&kept, b"keep").unwrap();
+        {
+            let mut guard = PartGuard::new(kept.clone());
+            guard.disarm();
+        }
+        assert!(kept.exists(), "a disarmed guard must not delete its temp file");
+
+        let _ = std::fs::remove_file(&kept);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
