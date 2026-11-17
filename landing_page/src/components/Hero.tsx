@@ -1,11 +1,12 @@
 import { useLanguage } from '../hooks/useLanguage';
 import { APP_STORE_URL } from '../lib/links';
-import { shot, shotSize } from '../lib/screenshots';
+import { shot, shotSize, heroShot } from '../lib/screenshots';
 import { highPriorityImage } from '../lib/imagePriority';
 
 export const Hero = () => {
-  const { t } = useLanguage();
-  const size = shotSize('main-light');
+  const { t, lang } = useLanguage();
+  const name = heroShot(lang);
+  const size = shotSize(name);
 
   return (
     <section className="pt-14 pb-10 md:pt-20">
@@ -49,7 +50,7 @@ export const Hero = () => {
           <div className="lg:col-span-5">
             <div className="shot-frame">
               <img
-                src={shot('main-light')}
+                src={shot(name)}
                 alt={t.hero.shot_caption}
                 width={size.width}
                 height={size.height}

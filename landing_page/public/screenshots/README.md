@@ -1,28 +1,26 @@
 # Landing-page screenshots
 
-Real captures of the MonoSub macOS app (App Store **2.1.0** build) — the current
-light/green UI, not the old dark/purple one. Six states, each in light and dark:
+Real captures of the current MonoSub macOS app (App Store **2.1.0** build) — the
+light/green UI, in **both UI languages** and both themes:
 
 | File | Shows |
 |---|---|
-| `main-light.webp` / `main-dark.webp` | The empty main window (drag-in / import-from-link) |
-| `working-light.webp` / `working-dark.webp` | A batch queue being processed |
-| `setting-light.webp` / `setting-dark.webp` | The Settings window (files & format) |
+| `main-en-light.webp` / `main-en-dark.webp` | English UI — empty main window |
+| `main-zh-light.webp` / `main-zh-dark.webp` | 中文界面 — 空主界面 |
+| `settings-en-light.webp` / `settings-en-dark.webp` | English UI — Settings |
+| `settings-zh-light.webp` / `settings-zh-dark.webp` | 中文界面 — 设置 |
 
-Source: the App Store Connect `APP_DESKTOP` screenshots for version 2.1.0
-(2560×1600), downloaded with `asc screenshots download`, then downscaled to
-1600×1000 WebP:
+Source: captured at 2560×1600 from the running app (window-size 1280×800 on a 2×
+display), then downscaled to 1600×1000 WebP (quality 84):
 
 ```bash
-asc screenshots download --version-localization <id> --output-dir shots/
 python3 - <<'PY'
 from PIL import Image
-Image.open('shots/main-light.png').convert('RGB').resize((1600,1000), Image.LANCZOS)\
-  .save('public/screenshots/main-light.webp','WEBP',quality=84,method=6)
+Image.open('raw.png').convert('RGB').resize((1600,1000), Image.LANCZOS)\
+  .save('public/screenshots/main-en-light.webp','WEBP',quality=84,method=6)
 PY
 ```
 
-A single set serves both locales: the App Store's Chinese listing was uploaded
-with the English-UI captures, and interface language is a user setting rather than
-a property of the product shot. `src/lib/screenshots.ts` owns the name list and
-each image's intrinsic size (passed to `<img>` to reserve layout, preventing CLS).
+The UI language follows the app's saved preference (`monosub-language` in the
+WebView localStorage); theme likewise (`monosub-theme`). The homepage loads the
+screenshot matching its own locale via `heroShot(lang)` in `src/lib/screenshots.ts`.
